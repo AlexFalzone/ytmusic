@@ -1,0 +1,146 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Config contains the program configuration
+type Config struct {
+	PlaylistURL    string `yaml:"playlist_url"`
+	Verbose        bool   `yaml:"verbose"`
+	DryRun         bool   `yaml:"dry_run"`
+	ParallelJobs   int    `yaml:"parallel_jobs"`
+	CookiesBrowser string `yaml:"cookies_browser"`
+	AudioFormat    string `yaml:"audio_format"`
+}
+
+// DefaultConfig returns the default configuration
+func DefaultConfig() Config {
+	return Config{
+		Verbose:        false,
+		DryRun:         false,
+		ParallelJobs:   4,
+		CookiesBrowser: "brave",
+		AudioFormat:    "mp3",
+	}
+}
+
+// LoadConfigFile loads configuration from a YAML file.
+// If path is empty, searches standard locations. Returns defaults if no file found.
+func LoadConfigFile(path string) (Config, error) {
+	cfg := DefaultConfig()
+
+	if path == "" {
+		path = FindConfigFile()
+		if path == "" {
+			return cfg, nil
+		}
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return cfg, nil
+		}
+		return cfg, fmt.Errorf("failed to read config file %s: %w", path, err)
+	}
+
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return cfg, fmt.Errorf("failed to parse config file %s: %w", path, err)
+	}
+
+	return cfg, nil
+}
+
+// FindConfigFile searches for a config file in standard locations
+func FindConfigFile() string {
+	locations := []string{
+		"./ytmusic.yaml",
+		"./ytmusic.yml",
+		filepath.Join(os.Getenv("HOME"), ".config", "ytmusic", "config.yaml"),
+		filepath.Join(os.Getenv("HOME"), ".config", "ytmusic", "config.yml"),
+		filepath.Join(os.Getenv("HOME"), ".ytmusic.yaml"),
+		filepath.Join(os.Getenv("HOME"), ".ytmusic.yml"),
+	}
+
+	for _, path := range locations {
+		if path == "" {
+			continue
+		}
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+
+	return ""
+}
+
+// SaveConfigFile saves the current configuration to a YAML file
+func SaveConfigFile(cfg Config, path string) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	return nil
+}
+
+// GetDefaultConfigPath returns the default config file path
+func GetDefaultConfigPath() string {
+	return filepath.Join(os.Getenv("HOME"), ".config", "ytmusic", "config.yaml")
+}
+
+// GetDefaultLogPath returns the default log directory path
+func GetDefaultLogPath() string {
+	return filepath.Join(os.Getenv("HOME"), ".local", "share", "ytmusic", "logs")
+}
+
+// Validate checks if the configuration is valid
+func (c *Config) Validate() error {
+	// DryRun mode doesn't require URL validation
+	if c.DryRun && c.PlaylistURL == "" {
+		return nil
+	}
+
+	if c.PlaylistURL == "" {
+		return fmt.Errorf("playlist URL cannot be empty")
+	}
+	if !strings.HasPrefix(c.PlaylistURL, "http://") && !strings.HasPrefix(c.PlaylistURL, "https://") {
+		return fmt.Errorf("playlist URL must start with http:// or https://")
+	}
+
+	if c.ParallelJobs < 1 {
+		return fmt.Errorf("parallel jobs must be at least 1, got %d", c.ParallelJobs)
+	}
+	if c.ParallelJobs > 10 {
+		return fmt.Errorf("parallel jobs cannot exceed 10 (to avoid rate limiting), got %d", c.ParallelJobs)
+	}
+
+	validFormats := []string{"mp3", "m4a", "opus", "flac", "wav", "aac"}
+	isValid := false
+	for _, format := range validFormats {
+		if c.AudioFormat == format {
+			isValid = true
+			break
+		}
+	}
+	if !isValid {
+		return fmt.Errorf("unsupported audio format '%s', valid formats: %v", c.AudioFormat, validFormats)
+	}
+
+	return nil
+}

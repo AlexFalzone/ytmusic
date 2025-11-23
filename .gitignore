@@ -1,0 +1,37 @@
+# Binaries
+ytmusic
+ytmusic-web
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go
+vendor/
+*.test
+*.out
+go.work
+
+# Config files (keep example only)
+*.yaml
+*.yml
+!config.example.yaml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary
+*.tmp
+*.log
+tmp/
+
+# Docker
+.dockerignore

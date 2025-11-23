@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ytmusic - YouTube Playlist Downloader</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>ytmusic</h1>
+
+        <div class="download-form">
+            <input type="text" id="url-input" placeholder="https://www.youtube.com/playlist?list=..." />
+            <button id="download-btn" onclick="startDownload()">Download</button>
+        </div>
+
+        <div id="error-message" class="error hidden"></div>
+
+        <div id="current-job" class="hidden">
+            <h2>Current Download</h2>
+            <div class="job-card">
+                <div class="job-header">
+                    <span id="job-url"></span>
+                    <span id="job-status" class="status"></span>
+                </div>
+                <div class="progress-bar">
+                    <div id="progress-fill" class="progress-fill"></div>
+                </div>
+                <div class="job-info">
+                    <span id="job-progress">0/0</span>
+                    <span id="job-time"></span>
+                </div>
+                <button id="cancel-btn" class="cancel-btn hidden" onclick="cancelJob()">Cancel</button>
+            </div>
+        </div>
+
+        <div id="job-history">
+            <h2>Job History</h2>
+            <div id="jobs-list" class="jobs-list"></div>
+        </div>
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+</html>

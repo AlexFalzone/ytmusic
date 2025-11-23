@@ -1,0 +1,26 @@
+# ytmusic configuration file
+# This file can be placed in one of these locations:
+#   - ./ytmusic.yaml (current directory)
+#   - ~/.config/ytmusic/config.yaml (XDG config directory)
+#   - ~/.ytmusic.yaml (home directory)
+#
+# Or specify a custom location with: ytmusic --config /path/to/config.yaml
+
+# Number of parallel downloads (1-10)
+# Higher values download faster but use more system resources
+# YouTube may rate-limit if too many parallel connections are made
+parallel_jobs: 4
+
+# Browser to extract cookies from
+# Supported: chrome, firefox, brave, edge, safari, opera, etc.
+# Cookies are needed to download age-restricted or private videos
+cookies_browser: brave
+
+# Audio format for output files
+# Supported: mp3, m4a, opus, flac, wav, aac
+# mp3 is the most compatible format
+audio_format: mp3
+
+# Enable verbose logging (true/false)
+# When true, shows detailed download progress and debug information
+verbose: false
