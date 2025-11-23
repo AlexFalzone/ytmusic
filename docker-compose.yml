@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # CLI tool for one-off downloads
+  ytmusic-cli:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: cli
+    image: ytmusic:cli
+    container_name: ytmusic-cli
+    volumes:
+      - ./config:/config
+      - ./music:/music
+      - ./logs:/logs
+      - ytmusic-cache:/root/.cache
+    environment:
+      - HOME=/root
+    profiles:
+      - cli
+    # Usage: docker-compose run --rm ytmusic-cli https://youtube.com/playlist?list=...
+
+  # Web interface for managing downloads
+  ytmusic-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+    image: ytmusic:web
+    container_name: ytmusic-web
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/config
+      - ./music:/music
+      - ./logs:/logs
+      - ytmusic-cache:/root/.cache
+    environment:
+      - HOME=/root
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/jobs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  ytmusic-cache:
+    driver: local

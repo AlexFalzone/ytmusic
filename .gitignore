@@ -12,13 +12,9 @@ vendor/
 *.out
 go.work
 
-# Config files (keep example only)
-*.yaml
-*.yml
-
 # IDE
 .vscode/
-.idea/
+# .idea/
 *.swp
 *.swo
 *~
