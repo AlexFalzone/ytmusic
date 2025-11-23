@@ -15,7 +15,6 @@ go.work
 # Config files (keep example only)
 *.yaml
 *.yml
-!config.example.yaml
 
 # IDE
 .vscode/
@@ -32,6 +31,3 @@ Thumbs.db
 *.tmp
 *.log
 tmp/
-
-# Docker
-.dockerignore
