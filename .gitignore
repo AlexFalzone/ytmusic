@@ -1,6 +1,6 @@
-# Binaries
-ytmusic
-ytmusic-web
+# Binaries (only in root directory)
+/ytmusic
+/ytmusic-web
 *.exe
 *.dll
 *.so
