@@ -114,7 +114,8 @@ func run(sh *shutdown.Handler, cfg config.Config, log *logger.Logger) error {
 	}
 
 	// Download all videos
-	if err := dl.DownloadAll(sh.Context(), urls); err != nil {
+	stats, err := dl.DownloadAll(sh.Context(), urls)
+	if err != nil {
 		if bar != nil {
 			bar.Finish()
 		}
@@ -124,6 +125,11 @@ func run(sh *shutdown.Handler, cfg config.Config, log *logger.Logger) error {
 	if bar != nil {
 		bar.Finish()
 		log.SetProgressBar(false)
+	}
+
+	// Report partial failures if any
+	if stats.Failed > 0 {
+		log.Warn("%d of %d videos failed to download (private, unavailable, or geo-restricted)", stats.Failed, stats.Total)
 	}
 
 	// Merge files

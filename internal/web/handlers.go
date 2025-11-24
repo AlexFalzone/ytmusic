@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -170,13 +171,21 @@ func (s *Server) processJob(job *Job) {
 		j.Total = len(urls)
 	})
 
-	if err := dl.DownloadAll(ctx, urls); err != nil {
+	stats, err := dl.DownloadAll(ctx, urls)
+	if err != nil {
 		s.logger.Error("Download failed: %v", err)
 		s.jobMgr.UpdateJob(job.ID, func(j *Job) {
 			j.Status = StatusFailed
 			j.Error = err.Error()
 		})
 		return
+	}
+
+	// Check for partial failures
+	var warningMsg string
+	if stats.Failed > 0 {
+		warningMsg = fmt.Sprintf("%d of %d videos failed to download (private, unavailable, or geo-restricted)", stats.Failed, stats.Total)
+		s.logger.Warn(warningMsg)
 	}
 
 	// Import to beets
@@ -190,12 +199,19 @@ func (s *Server) processJob(job *Job) {
 		return
 	}
 
-	// Mark as completed
+	// Mark as completed (with warning message if there were partial failures)
 	s.jobMgr.UpdateJob(job.ID, func(j *Job) {
 		j.Status = StatusCompleted
+		if warningMsg != "" {
+			j.Error = warningMsg
+		}
 	})
 
-	s.logger.Info("Job %s completed successfully", job.ID)
+	if warningMsg != "" {
+		s.logger.Info("Job %s completed with warnings: %s", job.ID, warningMsg)
+	} else {
+		s.logger.Info("Job %s completed successfully", job.ID)
+	}
 }
 
 func (s *Server) jobToResponse(job *Job) *JobResponse {

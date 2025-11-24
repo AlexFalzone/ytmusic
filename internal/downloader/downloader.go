@@ -148,10 +148,19 @@ func (d *Downloader) DownloadSingle(ctx context.Context, url string) error {
 	return err
 }
 
+// DownloadStats contains statistics about the download operation
+type DownloadStats struct {
+	Total      int
+	Successful int
+	Failed     int
+}
+
 // DownloadAll downloads all URLs in parallel using a worker pool
-func (d *Downloader) DownloadAll(ctx context.Context, urls []string) error {
+func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadStats, error) {
+	stats := DownloadStats{Total: len(urls)}
+
 	if len(urls) == 0 {
-		return fmt.Errorf("no URLs to download")
+		return stats, fmt.Errorf("no URLs to download")
 	}
 
 	d.Logger.Info("=== Starting download (%d videos, %d parallel) ===", len(urls), d.Config.ParallelJobs)
@@ -167,7 +176,9 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) error {
 		case <-ctx.Done():
 			d.Logger.Warn("Downloads cancelled, waiting for active downloads to finish...")
 			wg.Wait()
-			return fmt.Errorf("downloads cancelled")
+			stats.Failed = len(failed)
+			stats.Successful = stats.Total - stats.Failed
+			return stats, fmt.Errorf("downloads cancelled")
 		default:
 		}
 
@@ -198,15 +209,24 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) error {
 
 	wg.Wait()
 
+	// Calculate statistics
+	stats.Failed = len(failed)
+	stats.Successful = stats.Total - stats.Failed
+
 	if len(failed) > 0 {
 		d.Logger.Warn("⚠ %d videos not downloaded (private or unavailable)", len(failed))
 		if d.Config.Verbose {
 			d.Logger.Debug("Failed URLs: %v", failed)
 		}
+
+		// If ALL downloads failed, return an error
+		if len(failed) == len(urls) {
+			return stats, fmt.Errorf("all %d videos failed to download (private, unavailable, or geo-restricted)", len(urls))
+		}
 	}
 
-	d.Logger.Info("Download completed")
-	return nil
+	d.Logger.Info("Download completed: %d successful, %d failed", stats.Successful, stats.Failed)
+	return stats, nil
 }
 
 // MergeFiles collects all MP3s into a single flat directory for beets import
