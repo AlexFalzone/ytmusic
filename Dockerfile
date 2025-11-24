@@ -36,7 +36,9 @@ RUN pip install --no-cache-dir \
     beets \
     pyacoustid \
     requests \
-    pillow
+    pillow \
+    langdetect \
+    pylast
 
 # Create directories
 RUN mkdir -p /config /music /tmp/ytmusic /logs /root/.config/beets /root/.config/ytmusic
