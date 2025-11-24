@@ -116,11 +116,17 @@ func (d *Downloader) buildYtdlpArgs(url string) []string {
 		"--write-thumbnail",
 		"--embed-thumbnail",
 		"--embed-metadata",
-		"--cookies-from-browser", d.Config.CookiesBrowser,
 		"-i",
 		"-o", outputTemplate,
 		url,
 	}
+
+	// If empty yt-dlp will go to default (--no-cookies-from-browser)
+	if d.Config.CookiesBrowser != "" {
+		args = append(args, "--cookies-from-browser", d.Config.CookiesBrowser)
+	}
+
+	args = append(args, "-i", "-o", outputTemplate, url)
 
 	return args
 }
