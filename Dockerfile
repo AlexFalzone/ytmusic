@@ -15,22 +15,43 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build binaries
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o ytmusic ./cmd/ytmusic
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o ytmusic-web ./cmd/ytmusic-web
+# Build binaries with aggressive optimization
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -a -installsuffix cgo -o ytmusic ./cmd/ytmusic
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -a -installsuffix cgo -o ytmusic-web ./cmd/ytmusic-web
+
+# Strip binaries further
+RUN apk add --no-cache upx && \
+    upx --best --lzma ytmusic ytmusic-web
 
 # ==================================================
-# Base runtime - common setup for both variants
+# FFmpeg downloader - get static minimal build
+# ==================================================
+FROM alpine:3.19 AS ffmpeg-downloader
+
+RUN apk add --no-cache curl xz && \
+    curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz -o /tmp/ffmpeg.tar.xz && \
+    mkdir /ffmpeg && \
+    tar -xf /tmp/ffmpeg.tar.xz -C /ffmpeg --strip-components=1 && \
+    rm /tmp/ffmpeg.tar.xz
+
+# ==================================================
+# Base runtime - minimal Python image
 # ==================================================
 FROM python:3.11-slim AS base
 
-# Install system dependencies (common to both)
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    libchromaprint-tools \
-    && rm -rf /var/lib/apt/lists/*
+# Install only essential runtime dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libchromaprint1 \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
-# Install Python packages with all plugin dependencies
+# Copy ffmpeg static binary from downloader
+COPY --from=ffmpeg-downloader /ffmpeg/ffmpeg /usr/local/bin/ffmpeg
+COPY --from=ffmpeg-downloader /ffmpeg/ffprobe /usr/local/bin/ffprobe
+
+# Install Python packages - minimal set
 RUN pip install --no-cache-dir \
     yt-dlp \
     beets \
@@ -39,16 +60,17 @@ RUN pip install --no-cache-dir \
     pillow \
     langdetect \
     pylast \
-    bs4
+    beautifulsoup4 \
+    && pip cache purge
 
 # Create directories
 RUN mkdir -p /config /music /tmp/ytmusic /logs /root/.config/beets /root/.config/ytmusic
 
-# Create comprehensive beets config with all plugins
+# Create minimal beets config (fewer plugins = less dependencies)
 RUN echo "directory: /music\n\
 library: /config/beets.db\n\
 \n\
-plugins: lyrics fetchart embedart lastgenre replaygain chroma duplicates missing\n\
+plugins: embedart chroma\n\
 \n\
 import:\n\
   move: yes\n\
@@ -56,28 +78,9 @@ import:\n\
   autotag: yes\n\
   quiet_fallback: skip\n\
 \n\
-lyrics:\n\
-  auto: yes\n\
-  fallback: ''\n\
-  force: no\n\
-\n\
-fetchart:\n\
-  auto: yes\n\
-  sources: coverart itunes amazon albumart\n\
-\n\
 embedart:\n\
   auto: yes\n\
   remove_art_file: yes\n\
-\n\
-lastgenre:\n\
-  auto: yes\n\
-  force: no\n\
-\n\
-replaygain:\n\
-  auto: yes\n\
-  backend: ffmpeg\n\
-  overwrite: no\n\
-  albumgain: yes\n\
 \n\
 chroma:\n\
   auto: yes" > /root/.config/beets/config.yaml
@@ -89,59 +92,51 @@ audio_format: mp3\n\
 verbose: false\n\
 dry_run: false" > /root/.config/ytmusic/config.yaml
 
-# Set common environment variables
-ENV HOME=/root
-ENV PATH="/usr/local/bin:${PATH}"
+# Set environment
+ENV HOME=/root \
+    PATH="/usr/local/bin:${PATH}" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
-# Volumes for persistence
+# Volumes
 VOLUME ["/config", "/music", "/logs"]
 
 # ==================================================
-# CLI variant - for command-line usage
+# CLI variant
 # ==================================================
 FROM base AS cli
 
-# Copy CLI binary from builder
 COPY --from=builder /build/ytmusic /usr/local/bin/ytmusic
-
-# Copy example config
 COPY config.example.yaml /etc/ytmusic/config.example.yaml
 
-# Working directory
 WORKDIR /tmp/ytmusic
-
-# Default command
 ENTRYPOINT ["ytmusic"]
 CMD ["--help"]
 
 # ==================================================
-# Web variant - for web interface
+# Web variant
 # ==================================================
 FROM base AS web
 
-# Install curl for healthcheck
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+# Install curl (minimal version)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get clean
 
-# Copy both binaries from builder
+# Copy binaries
 COPY --from=builder /build/ytmusic /usr/local/bin/ytmusic
 COPY --from=builder /build/ytmusic-web /usr/local/bin/ytmusic-web
 
 # Copy web static files
 COPY web/static /app/web/static
-
-# Copy example config
 COPY config.example.yaml /etc/ytmusic/config.example.yaml
 
-# Working directory
 WORKDIR /app
-
-# Expose web port
 EXPOSE 8080
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/api/jobs || exit 1
 
-# Default command
 ENTRYPOINT ["ytmusic-web"]
 CMD ["-port", "8080"]
