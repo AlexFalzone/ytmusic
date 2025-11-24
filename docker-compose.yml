@@ -1,4 +1,4 @@
-  services:
+services:
   # CLI tool for one-off downloads
   ytmusic-cli:
     build:
