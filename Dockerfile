@@ -38,7 +38,8 @@ RUN pip install --no-cache-dir \
     requests \
     pillow \
     langdetect \
-    pylast
+    pylast \
+    bs4
 
 # Create directories
 RUN mkdir -p /config /music /tmp/ytmusic /logs /root/.config/beets /root/.config/ytmusic
