@@ -56,9 +56,11 @@ plugins: lyrics fetchart embedart lastgenre replaygain chroma duplicates missing
 \n\
 import:\n\
   move: yes\n\
+  timid: yes\n\
   write: yes\n\
   autotag: yes\n\
   quiet_fallback: skip\n\
+  none_rec_action: skip\n\
 \n\
 lyrics:\n\
   auto: yes\n\
