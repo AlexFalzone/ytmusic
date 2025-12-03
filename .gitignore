@@ -14,7 +14,8 @@ go.work
 
 # IDE
 .vscode/
- .idea/
+*.idea/
+.idea/
 *.swp
 *.swo
 *~
