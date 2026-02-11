@@ -37,3 +37,5 @@ local:
 	go build -o ytmusic ./cmd/ytmusic
 	go build -o ytmusic-web ./cmd/ytmusic-web
 
+test:
+	go test ./... && go vet ./...

@@ -10,7 +10,9 @@ import (
 	"ytmusic/internal/downloader"
 	"ytmusic/internal/importer"
 	"ytmusic/internal/logger"
+	"ytmusic/internal/metadata"
 	"ytmusic/internal/progress"
+	"ytmusic/internal/provider/spotify"
 	"ytmusic/internal/shutdown"
 	"ytmusic/pkg/utils"
 )
@@ -138,12 +140,34 @@ func run(sh *shutdown.Handler, cfg config.Config, log *logger.Logger) error {
 		return fmt.Errorf("failed to merge files: %w", err)
 	}
 
-	// Import to beets
-	imp := importer.New(cfg, log)
+	// Resolve metadata
+	provider := spotify.New(cfg.SpotifyClientID, cfg.SpotifyClientSecret)
+	imp := importer.New(cfg, log, provider)
 	if err := imp.Import(sh.Context(), mergedDir); err != nil {
-		return fmt.Errorf("beets import failed: %w", err)
+		return fmt.Errorf("metadata resolution failed: %w", err)
+	}
+
+	// Move files to output directory
+	if err := moveToOutput(mergedDir, cfg.OutputDir, log); err != nil {
+		return fmt.Errorf("failed to move files to output: %w", err)
 	}
 
 	log.Info("=== Process completed successfully ===")
+	return nil
+}
+
+// moveToOutput moves all audio files from srcDir to outputDir.
+func moveToOutput(srcDir, outputDir string, log *logger.Logger) error {
+	log.Info("=== Moving files to %s ===", outputDir)
+
+	moved, failed, err := utils.MoveAudioFiles(srcDir, outputDir, metadata.SubDirFromTags)
+	if err != nil {
+		return err
+	}
+
+	if failed > 0 {
+		log.Warn("%d files could not be moved", failed)
+	}
+	log.Info("Moved %d files to %s", moved, outputDir)
 	return nil
 }

@@ -9,6 +9,9 @@ import (
 
 	"ytmusic/internal/downloader"
 	"ytmusic/internal/importer"
+	"ytmusic/internal/logger"
+	"ytmusic/internal/metadata"
+	"ytmusic/internal/provider/spotify"
 	"ytmusic/pkg/utils"
 )
 
@@ -188,10 +191,32 @@ func (s *Server) processJob(job *Job) {
 		s.logger.Warn(warningMsg)
 	}
 
-	// Import to beets
-	imp := importer.New(job.Config, s.logger)
-	if err := imp.Import(ctx, tempDir); err != nil {
-		s.logger.Error("Import failed: %v", err)
+	// Merge files
+	mergedDir, err := dl.MergeFiles()
+	if err != nil {
+		s.logger.Error("Failed to merge files: %v", err)
+		s.jobMgr.UpdateJob(job.ID, func(j *Job) {
+			j.Status = StatusFailed
+			j.Error = err.Error()
+		})
+		return
+	}
+
+	// Resolve metadata
+	provider := spotify.New(job.Config.SpotifyClientID, job.Config.SpotifyClientSecret)
+	imp := importer.New(job.Config, s.logger, provider)
+	if err := imp.Import(ctx, mergedDir); err != nil {
+		s.logger.Error("Metadata resolution failed: %v", err)
+		s.jobMgr.UpdateJob(job.ID, func(j *Job) {
+			j.Status = StatusFailed
+			j.Error = err.Error()
+		})
+		return
+	}
+
+	// Move files to output directory
+	if err := moveFilesToOutput(mergedDir, job.Config.OutputDir, s.logger); err != nil {
+		s.logger.Error("Failed to move files: %v", err)
 		s.jobMgr.UpdateJob(job.ID, func(j *Job) {
 			j.Status = StatusFailed
 			j.Error = err.Error()
@@ -212,6 +237,21 @@ func (s *Server) processJob(job *Job) {
 	} else {
 		s.logger.Info("Job %s completed successfully", job.ID)
 	}
+}
+
+func moveFilesToOutput(srcDir, outputDir string, log *logger.Logger) error {
+	log.Info("=== Moving files to %s ===", outputDir)
+
+	moved, failed, err := utils.MoveAudioFiles(srcDir, outputDir, metadata.SubDirFromTags)
+	if err != nil {
+		return err
+	}
+
+	if failed > 0 {
+		log.Warn("%d files could not be moved", failed)
+	}
+	log.Info("Moved %d files to %s", moved, outputDir)
+	return nil
 }
 
 func (s *Server) jobToResponse(job *Job) *JobResponse {

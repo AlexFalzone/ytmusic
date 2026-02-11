@@ -24,3 +24,18 @@ audio_format: mp3
 # Enable verbose logging (true/false)
 # When true, shows detailed download progress and debug information
 verbose: false
+
+# Spotify API credentials for metadata resolution
+# Get yours at https://developer.spotify.com/dashboard
+spotify_client_id: ""
+spotify_client_secret: ""
+
+# Minimum confidence threshold for metadata matching (0.0-1.0)
+# Results below this threshold are discarded, keeping original yt-dlp tags
+# Higher values = stricter matching, lower values = more aggressive tagging
+# confidence_threshold: 0.7
+
+# Output directory for downloaded and tagged files
+# Supports ~ for home directory
+# Default: ~/Music
+output_dir: "~/Music"

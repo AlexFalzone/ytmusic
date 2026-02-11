@@ -4,33 +4,33 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
-	"strings"
 
 	"ytmusic/internal/config"
 	"ytmusic/internal/logger"
+	"ytmusic/internal/metadata"
+	"ytmusic/pkg/utils"
 )
 
-// Importer handles importing music files into the beets library
+// Importer handles resolving and writing metadata for downloaded audio files.
 type Importer struct {
-	Config config.Config
-	Logger *logger.Logger
+	Config   config.Config
+	Logger   *logger.Logger
+	provider metadata.Provider
 }
 
-// New creates a new Importer instance
-func New(cfg config.Config, log *logger.Logger) *Importer {
+// New creates a new Importer instance with the given metadata provider.
+func New(cfg config.Config, log *logger.Logger, provider metadata.Provider) *Importer {
 	return &Importer{
-		Config: cfg,
-		Logger: log,
+		Config:   cfg,
+		Logger:   log,
+		provider: provider,
 	}
 }
 
-// Import runs beets import on the specified folder.
-// Automatically responds to prompts:
-// - "A" (Apply) for album matches
-// - "R" (Remove old) for duplicates (safer than Merge, handles missing files)
+// Import resolves metadata for all audio files in the given directory,
+// then writes improved tags.
 func (i *Importer) Import(ctx context.Context, dir string) error {
-	i.Logger.Info("=== Importing with beets ===")
+	i.Logger.Info("=== Resolving metadata ===")
 	i.Logger.Debug("Folder: %s", dir)
 
 	if dir == "" {
@@ -40,32 +40,19 @@ func (i *Importer) Import(ctx context.Context, dir string) error {
 		return fmt.Errorf("import directory does not exist: %s", dir)
 	}
 
-	args := []string{"-m", "beets", "import", "--move", dir}
-	cmd := exec.CommandContext(ctx, "python3", args...)
-
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	// Automated responses prioritizing duplicates over no-match
-	// A = Apply for matches
-	// R = Remove old for duplicates (most common)
-	// S = Skip for no matches (rare)
-	var autoResponses string
-	for i := 0; i < 100; i++ {
-		autoResponses += "A\n"
-		autoResponses += "R\n"
-		autoResponses += "R\n"
-		autoResponses += "R\n"
-		autoResponses += "S\n"
-	}
-	cmd.Stdin = strings.NewReader(autoResponses)
-
-	err := cmd.Run()
-	if ctx.Err() != nil {
-		return fmt.Errorf("import cancelled")
-	}
+	files, err := utils.FindAudioFiles(dir)
 	if err != nil {
-		return fmt.Errorf("beets import failed: %w", err)
+		return fmt.Errorf("failed to find audio files: %w", err)
+	}
+	if len(files) == 0 {
+		return fmt.Errorf("no audio files found in %s", dir)
+	}
+
+	i.Logger.Debug("Found %d audio files", len(files))
+
+	resolver := metadata.NewResolver(i.provider, i.Logger, i.Config.ConfidenceThreshold)
+	if err := resolver.Resolve(ctx, files); err != nil {
+		return fmt.Errorf("metadata resolution failed: %w", err)
 	}
 
 	i.Logger.Info("Import completed")

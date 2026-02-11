@@ -84,6 +84,13 @@ func parseArgs() (config.Config, string, error) {
 			i++
 			cfg.AudioFormat = args[i]
 
+		case "--output", "-o":
+			if i+1 >= len(args) {
+				return config.Config{}, "", fmt.Errorf("--output requires a directory path")
+			}
+			i++
+			cfg.OutputDir = config.ExpandHome(args[i])
+
 		case "--config", "-c":
 			i++
 
@@ -122,6 +129,10 @@ func initConfigFile() error {
 	fmt.Println("  audio_format: mp3, m4a, opus, flac, wav, aac")
 	fmt.Println("  verbose: true/false (enable detailed logging)")
 	fmt.Println("  dry_run: true/false (preview mode)")
+	fmt.Println("  spotify_client_id: Spotify API client ID (required)")
+	fmt.Println("  spotify_client_secret: Spotify API client secret (required)")
+	fmt.Println("  output_dir: output directory (default: ~/Music)")
+	fmt.Println("\nGet Spotify credentials at: https://developer.spotify.com/dashboard")
 
 	os.Exit(0)
 	return nil
@@ -129,7 +140,7 @@ func initConfigFile() error {
 
 // printUsage displays the help message
 func printUsage() {
-	fmt.Println("ytmusic - Download YouTube playlists and import to beets")
+	fmt.Println("ytmusic - Download YouTube playlists with automatic metadata tagging")
 	fmt.Println()
 	fmt.Println("Usage: ytmusic [options] <playlist_url>")
 	fmt.Println()
@@ -139,35 +150,11 @@ func printUsage() {
 	fmt.Println("  -p, --parallel <n>         Number of parallel downloads (1-10, default: 4)")
 	fmt.Println("  -b, --browser <name>       Browser to extract cookies from (default: brave)")
 	fmt.Println("  -f, --format <format>      Audio format: mp3, m4a, opus, flac, etc. (default: mp3)")
+	fmt.Println("  -o, --output <dir>         Output directory (default: ~/Music)")
 	fmt.Println("  -c, --config <path>        Path to config file")
 	fmt.Println("  -h, --help                 Show this help message")
 	fmt.Println()
 	fmt.Println("Configuration:")
 	fmt.Println("  --init-config              Create a default config file")
 	fmt.Println()
-	fmt.Println("Config file locations (checked in order):")
-	fmt.Println("  ./ytmusic.yaml")
-	fmt.Println("  ~/.config/ytmusic/config.yaml")
-	fmt.Println("  ~/.ytmusic.yaml")
-	fmt.Println()
-	fmt.Println("Logging:")
-	fmt.Println("  Normal mode: Progress bar shown, detailed logs saved to:")
-	fmt.Println("    ~/.local/share/ytmusic/logs/")
-	fmt.Println("  Verbose mode: All output to stdout, no progress bar, no file logging")
-	fmt.Println()
-	fmt.Println("Examples:")
-	fmt.Println("  # Preview what would be downloaded")
-	fmt.Println("  ytmusic --dry-run https://www.youtube.com/playlist?list=...")
-	fmt.Println()
-	fmt.Println("  # Download with defaults (progress bar + file logging)")
-	fmt.Println("  ytmusic https://www.youtube.com/playlist?list=...")
-	fmt.Println()
-	fmt.Println("  # Download with verbose output (no progress bar)")
-	fmt.Println("  ytmusic -v https://www.youtube.com/playlist?list=...")
-	fmt.Println()
-	fmt.Println("  # Download with 8 parallel jobs in FLAC format")
-	fmt.Println("  ytmusic -p 8 -f flac https://www.youtube.com/playlist?list=...")
-	fmt.Println()
-	fmt.Println("  # Create a config file to persist settings")
-	fmt.Println("  ytmusic --init-config")
 }

@@ -11,12 +11,16 @@ import (
 
 // Config contains the program configuration
 type Config struct {
-	PlaylistURL    string `yaml:"playlist_url"`
-	Verbose        bool   `yaml:"verbose"`
-	DryRun         bool   `yaml:"dry_run"`
-	ParallelJobs   int    `yaml:"parallel_jobs"`
-	CookiesBrowser string `yaml:"cookies_browser"`
-	AudioFormat    string `yaml:"audio_format"`
+	PlaylistURL         string  `yaml:"playlist_url"`
+	Verbose             bool    `yaml:"verbose"`
+	DryRun              bool    `yaml:"dry_run"`
+	ParallelJobs        int     `yaml:"parallel_jobs"`
+	CookiesBrowser      string  `yaml:"cookies_browser"`
+	AudioFormat         string  `yaml:"audio_format"`
+	SpotifyClientID     string  `yaml:"spotify_client_id"`
+	SpotifyClientSecret string  `yaml:"spotify_client_secret"`
+	ConfidenceThreshold float64 `yaml:"confidence_threshold"`
+	OutputDir           string  `yaml:"output_dir"`
 }
 
 // DefaultConfig returns the default configuration
@@ -27,6 +31,7 @@ func DefaultConfig() Config {
 		ParallelJobs:   4,
 		CookiesBrowser: "brave",
 		AudioFormat:    "mp3",
+		OutputDir:      filepath.Join(os.Getenv("HOME"), "Music"),
 	}
 }
 
@@ -54,7 +59,17 @@ func LoadConfigFile(path string) (Config, error) {
 		return cfg, fmt.Errorf("failed to parse config file %s: %w", path, err)
 	}
 
+	cfg.OutputDir = ExpandHome(cfg.OutputDir)
+
 	return cfg, nil
+}
+
+// ExpandHome replaces a leading ~ with the user's home directory.
+func ExpandHome(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		return filepath.Join(os.Getenv("HOME"), path[2:])
+	}
+	return path
 }
 
 // FindConfigFile searches for a config file in standard locations
@@ -92,7 +107,7 @@ func SaveConfigFile(cfg Config, path string) error {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
@@ -140,6 +155,20 @@ func (c *Config) Validate() error {
 	}
 	if !isValid {
 		return fmt.Errorf("unsupported audio format '%s', valid formats: %v", c.AudioFormat, validFormats)
+	}
+
+	if c.OutputDir == "" {
+		return fmt.Errorf("output_dir cannot be empty")
+	}
+
+	// DryRun doesn't need Spotify credentials
+	if !c.DryRun {
+		if c.SpotifyClientID == "" {
+			return fmt.Errorf("spotify_client_id is missing in config file")
+		}
+		if c.SpotifyClientSecret == "" {
+			return fmt.Errorf("spotify_client_secret is missing in config file")
+		}
 	}
 
 	return nil

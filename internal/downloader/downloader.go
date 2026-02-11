@@ -126,8 +126,6 @@ func (d *Downloader) buildYtdlpArgs(url string) []string {
 		args = append(args, "--cookies-from-browser", d.Config.CookiesBrowser)
 	}
 
-	args = append(args, "-i", "-o", outputTemplate, url)
-
 	return args
 }
 
@@ -136,14 +134,20 @@ func (d *Downloader) DownloadSingle(ctx context.Context, url string) error {
 	args := d.buildYtdlpArgs(url)
 	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
 
+	var stderr bytes.Buffer
 	if d.Config.Verbose {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+	} else {
+		cmd.Stderr = &stderr
 	}
 
 	err := cmd.Run()
 	if ctx.Err() != nil {
 		return fmt.Errorf("download cancelled")
+	}
+	if err != nil && stderr.Len() > 0 {
+		return fmt.Errorf("yt-dlp error: %w\nDetails: %s", err, stderr.String())
 	}
 	return err
 }
@@ -229,24 +233,24 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadSt
 	return stats, nil
 }
 
-// MergeFiles collects all MP3s into a single flat directory for beets import
+// MergeFiles collects all audio files into a single flat directory for metadata resolution.
 func (d *Downloader) MergeFiles() (string, error) {
-	d.Logger.Info("=== Merging MP3 files ===")
+	d.Logger.Info("=== Merging audio files ===")
 
 	mergedDir := filepath.Join(d.TmpDir, "merged")
 	if err := os.MkdirAll(mergedDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create merged folder: %w", err)
 	}
 
-	files, err := utils.FindMP3Files(d.TmpDir)
+	files, err := utils.FindAudioFiles(d.TmpDir)
 	if err != nil {
-		return "", fmt.Errorf("failed to search for MP3 files: %w", err)
+		return "", fmt.Errorf("failed to search for audio files: %w", err)
 	}
 
-	d.Logger.Debug("Found %d MP3 files", len(files))
+	d.Logger.Debug("Found %d audio files", len(files))
 
 	if len(files) == 0 {
-		return "", fmt.Errorf("no MP3 files found - all downloads may have failed")
+		return "", fmt.Errorf("no audio files found - all downloads may have failed")
 	}
 
 	var moveErrors int
@@ -262,6 +266,6 @@ func (d *Downloader) MergeFiles() (string, error) {
 		d.Logger.Warn("%d files could not be moved", moveErrors)
 	}
 
-	d.Logger.Info("MP3 files moved to: %s", mergedDir)
+	d.Logger.Info("Audio files moved to: %s", mergedDir)
 	return mergedDir, nil
 }
