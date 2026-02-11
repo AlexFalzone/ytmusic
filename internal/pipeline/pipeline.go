@@ -63,7 +63,11 @@ func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 	provider := spotify.New(cfg.SpotifyClientID, cfg.SpotifyClientSecret)
 	imp := importer.New(cfg, log, provider)
 	if err := imp.Import(ctx, mergedDir); err != nil {
-		return fmt.Errorf("metadata resolution failed: %w", err)
+		msg := fmt.Sprintf("metadata resolution failed: %v", err)
+		log.Warn(msg)
+		if hooks.OnWarning != nil {
+			hooks.OnWarning(msg)
+		}
 	}
 
 	log.Info("=== Moving files to %s ===", cfg.OutputDir)
