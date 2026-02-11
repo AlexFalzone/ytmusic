@@ -11,11 +11,9 @@ docker compose up -d ytmusic-web
 
 ### Prerequisites
 
-- Go 1.21+
+- Go 1.23+
 - yt-dlp
-- beets
 - FFmpeg
-
 
 ### Build
 
@@ -48,7 +46,10 @@ go build -o ytmusic-web ./cmd/ytmusic-web
 -p, --parallel <n>    Parallel downloads (1-10, default: 4)
 -b, --browser <name>  Browser for cookies
 -f, --format <fmt>    Audio format (mp3, flac, m4a, opus, wav, aac)
+-o, --output <dir>    Output directory (default: ~/Music)
 -c, --config <path>   Config file path
+    --init-config     Create config file with defaults
+-h, --help            Help
 ```
 
 ## Web Interface
@@ -77,16 +78,10 @@ Example `config.yaml`:
 parallel_jobs: 4
 cookies_browser: brave
 audio_format: mp3
+output_dir: "~/Music"
 verbose: false
 dry_run: false
+spotify_client_id: ""
+spotify_client_secret: ""
+confidence_threshold: 0.7
 ```
-
-## Beets Integration
-
-Music is automatically imported to beets with these plugins enabled:
-- **lyrics** - Fetch song lyrics
-- **fetchart** - Download album art
-- **embedart** - Embed art in files
-- **lastgenre** - Fetch genres from Last.fm
-- **replaygain** - Normalize volume
-- **chroma** - Acoustic fingerprinting
