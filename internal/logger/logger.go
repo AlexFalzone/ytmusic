@@ -9,11 +9,11 @@ import (
 
 // Logger handles structured logging with optional file output
 type Logger struct {
-	Verbose   bool
-	writer    io.Writer
-	mu        sync.Mutex
-	fileLog   *os.File
-	hasBar    bool
+	Verbose bool
+	writer  io.Writer
+	mu      sync.Mutex
+	fileLog *os.File
+	hasBar  bool
 }
 
 // New creates a new Logger instance
@@ -40,6 +40,8 @@ func (l *Logger) SetFileLog(path string) error {
 
 // SetProgressBar indicates that a progress bar is active
 func (l *Logger) SetProgressBar(active bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	l.hasBar = active
 }
 

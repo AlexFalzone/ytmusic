@@ -31,7 +31,7 @@ func DefaultConfig() Config {
 		ParallelJobs:   4,
 		CookiesBrowser: "brave",
 		AudioFormat:    "mp3",
-		OutputDir:      filepath.Join(os.Getenv("HOME"), "Music"),
+		OutputDir:      filepath.Join(homeDir(), "Music"),
 	}
 }
 
@@ -67,20 +67,21 @@ func LoadConfigFile(path string) (Config, error) {
 // ExpandHome replaces a leading ~ with the user's home directory.
 func ExpandHome(path string) string {
 	if strings.HasPrefix(path, "~/") {
-		return filepath.Join(os.Getenv("HOME"), path[2:])
+		return filepath.Join(homeDir(), path[2:])
 	}
 	return path
 }
 
 // FindConfigFile searches for a config file in standard locations
 func FindConfigFile() string {
+	home := homeDir()
 	locations := []string{
 		"./ytmusic.yaml",
 		"./ytmusic.yml",
-		filepath.Join(os.Getenv("HOME"), ".config", "ytmusic", "config.yaml"),
-		filepath.Join(os.Getenv("HOME"), ".config", "ytmusic", "config.yml"),
-		filepath.Join(os.Getenv("HOME"), ".ytmusic.yaml"),
-		filepath.Join(os.Getenv("HOME"), ".ytmusic.yml"),
+		filepath.Join(home, ".config", "ytmusic", "config.yaml"),
+		filepath.Join(home, ".config", "ytmusic", "config.yml"),
+		filepath.Join(home, ".ytmusic.yaml"),
+		filepath.Join(home, ".ytmusic.yml"),
 	}
 
 	for _, path := range locations {
@@ -116,12 +117,20 @@ func SaveConfigFile(cfg Config, path string) error {
 
 // GetDefaultConfigPath returns the default config file path
 func GetDefaultConfigPath() string {
-	return filepath.Join(os.Getenv("HOME"), ".config", "ytmusic", "config.yaml")
+	return filepath.Join(homeDir(), ".config", "ytmusic", "config.yaml")
 }
 
 // GetDefaultLogPath returns the default log directory path
 func GetDefaultLogPath() string {
-	return filepath.Join(os.Getenv("HOME"), ".local", "share", "ytmusic", "logs")
+	return filepath.Join(homeDir(), ".local", "share", "ytmusic", "logs")
+}
+
+func homeDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return os.Getenv("HOME")
+	}
+	return home
 }
 
 // Validate checks if the configuration is valid
@@ -159,6 +168,10 @@ func (c *Config) Validate() error {
 
 	if c.OutputDir == "" {
 		return fmt.Errorf("output_dir cannot be empty")
+	}
+
+	if c.ConfidenceThreshold < 0 || c.ConfidenceThreshold > 1 {
+		return fmt.Errorf("confidence_threshold must be between 0.0 and 1.0, got %.2f", c.ConfidenceThreshold)
 	}
 
 	// DryRun doesn't need Spotify credentials

@@ -165,7 +165,7 @@ function displayJobHistory(jobs) {
         return `
             <div class="job-list-item">
                 <div class="job-header">
-                    <span style="font-size: 0.9rem; color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; margin-right: 12px;">${job.url}</span>
+                    <span style="font-size: 0.9rem; color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; margin-right: 12px;">${escapeHTML(job.url)}</span>
                     <span class="status ${job.status}">${job.status}</span>
                 </div>
                 ${job.total > 0 ? `
@@ -180,6 +180,12 @@ function displayJobHistory(jobs) {
             </div>
         `;
     }).join('');
+}
+
+function escapeHTML(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
 }
 
 function showError(message) {

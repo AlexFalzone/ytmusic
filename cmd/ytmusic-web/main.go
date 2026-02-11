@@ -51,11 +51,13 @@ func main() {
 	}
 	defer l.Close()
 
-	// Create job manager and server
-	jobMgr := web.NewJobManager()
-	server := web.NewServer(jobMgr, cfg, l)
+	// Context that cancels on shutdown signal — used by jobs to stop gracefully
+	ctx, cancel := context.WithCancel(context.Background())
 
-	// HTTP server
+	jobMgr := web.NewJobManager()
+	jobMgr.StartCleanup(ctx)
+	server := web.NewServer(ctx, jobMgr, cfg, l)
+
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),
 		Handler:      server.Router(),
@@ -64,7 +66,6 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Start server in background
 	go func() {
 		l.Info("Starting web server on port %d", port)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -73,16 +74,17 @@ func main() {
 		}
 	}()
 
-	// Graceful shutdown
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
 
 	l.Info("Shutting down server...")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	cancel()
 
-	if err := httpServer.Shutdown(ctx); err != nil {
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		l.Error("Server shutdown error: %v", err)
 	}
 

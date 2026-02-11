@@ -1,5 +1,5 @@
 services:
-  # CLI tool for one-off downloads
+  # CLI
   ytmusic-cli:
     build:
       context: .
@@ -16,9 +16,8 @@ services:
       - HOME=/root
     profiles:
       - cli
-    # Usage: docker-compose run --rm ytmusic-cli https://youtube.com/playlist?list=...
 
-  # Web interface for managing downloads
+  # Web interface
   ytmusic-web:
     build:
       context: .

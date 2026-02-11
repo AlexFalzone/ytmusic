@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"net/http"
 
 	"ytmusic/internal/config"
@@ -8,13 +9,15 @@ import (
 )
 
 type Server struct {
+	ctx    context.Context
 	jobMgr *JobManager
 	config config.Config
 	logger *logger.Logger
 }
 
-func NewServer(jobMgr *JobManager, cfg config.Config, log *logger.Logger) *Server {
+func NewServer(ctx context.Context, jobMgr *JobManager, cfg config.Config, log *logger.Logger) *Server {
 	return &Server{
+		ctx:    ctx,
 		jobMgr: jobMgr,
 		config: cfg,
 		logger: log,

@@ -15,6 +15,7 @@ type Handler struct {
 	wg         sync.WaitGroup
 	cleanupFns []func()
 	mu         sync.Mutex
+	once       sync.Once
 }
 
 // New creates a new shutdown handler
@@ -51,16 +52,17 @@ func (h *Handler) Listen() {
 
 // Shutdown triggers graceful shutdown
 func (h *Handler) Shutdown() {
-	h.cancel()
+	h.once.Do(func() {
+		h.cancel()
 
-	// Run cleanup functions
-	h.mu.Lock()
-	fns := h.cleanupFns
-	h.mu.Unlock()
+		h.mu.Lock()
+		fns := h.cleanupFns
+		h.mu.Unlock()
 
-	for _, fn := range fns {
-		fn()
-	}
+		for _, fn := range fns {
+			fn()
+		}
+	})
 }
 
 // Wait waits for all work to complete

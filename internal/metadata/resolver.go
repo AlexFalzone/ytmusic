@@ -154,7 +154,8 @@ func (r *Resolver) downloadAndEmbedArtwork(ctx context.Context, filePath, artwor
 		return fmt.Errorf("artwork download returned %d", resp.StatusCode)
 	}
 
-	data, err := io.ReadAll(resp.Body)
+	const maxArtworkSize = 10 << 20 // 10 MB
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxArtworkSize))
 	if err != nil {
 		return fmt.Errorf("failed to read artwork data: %w", err)
 	}

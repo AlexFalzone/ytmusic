@@ -40,9 +40,20 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Subscribe to job updates
 	updates := s.jobMgr.Subscribe(jobID)
 	defer s.jobMgr.Unsubscribe(jobID, updates)
+
+	// Read pump: processes close/ping/pong from client.
+	// Signals via clientGone when the client disconnects.
+	clientGone := make(chan struct{})
+	go func() {
+		defer close(clientGone)
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
 
 	// Send initial job state
 	job, err := s.jobMgr.GetJob(jobID)
@@ -51,12 +62,14 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		conn.WriteMessage(websocket.TextMessage, data)
 	}
 
-	// Listen for updates and send to client
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
+		case <-clientGone:
+			return
+
 		case job, ok := <-updates:
 			if !ok {
 				return
@@ -69,17 +82,14 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-				s.logger.Error("Failed to write WebSocket message: %v", err)
 				return
 			}
 
-			// Close connection if job is done
 			if job.Status == StatusCompleted || job.Status == StatusFailed || job.Status == StatusCancelled {
 				return
 			}
 
 		case <-ticker.C:
-			// Send ping to keep connection alive
 			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}

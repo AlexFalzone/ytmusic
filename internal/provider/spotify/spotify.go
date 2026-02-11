@@ -25,6 +25,7 @@ type Client struct {
 	accessToken string
 	tokenExpiry time.Time
 
+	cacheMu    sync.Mutex
 	genreCache map[string][]string // artist ID → genres
 
 	// Overridable for testing
@@ -113,9 +114,12 @@ func (c *Client) enrichGenres(ctx context.Context, results []metadata.TrackInfo,
 
 // getArtistGenres returns genres for an artist, using cache when available.
 func (c *Client) getArtistGenres(ctx context.Context, artistID string) ([]string, error) {
+	c.cacheMu.Lock()
 	if genres, ok := c.genreCache[artistID]; ok {
+		c.cacheMu.Unlock()
 		return genres, nil
 	}
+	c.cacheMu.Unlock()
 
 	token, err := c.getToken(ctx)
 	if err != nil {
@@ -144,7 +148,10 @@ func (c *Client) getArtistGenres(ctx context.Context, artistID string) ([]string
 		return nil, err
 	}
 
+	c.cacheMu.Lock()
 	c.genreCache[artistID] = artistResp.Genres
+	c.cacheMu.Unlock()
+
 	return artistResp.Genres, nil
 }
 
@@ -226,6 +233,7 @@ func (c *Client) getToken(ctx context.Context) (string, error) {
 }
 
 // doWithRetry executes the request, retrying once on 429.
+// Clones the request before retry to avoid issues with consumed bodies.
 func (c *Client) doWithRetry(req *http.Request) (*http.Response, error) {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -241,7 +249,9 @@ func (c *Client) doWithRetry(req *http.Request) (*http.Response, error) {
 			}
 		}
 		time.Sleep(time.Duration(retryAfter) * time.Second)
-		return c.httpClient.Do(req)
+
+		retry := req.Clone(req.Context())
+		return c.httpClient.Do(retry)
 	}
 
 	return resp, nil

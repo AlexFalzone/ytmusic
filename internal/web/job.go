@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"sync"
 	"time"
@@ -13,11 +14,11 @@ import (
 type JobStatus string
 
 const (
-	StatusPending    JobStatus = "pending"
-	StatusRunning    JobStatus = "running"
-	StatusCompleted  JobStatus = "completed"
-	StatusFailed     JobStatus = "failed"
-	StatusCancelled  JobStatus = "cancelled"
+	StatusPending   JobStatus = "pending"
+	StatusRunning   JobStatus = "running"
+	StatusCompleted JobStatus = "completed"
+	StatusFailed    JobStatus = "failed"
+	StatusCancelled JobStatus = "cancelled"
 )
 
 // Job represents a download job
@@ -42,11 +43,43 @@ type JobManager struct {
 	listeners map[string][]chan *Job
 }
 
+const jobRetention = 1 * time.Hour
+
 // NewJobManager creates a new job manager
 func NewJobManager() *JobManager {
 	return &JobManager{
 		jobs:      make(map[string]*Job),
 		listeners: make(map[string][]chan *Job),
+	}
+}
+
+// StartCleanup starts a background goroutine that removes old completed jobs.
+// Stops when ctx is cancelled.
+func (jm *JobManager) StartCleanup(ctx context.Context) {
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				jm.cleanup()
+			}
+		}
+	}()
+}
+
+func (jm *JobManager) cleanup() {
+	jm.mu.Lock()
+	defer jm.mu.Unlock()
+
+	cutoff := time.Now().Add(-jobRetention)
+	for id, job := range jm.jobs {
+		if job.CompletedAt != nil && job.CompletedAt.Before(cutoff) {
+			delete(jm.jobs, id)
+			delete(jm.listeners, id)
+		}
 	}
 }
 
@@ -159,7 +192,8 @@ func (jm *JobManager) notifyListeners(jobID string, job *Job) {
 	}
 }
 
-// generateJobID generates a unique job ID
 func generateJobID() string {
-	return fmt.Sprintf("job_%d", time.Now().UnixNano())
+	b := make([]byte, 8)
+	rand.Read(b)
+	return fmt.Sprintf("job_%x", b)
 }

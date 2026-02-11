@@ -7,34 +7,27 @@ import (
 	"time"
 
 	"ytmusic/internal/config"
-	"ytmusic/internal/downloader"
-	"ytmusic/internal/importer"
 	"ytmusic/internal/logger"
-	"ytmusic/internal/metadata"
+	"ytmusic/internal/pipeline"
 	"ytmusic/internal/progress"
-	"ytmusic/internal/provider/spotify"
 	"ytmusic/internal/shutdown"
 	"ytmusic/pkg/utils"
 )
 
 func main() {
-	// Parse arguments and load config
 	cfg, configPath, err := parseArgs()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[ERROR] %v\n", err)
 		os.Exit(1)
 	}
 
-	// Setup graceful shutdown
 	sh := shutdown.New()
 	sh.Listen()
 	defer sh.Wait()
 
-	// Initialize logger
 	log := logger.New(cfg.Verbose)
 	defer log.Close()
 
-	// Setup file logging for non-verbose mode
 	if !cfg.Verbose {
 		logDir := config.GetDefaultLogPath()
 		if err := os.MkdirAll(logDir, 0755); err != nil {
@@ -58,14 +51,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Run main logic
 	if err := run(sh, cfg, log); err != nil {
 		log.Error("%v", err)
 		os.Exit(1)
 	}
 }
 
-// run executes the main program logic
 func run(sh *shutdown.Handler, cfg config.Config, log *logger.Logger) error {
 	log.Debug("Checking dependencies...")
 	if err := utils.CheckDependencies(); err != nil {
@@ -78,7 +69,6 @@ func run(sh *shutdown.Handler, cfg config.Config, log *logger.Logger) error {
 	}
 	log.Debug("Temporary folder: %s", tmpDir)
 
-	// Register cleanup
 	sh.AddCleanup(func() {
 		log.Debug("Cleaning up...")
 		if err := utils.Cleanup(tmpDir); err != nil {
@@ -86,88 +76,32 @@ func run(sh *shutdown.Handler, cfg config.Config, log *logger.Logger) error {
 		}
 	})
 
-	// Create downloader
-	dl := downloader.New(cfg, log, tmpDir)
-
-	// Extract URLs
-	urls, err := dl.ExtractURLs(sh.Context())
-	if err != nil {
-		return fmt.Errorf("failed to extract URLs from playlist: %w", err)
-	}
-
-	if len(urls) == 0 {
-		return fmt.Errorf("no videos found in playlist - the playlist may be empty or private")
-	}
-
-	// Dry-run mode: just show what would be downloaded
-	if cfg.DryRun {
-		log.Info("=== Dry-run mode: showing what would be downloaded ===")
-		return dl.FetchMetadata(sh.Context(), urls)
-	}
-
-	// Setup progress bar for non-verbose mode
 	var bar *progress.Bar
-	if !cfg.Verbose {
-		bar = progress.New(len(urls))
-		log.SetProgressBar(true)
-		dl.OnProgress = func() {
-			bar.Increment()
-		}
+	hooks := pipeline.Hooks{
+		OnURLsExtracted: func(total int) {
+			if !cfg.Verbose && !cfg.DryRun {
+				bar = progress.New(total)
+				log.SetProgressBar(true)
+			}
+		},
+		OnProgress: func() {
+			if bar != nil {
+				bar.Increment()
+			}
+		},
 	}
 
-	// Download all videos
-	stats, err := dl.DownloadAll(sh.Context(), urls)
-	if err != nil {
-		if bar != nil {
-			bar.Finish()
-		}
-		return fmt.Errorf("download failed: %w", err)
-	}
+	err = pipeline.Run(sh.Context(), cfg, log, tmpDir, hooks)
 
 	if bar != nil {
 		bar.Finish()
 		log.SetProgressBar(false)
 	}
 
-	// Report partial failures if any
-	if stats.Failed > 0 {
-		log.Warn("%d of %d videos failed to download (private, unavailable, or geo-restricted)", stats.Failed, stats.Total)
-	}
-
-	// Merge files
-	mergedDir, err := dl.MergeFiles()
-	if err != nil {
-		return fmt.Errorf("failed to merge files: %w", err)
-	}
-
-	// Resolve metadata
-	provider := spotify.New(cfg.SpotifyClientID, cfg.SpotifyClientSecret)
-	imp := importer.New(cfg, log, provider)
-	if err := imp.Import(sh.Context(), mergedDir); err != nil {
-		return fmt.Errorf("metadata resolution failed: %w", err)
-	}
-
-	// Move files to output directory
-	if err := moveToOutput(mergedDir, cfg.OutputDir, log); err != nil {
-		return fmt.Errorf("failed to move files to output: %w", err)
-	}
-
-	log.Info("=== Process completed successfully ===")
-	return nil
-}
-
-// moveToOutput moves all audio files from srcDir to outputDir.
-func moveToOutput(srcDir, outputDir string, log *logger.Logger) error {
-	log.Info("=== Moving files to %s ===", outputDir)
-
-	moved, failed, err := utils.MoveAudioFiles(srcDir, outputDir, metadata.SubDirFromTags)
 	if err != nil {
 		return err
 	}
 
-	if failed > 0 {
-		log.Warn("%d files could not be moved", failed)
-	}
-	log.Info("Moved %d files to %s", moved, outputDir)
+	log.Info("=== Process completed successfully ===")
 	return nil
 }

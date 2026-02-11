@@ -3,15 +3,10 @@ package web
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 
-	"ytmusic/internal/downloader"
-	"ytmusic/internal/importer"
-	"ytmusic/internal/logger"
-	"ytmusic/internal/metadata"
-	"ytmusic/internal/provider/spotify"
+	"ytmusic/internal/pipeline"
 	"ytmusic/pkg/utils"
 )
 
@@ -37,6 +32,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB
 	var req DownloadRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -48,18 +44,19 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create job config with URL
+	if !strings.HasPrefix(req.URL, "http://") && !strings.HasPrefix(req.URL, "https://") {
+		http.Error(w, "URL must start with http:// or https://", http.StatusBadRequest)
+		return
+	}
+
 	jobConfig := s.config
 	jobConfig.PlaylistURL = req.URL
 
-	// Create job
 	job := s.jobMgr.CreateJob(req.URL, jobConfig)
 	s.logger.Info("Created job %s for URL: %s", job.ID, req.URL)
 
-	// Start download in background
 	go s.processJob(job)
 
-	// Return job info
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.jobToResponse(job))
 }
@@ -81,7 +78,6 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleJobAction(w http.ResponseWriter, r *http.Request) {
-	// Extract job ID from path: /api/jobs/{id} or /api/jobs/{id}/cancel
 	path := strings.TrimPrefix(r.URL.Path, "/api/jobs/")
 	parts := strings.Split(path, "/")
 	if len(parts) == 0 || parts[0] == "" {
@@ -91,11 +87,10 @@ func (s *Server) handleJobAction(w http.ResponseWriter, r *http.Request) {
 
 	jobID := parts[0]
 
-	// Handle GET /api/jobs/{id}
 	if r.Method == http.MethodGet && len(parts) == 1 {
 		job, err := s.jobMgr.GetJob(jobID)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			http.Error(w, "Job not found", http.StatusNotFound)
 			return
 		}
 
@@ -104,11 +99,10 @@ func (s *Server) handleJobAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Handle POST /api/jobs/{id}/cancel
 	if r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "cancel" {
 		job, err := s.jobMgr.GetJob(jobID)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			http.Error(w, "Job not found", http.StatusNotFound)
 			return
 		}
 
@@ -129,10 +123,9 @@ func (s *Server) handleJobAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) processJob(job *Job) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(s.ctx)
 	defer cancel()
 
-	// Store cancel function in job
 	s.jobMgr.UpdateJob(job.ID, func(j *Job) {
 		j.Cancel = cancel
 		j.Status = StatusRunning
@@ -140,7 +133,6 @@ func (s *Server) processJob(job *Job) {
 
 	s.logger.Info("Starting job %s", job.ID)
 
-	// Create temp directory
 	tempDir, err := utils.CreateTempDir()
 	if err != nil {
 		s.logger.Error("Failed to create temp dir: %v", err)
@@ -152,49 +144,25 @@ func (s *Server) processJob(job *Job) {
 	}
 	defer utils.Cleanup(tempDir)
 
-	// Download
-	dl := downloader.New(job.Config, s.logger, tempDir)
-	dl.OnProgress = func() {
-		s.jobMgr.UpdateJob(job.ID, func(j *Job) {
-			j.Progress++
-		})
-	}
-
-	urls, err := dl.ExtractURLs(ctx)
-	if err != nil {
-		s.logger.Error("Failed to extract URLs: %v", err)
-		s.jobMgr.UpdateJob(job.ID, func(j *Job) {
-			j.Status = StatusFailed
-			j.Error = err.Error()
-		})
-		return
-	}
-
-	s.jobMgr.UpdateJob(job.ID, func(j *Job) {
-		j.Total = len(urls)
-	})
-
-	stats, err := dl.DownloadAll(ctx, urls)
-	if err != nil {
-		s.logger.Error("Download failed: %v", err)
-		s.jobMgr.UpdateJob(job.ID, func(j *Job) {
-			j.Status = StatusFailed
-			j.Error = err.Error()
-		})
-		return
-	}
-
-	// Check for partial failures
 	var warningMsg string
-	if stats.Failed > 0 {
-		warningMsg = fmt.Sprintf("%d of %d videos failed to download (private, unavailable, or geo-restricted)", stats.Failed, stats.Total)
-		s.logger.Warn(warningMsg)
+	hooks := pipeline.Hooks{
+		OnURLsExtracted: func(total int) {
+			s.jobMgr.UpdateJob(job.ID, func(j *Job) {
+				j.Total = total
+			})
+		},
+		OnProgress: func() {
+			s.jobMgr.UpdateJob(job.ID, func(j *Job) {
+				j.Progress++
+			})
+		},
+		OnWarning: func(msg string) {
+			warningMsg = msg
+		},
 	}
 
-	// Merge files
-	mergedDir, err := dl.MergeFiles()
-	if err != nil {
-		s.logger.Error("Failed to merge files: %v", err)
+	if err := pipeline.Run(ctx, job.Config, s.logger, tempDir, hooks); err != nil {
+		s.logger.Error("Job %s failed: %v", job.ID, err)
 		s.jobMgr.UpdateJob(job.ID, func(j *Job) {
 			j.Status = StatusFailed
 			j.Error = err.Error()
@@ -202,29 +170,6 @@ func (s *Server) processJob(job *Job) {
 		return
 	}
 
-	// Resolve metadata
-	provider := spotify.New(job.Config.SpotifyClientID, job.Config.SpotifyClientSecret)
-	imp := importer.New(job.Config, s.logger, provider)
-	if err := imp.Import(ctx, mergedDir); err != nil {
-		s.logger.Error("Metadata resolution failed: %v", err)
-		s.jobMgr.UpdateJob(job.ID, func(j *Job) {
-			j.Status = StatusFailed
-			j.Error = err.Error()
-		})
-		return
-	}
-
-	// Move files to output directory
-	if err := moveFilesToOutput(mergedDir, job.Config.OutputDir, s.logger); err != nil {
-		s.logger.Error("Failed to move files: %v", err)
-		s.jobMgr.UpdateJob(job.ID, func(j *Job) {
-			j.Status = StatusFailed
-			j.Error = err.Error()
-		})
-		return
-	}
-
-	// Mark as completed (with warning message if there were partial failures)
 	s.jobMgr.UpdateJob(job.ID, func(j *Job) {
 		j.Status = StatusCompleted
 		if warningMsg != "" {
@@ -237,21 +182,6 @@ func (s *Server) processJob(job *Job) {
 	} else {
 		s.logger.Info("Job %s completed successfully", job.ID)
 	}
-}
-
-func moveFilesToOutput(srcDir, outputDir string, log *logger.Logger) error {
-	log.Info("=== Moving files to %s ===", outputDir)
-
-	moved, failed, err := utils.MoveAudioFiles(srcDir, outputDir, metadata.SubDirFromTags)
-	if err != nil {
-		return err
-	}
-
-	if failed > 0 {
-		log.Warn("%d files could not be moved", failed)
-	}
-	log.Info("Moved %d files to %s", moved, outputDir)
-	return nil
 }
 
 func (s *Server) jobToResponse(job *Job) *JobResponse {
