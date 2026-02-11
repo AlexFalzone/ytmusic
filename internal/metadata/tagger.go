@@ -57,7 +57,10 @@ func SubDirFromTags(path string) string {
 		return ""
 	}
 
-	artist := firstTag(tags, taglib.Artist)
+	artist := firstTag(tags, taglib.AlbumArtist)
+	if artist == "" {
+		artist = firstTag(tags, taglib.Artist)
+	}
 	album := firstTag(tags, taglib.Album)
 
 	if artist == "" {
