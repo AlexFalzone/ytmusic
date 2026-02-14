@@ -46,6 +46,12 @@ func main() {
 		log.Debug("Loaded configuration from: %s", configPath)
 	}
 
+	if cfg.LyricsOnly != "" {
+		pipeline.ResolveLyrics(sh.Context(), cfg.LyricsOnly, log)
+		log.Info("=== Lyrics fetch completed ===")
+		return
+	}
+
 	if err := cfg.Validate(); err != nil {
 		log.Error("Configuration error: %v", err)
 		os.Exit(1)

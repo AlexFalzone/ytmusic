@@ -94,6 +94,13 @@ func parseArgs() (config.Config, string, error) {
 		case "--no-lyrics":
 			cfg.SkipLyrics = true
 
+		case "--lyrics-only":
+			if i+1 >= len(args) {
+				return config.Config{}, "", fmt.Errorf("--lyrics-only requires a directory path")
+			}
+			i++
+			cfg.LyricsOnly = config.ExpandHome(args[i])
+
 		case "--config", "-c":
 			i++
 
@@ -155,6 +162,7 @@ func printUsage() {
 	fmt.Println("  -f, --format <format>      Audio format: mp3, m4a, opus, flac, etc. (default: mp3)")
 	fmt.Println("  -o, --output <dir>         Output directory (default: ~/Music)")
 	fmt.Println("      --no-lyrics            Skip lyrics fetching")
+	fmt.Println("      --lyrics-only <dir>    Fetch lyrics only for existing files in directory")
 	fmt.Println("  -c, --config <path>        Path to config file")
 	fmt.Println("  -h, --help                 Show this help message")
 	fmt.Println()

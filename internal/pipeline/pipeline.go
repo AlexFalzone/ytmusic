@@ -84,7 +84,7 @@ func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 	}
 
 	if !cfg.SkipLyrics {
-		resolveLyrics(ctx, mergedDir, log)
+		ResolveLyrics(ctx, mergedDir, log)
 	}
 
 	log.Info("=== Moving files to %s ===", cfg.OutputDir)
@@ -122,10 +122,9 @@ func buildProviders(cfg config.Config, log *logger.Logger) []metadata.Provider {
 	return providers
 }
 
-// resolveLyrics fetches lyrics from LRCLib for each audio file in dir.
+// ResolveLyrics fetches lyrics from LRCLib for each audio file in dir.
 // Synced lyrics are saved as .lrc sidecar files; plain lyrics are embedded in tags.
-// Best-effort: errors are logged but don't stop the pipeline.
-func resolveLyrics(ctx context.Context, dir string, log *logger.Logger) {
+func ResolveLyrics(ctx context.Context, dir string, log *logger.Logger) {
 	files, err := utils.FindAudioFiles(dir)
 	if err != nil || len(files) == 0 {
 		return
