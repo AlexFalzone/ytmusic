@@ -69,9 +69,9 @@ func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 		return fmt.Errorf("failed to merge files: %w", err)
 	}
 
-	provider := buildProviders(cfg, log)
-	if provider != nil {
-		imp := importer.New(cfg, log, provider)
+	providers := buildProviders(cfg, log)
+	if len(providers) > 0 {
+		imp := importer.New(cfg, log, providers)
 		if err := imp.Import(ctx, mergedDir); err != nil {
 			msg := fmt.Sprintf("metadata resolution failed: %v", err)
 			log.Warn(msg)
@@ -83,7 +83,9 @@ func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 		log.Info("No metadata providers configured, skipping metadata resolution")
 	}
 
-	resolveLyrics(ctx, mergedDir, log)
+	if !cfg.SkipLyrics {
+		resolveLyrics(ctx, mergedDir, log)
+	}
 
 	log.Info("=== Moving files to %s ===", cfg.OutputDir)
 	moved, failed, err := utils.MoveAudioFiles(mergedDir, cfg.OutputDir, metadata.SubDirFromTags)
@@ -98,9 +100,9 @@ func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 	return nil
 }
 
-// buildProviders creates a metadata.Provider based on cfg.MetadataProviders.
+// buildProviders creates metadata providers based on cfg.MetadataProviders.
 // Returns nil if no providers are configured.
-func buildProviders(cfg config.Config, log *logger.Logger) metadata.Provider {
+func buildProviders(cfg config.Config, log *logger.Logger) []metadata.Provider {
 	if len(cfg.MetadataProviders) == 0 {
 		return nil
 	}
@@ -117,13 +119,7 @@ func buildProviders(cfg config.Config, log *logger.Logger) metadata.Provider {
 		}
 	}
 
-	if len(providers) == 0 {
-		return nil
-	}
-	if len(providers) == 1 {
-		return providers[0]
-	}
-	return metadata.NewChainProvider(providers, log)
+	return providers
 }
 
 // resolveLyrics fetches lyrics from LRCLib for each audio file in dir.

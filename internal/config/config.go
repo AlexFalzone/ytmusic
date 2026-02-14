@@ -21,6 +21,7 @@ type Config struct {
 	SpotifyClientID     string   `yaml:"spotify_client_id"`
 	SpotifyClientSecret string   `yaml:"spotify_client_secret"`
 	ConfidenceThreshold float64  `yaml:"confidence_threshold"`
+	SkipLyrics          bool     `yaml:"skip_lyrics"`
 	OutputDir           string   `yaml:"output_dir"`
 }
 

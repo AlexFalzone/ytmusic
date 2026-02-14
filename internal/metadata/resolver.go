@@ -18,20 +18,23 @@ const defaultConfidenceThreshold = 0.7
 
 // Resolver orchestrates metadata resolution: reads existing tags, normalizes,
 // searches providers, scores results, and writes back the best metadata.
+// When multiple providers are configured, the Resolver tries them in order for
+// the primary match (fallback) and then fills missing fields from the remaining
+// providers (gap filling).
 type Resolver struct {
-	provider  Provider
+	providers []Provider
 	logger    *logger.Logger
 	threshold float64
 }
 
-// NewResolver creates a new Resolver with the given provider.
+// NewResolver creates a new Resolver with the given providers.
 // If threshold is 0, the default (0.7) is used.
-func NewResolver(p Provider, log *logger.Logger, threshold float64) *Resolver {
+func NewResolver(providers []Provider, log *logger.Logger, threshold float64) *Resolver {
 	if threshold <= 0 {
 		threshold = defaultConfidenceThreshold
 	}
 	return &Resolver{
-		provider:  p,
+		providers: providers,
 		logger:    log,
 		threshold: threshold,
 	}
@@ -72,7 +75,6 @@ func (r *Resolver) Resolve(ctx context.Context, files []string) error {
 }
 
 func (r *Resolver) resolveFile(ctx context.Context, path string) error {
-	// Read existing tags from file
 	existingTags, err := taglib.ReadTags(path)
 	if err != nil {
 		return fmt.Errorf("failed to read existing tags: %w", err)
@@ -87,7 +89,6 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 		return nil
 	}
 
-	// Normalize
 	query := NormalizeQuery(rawTitle, rawArtist)
 	query.Album = strings.TrimSpace(rawAlbum)
 	r.logger.Debug("  Normalized: title=%q artist=%q album=%q", query.Title, query.Artist, query.Album)
@@ -96,29 +97,7 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 		return nil
 	}
 
-	// Search provider
-	results, err := r.provider.Search(ctx, query)
-	if err != nil {
-		return fmt.Errorf("provider search failed: %w", err)
-	}
-	if len(results) == 0 {
-		r.logger.Debug("  No results from %s", r.provider.Name())
-		ensureAlbumArtist(path)
-		return nil
-	}
-
-	// Score and pick best match
-	best := results[0]
-	best.Confidence = score(query, best)
-
-	for _, result := range results[1:] {
-		result.Confidence = score(query, result)
-		if result.Confidence > best.Confidence {
-			best = result
-		}
-	}
-
-	r.logger.Debug("  Best match: %q by %q (confidence: %.2f)", best.Title, best.Artist, best.Confidence)
+	best, matchIdx := r.findPrimaryMatch(ctx, query)
 
 	if best.Confidence < r.threshold {
 		r.logger.Debug("  Confidence %.2f below threshold %.2f, keeping original tags", best.Confidence, r.threshold)
@@ -126,12 +105,12 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 		return nil
 	}
 
-	// Write metadata
+	best = r.fillGaps(ctx, query, best, matchIdx)
+
 	if err := WriteTags(path, best); err != nil {
 		return fmt.Errorf("failed to write tags: %w", err)
 	}
 
-	// Download and embed artwork
 	if best.ArtworkURL != "" {
 		if err := r.downloadAndEmbedArtwork(ctx, path, best.ArtworkURL); err != nil {
 			r.logger.Warn("  Failed to embed artwork: %v", err)
@@ -140,6 +119,116 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 
 	ensureAlbumArtist(path)
 	return nil
+}
+
+// findPrimaryMatch tries providers in order until one returns a match above threshold.
+func (r *Resolver) findPrimaryMatch(ctx context.Context, query SearchQuery) (TrackInfo, int) {
+	var best TrackInfo
+	var matchIdx int
+	for i, p := range r.providers {
+		results, err := p.Search(ctx, query)
+		if err != nil {
+			r.logger.Debug("  provider %s failed: %v", p.Name(), err)
+			continue
+		}
+		if len(results) == 0 {
+			r.logger.Debug("  No results from %s", p.Name())
+			continue
+		}
+
+		candidate := pickBest(query, results)
+		r.logger.Debug("  %s: best %q by %q (confidence: %.2f)", p.Name(), candidate.Title, candidate.Artist, candidate.Confidence)
+
+		if candidate.Confidence >= r.threshold {
+			return candidate, i
+		}
+		if candidate.Confidence > best.Confidence {
+			best = candidate
+			matchIdx = i
+		}
+	}
+	return best, matchIdx
+}
+
+// pickBest scores all results and returns the one with the highest confidence.
+func pickBest(query SearchQuery, results []TrackInfo) TrackInfo {
+	best := results[0]
+	best.Confidence = score(query, best)
+	for _, r := range results[1:] {
+		r.Confidence = score(query, r)
+		if r.Confidence > best.Confidence {
+			best = r
+		}
+	}
+	return best
+}
+
+// fillGaps queries remaining providers to fill missing fields in the primary match.
+func (r *Resolver) fillGaps(ctx context.Context, query SearchQuery, base TrackInfo, fromIdx int) TrackInfo {
+	if !hasMissingFields(base) {
+		return base
+	}
+
+	for _, p := range r.providers[fromIdx+1:] {
+		results, err := p.Search(ctx, query)
+		if err != nil || len(results) == 0 {
+			continue
+		}
+
+		filler := pickBest(query, results)
+		if filler.Confidence < r.threshold {
+			continue
+		}
+
+		r.logger.Debug("  gap fill from %s: %q by %q", p.Name(), filler.Title, filler.Artist)
+		base = mergeTrackInfo(base, filler)
+
+		if !hasMissingFields(base) {
+			break
+		}
+	}
+
+	return base
+}
+
+// hasMissingFields returns true if any gap-fillable field is empty/zero.
+func hasMissingFields(t TrackInfo) bool {
+	return t.Genre == "" ||
+		t.TrackNumber == 0 ||
+		t.DiscNumber == 0 ||
+		t.Year == 0 ||
+		t.ISRC == "" ||
+		t.ArtworkURL == ""
+}
+
+// mergeTrackInfo copies gap-fillable fields from filler into base where base has zero values.
+// Authoritative fields (Title, Artist, Album, AlbumArtist) are never overwritten.
+func mergeTrackInfo(base, filler TrackInfo) TrackInfo {
+	if base.Genre == "" && filler.Genre != "" {
+		base.Genre = filler.Genre
+	}
+	if base.TrackNumber == 0 && filler.TrackNumber != 0 {
+		base.TrackNumber = filler.TrackNumber
+	}
+	if base.TotalTracks == 0 && filler.TotalTracks != 0 {
+		base.TotalTracks = filler.TotalTracks
+	}
+	if base.DiscNumber == 0 && filler.DiscNumber != 0 {
+		base.DiscNumber = filler.DiscNumber
+	}
+	if base.Year == 0 && filler.Year != 0 {
+		base.Year = filler.Year
+	}
+	if base.ReleaseDate == "" && filler.ReleaseDate != "" {
+		base.ReleaseDate = filler.ReleaseDate
+	}
+	if base.ISRC == "" && filler.ISRC != "" {
+		base.ISRC = filler.ISRC
+	}
+	if base.ArtworkURL == "" && filler.ArtworkURL != "" {
+		base.ArtworkURL = filler.ArtworkURL
+	}
+	return base
 }
 
 // ensureAlbumArtist sets AlbumArtist to the primary artist (first before comma)

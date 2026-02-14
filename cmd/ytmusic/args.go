@@ -91,6 +91,9 @@ func parseArgs() (config.Config, string, error) {
 			i++
 			cfg.OutputDir = config.ExpandHome(args[i])
 
+		case "--no-lyrics":
+			cfg.SkipLyrics = true
+
 		case "--config", "-c":
 			i++
 
@@ -151,6 +154,7 @@ func printUsage() {
 	fmt.Println("  -b, --browser <name>       Browser to extract cookies from (default: brave)")
 	fmt.Println("  -f, --format <format>      Audio format: mp3, m4a, opus, flac, etc. (default: mp3)")
 	fmt.Println("  -o, --output <dir>         Output directory (default: ~/Music)")
+	fmt.Println("      --no-lyrics            Skip lyrics fetching")
 	fmt.Println("  -c, --config <path>        Path to config file")
 	fmt.Println("  -h, --help                 Show this help message")
 	fmt.Println()
