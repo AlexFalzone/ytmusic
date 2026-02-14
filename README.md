@@ -80,7 +80,9 @@ cookies_browser: brave
 audio_format: mp3
 output_dir: "~/Music"
 verbose: false
-dry_run: false
+metadata_providers:
+  - spotify
+  - musicbrainz
 spotify_client_id: ""
 spotify_client_secret: ""
 confidence_threshold: 0.7

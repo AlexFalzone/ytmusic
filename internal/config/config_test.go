@@ -13,6 +13,7 @@ func TestValidate(t *testing.T) {
 			ParallelJobs:        4,
 			AudioFormat:         "mp3",
 			OutputDir:           "/tmp/music",
+			MetadataProviders:   []string{"spotify"},
 			SpotifyClientID:     "id",
 			SpotifyClientSecret: "secret",
 			ConfidenceThreshold: 0.7,
@@ -94,14 +95,51 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		{
-			name:    "missing spotify client id",
-			modify:  func(c *Config) { c.SpotifyClientID = "" },
+			name: "missing spotify creds with spotify provider",
+			modify: func(c *Config) {
+				c.MetadataProviders = []string{"spotify"}
+				c.SpotifyClientID = ""
+			},
 			wantErr: true,
 		},
 		{
-			name:    "missing spotify client secret",
-			modify:  func(c *Config) { c.SpotifyClientSecret = "" },
+			name: "missing spotify secret with spotify provider",
+			modify: func(c *Config) {
+				c.MetadataProviders = []string{"spotify"}
+				c.SpotifyClientSecret = ""
+			},
 			wantErr: true,
+		},
+		{
+			name: "no spotify creds needed without spotify provider",
+			modify: func(c *Config) {
+				c.MetadataProviders = []string{"musicbrainz"}
+				c.SpotifyClientID = ""
+				c.SpotifyClientSecret = ""
+			},
+		},
+		{
+			name: "no spotify creds needed with empty providers",
+			modify: func(c *Config) {
+				c.MetadataProviders = nil
+				c.SpotifyClientID = ""
+				c.SpotifyClientSecret = ""
+			},
+		},
+		{
+			name:    "unknown provider",
+			modify:  func(c *Config) { c.MetadataProviders = []string{"deezer"} },
+			wantErr: true,
+		},
+		{
+			name: "multiple valid providers",
+			modify: func(c *Config) {
+				c.MetadataProviders = []string{"spotify", "musicbrainz"}
+			},
+		},
+		{
+			name:   "musicbrainz only",
+			modify: func(c *Config) { c.MetadataProviders = []string{"musicbrainz"} },
 		},
 	}
 

@@ -60,6 +60,9 @@ func SubDirFromTags(path string) string {
 	artist := firstTag(tags, taglib.AlbumArtist)
 	if artist == "" {
 		artist = firstTag(tags, taglib.Artist)
+		if i := strings.Index(artist, ","); i > 0 {
+			artist = strings.TrimSpace(artist[:i])
+		}
 	}
 	album := firstTag(tags, taglib.Album)
 

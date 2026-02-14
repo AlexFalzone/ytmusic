@@ -101,6 +101,7 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 	}
 	if len(results) == 0 {
 		r.logger.Debug("  No results from %s", r.provider.Name())
+		ensureAlbumArtist(path)
 		return nil
 	}
 
@@ -119,6 +120,7 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 
 	if best.Confidence < r.threshold {
 		r.logger.Debug("  Confidence %.2f below threshold %.2f, keeping original tags", best.Confidence, r.threshold)
+		ensureAlbumArtist(path)
 		return nil
 	}
 
@@ -134,7 +136,35 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 		}
 	}
 
+	ensureAlbumArtist(path)
 	return nil
+}
+
+// ensureAlbumArtist sets AlbumArtist to the primary artist (first before comma)
+// if it's missing. This prevents music servers like Navidrome from creating
+// separate entries for featured tracks.
+func ensureAlbumArtist(path string) {
+	tags, err := taglib.ReadTags(path)
+	if err != nil {
+		return
+	}
+
+	if firstTag(tags, taglib.AlbumArtist) != "" {
+		return
+	}
+
+	artist := firstTag(tags, taglib.Artist)
+	if artist == "" {
+		return
+	}
+
+	if i := strings.Index(artist, ","); i > 0 {
+		artist = strings.TrimSpace(artist[:i])
+	}
+
+	taglib.WriteTags(path, map[string][]string{
+		taglib.AlbumArtist: {artist},
+	}, 0)
 }
 
 func (r *Resolver) downloadAndEmbedArtwork(ctx context.Context, filePath, artworkURL string) error {

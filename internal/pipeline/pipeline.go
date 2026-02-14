@@ -9,6 +9,7 @@ import (
 	"ytmusic/internal/importer"
 	"ytmusic/internal/logger"
 	"ytmusic/internal/metadata"
+	"ytmusic/internal/provider/musicbrainz"
 	"ytmusic/internal/provider/spotify"
 	"ytmusic/pkg/utils"
 )
@@ -60,14 +61,18 @@ func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 		return fmt.Errorf("failed to merge files: %w", err)
 	}
 
-	provider := spotify.New(cfg.SpotifyClientID, cfg.SpotifyClientSecret)
-	imp := importer.New(cfg, log, provider)
-	if err := imp.Import(ctx, mergedDir); err != nil {
-		msg := fmt.Sprintf("metadata resolution failed: %v", err)
-		log.Warn(msg)
-		if hooks.OnWarning != nil {
-			hooks.OnWarning(msg)
+	provider := buildProviders(cfg, log)
+	if provider != nil {
+		imp := importer.New(cfg, log, provider)
+		if err := imp.Import(ctx, mergedDir); err != nil {
+			msg := fmt.Sprintf("metadata resolution failed: %v", err)
+			log.Warn(msg)
+			if hooks.OnWarning != nil {
+				hooks.OnWarning(msg)
+			}
 		}
+	} else {
+		log.Info("No metadata providers configured, skipping metadata resolution")
 	}
 
 	log.Info("=== Moving files to %s ===", cfg.OutputDir)
@@ -81,4 +86,30 @@ func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 	log.Info("Moved %d files to %s", moved, cfg.OutputDir)
 
 	return nil
+}
+
+// buildProviders creates a metadata.Provider based on cfg.MetadataProviders.
+// Returns nil if no providers are configured.
+func buildProviders(cfg config.Config, log *logger.Logger) metadata.Provider {
+	if len(cfg.MetadataProviders) == 0 {
+		return nil
+	}
+
+	var providers []metadata.Provider
+	for _, name := range cfg.MetadataProviders {
+		switch name {
+		case "spotify":
+			providers = append(providers, spotify.New(cfg.SpotifyClientID, cfg.SpotifyClientSecret))
+		case "musicbrainz":
+			providers = append(providers, musicbrainz.New())
+		}
+	}
+
+	if len(providers) == 0 {
+		return nil
+	}
+	if len(providers) == 1 {
+		return providers[0]
+	}
+	return metadata.NewChainProvider(providers, log)
 }

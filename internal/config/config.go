@@ -11,16 +11,17 @@ import (
 
 // Config contains the program configuration
 type Config struct {
-	PlaylistURL         string  `yaml:"playlist_url"`
-	Verbose             bool    `yaml:"verbose"`
-	DryRun              bool    `yaml:"dry_run"`
-	ParallelJobs        int     `yaml:"parallel_jobs"`
-	CookiesBrowser      string  `yaml:"cookies_browser"`
-	AudioFormat         string  `yaml:"audio_format"`
-	SpotifyClientID     string  `yaml:"spotify_client_id"`
-	SpotifyClientSecret string  `yaml:"spotify_client_secret"`
-	ConfidenceThreshold float64 `yaml:"confidence_threshold"`
-	OutputDir           string  `yaml:"output_dir"`
+	PlaylistURL         string   `yaml:"playlist_url"`
+	Verbose             bool     `yaml:"verbose"`
+	DryRun              bool     `yaml:"dry_run"`
+	ParallelJobs        int      `yaml:"parallel_jobs"`
+	CookiesBrowser      string   `yaml:"cookies_browser"`
+	AudioFormat         string   `yaml:"audio_format"`
+	MetadataProviders   []string `yaml:"metadata_providers"`
+	SpotifyClientID     string   `yaml:"spotify_client_id"`
+	SpotifyClientSecret string   `yaml:"spotify_client_secret"`
+	ConfidenceThreshold float64  `yaml:"confidence_threshold"`
+	OutputDir           string   `yaml:"output_dir"`
 }
 
 // DefaultConfig returns the default configuration
@@ -174,15 +175,30 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("confidence_threshold must be between 0.0 and 1.0, got %.2f", c.ConfidenceThreshold)
 	}
 
-	// DryRun doesn't need Spotify credentials
-	if !c.DryRun {
+	validProviders := map[string]bool{"spotify": true, "musicbrainz": true}
+	for _, p := range c.MetadataProviders {
+		if !validProviders[p] {
+			return fmt.Errorf("unknown metadata provider %q, valid providers: spotify, musicbrainz", p)
+		}
+	}
+
+	if !c.DryRun && c.hasProvider("spotify") {
 		if c.SpotifyClientID == "" {
-			return fmt.Errorf("spotify_client_id is missing in config file")
+			return fmt.Errorf("spotify_client_id is required when spotify is in metadata_providers")
 		}
 		if c.SpotifyClientSecret == "" {
-			return fmt.Errorf("spotify_client_secret is missing in config file")
+			return fmt.Errorf("spotify_client_secret is required when spotify is in metadata_providers")
 		}
 	}
 
 	return nil
+}
+
+func (c *Config) hasProvider(name string) bool {
+	for _, p := range c.MetadataProviders {
+		if p == name {
+			return true
+		}
+	}
+	return false
 }

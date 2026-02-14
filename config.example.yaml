@@ -7,7 +7,6 @@
 # Or specify a custom location with: ytmusic --config /path/to/config.yaml
 
 # Number of parallel downloads (1-10)
-# Higher values download faster but use more system resources
 # YouTube may rate-limit if too many parallel connections are made
 parallel_jobs: 4
 
@@ -18,14 +17,19 @@ cookies_browser: brave
 
 # Audio format for output files
 # Supported: mp3, m4a, opus, flac, wav, aac
-# mp3 is the most compatible format
 audio_format: mp3
 
-# Enable verbose logging (true/false)
-# When true, shows detailed download progress and debug information
 verbose: false
 
-# Spotify API credentials for metadata resolution
+# Metadata providers to use, in order of priority
+# Supported: spotify, musicbrainz
+# The resolver tries each provider in order until one returns results
+# If empty or omitted, metadata resolution is skipped
+metadata_providers:
+  - spotify
+  - musicbrainz
+
+# Spotify API credentials (required only if "spotify" is in metadata_providers)
 # Get yours at https://developer.spotify.com/dashboard
 spotify_client_id: ""
 spotify_client_secret: ""
@@ -36,6 +40,4 @@ spotify_client_secret: ""
 # confidence_threshold: 0.7
 
 # Output directory for downloaded and tagged files
-# Supports ~ for home directory
-# Default: ~/Music
 output_dir: "~/Music"
