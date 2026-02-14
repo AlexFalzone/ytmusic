@@ -131,7 +131,7 @@ func parseRecordings(recordings []recording) []metadata.TrackInfo {
 		}
 
 		if len(rec.Releases) > 0 {
-			rel := rec.Releases[0]
+			rel := pickBestRelease(rec.Releases)
 			info.Album = rel.Title
 			if len(rel.ArtistCredit) > 0 {
 				info.AlbumArtist = rel.ArtistCredit[0].Artist.Name
@@ -158,6 +158,40 @@ func joinArtistCredits(credits []artistCredit) string {
 		parts = append(parts, ac.Artist.Name)
 	}
 	return strings.Join(parts, ", ")
+}
+
+// pickBestRelease selects the most appropriate release for tagging.
+// Prefers: Official status, Album type, no secondary types (not Compilation), earliest date.
+func pickBestRelease(releases []release) release {
+	best := releases[0]
+	bestScore := releaseScore(best)
+
+	for _, rel := range releases[1:] {
+		s := releaseScore(rel)
+		if s > bestScore || (s == bestScore && rel.Date != "" && (best.Date == "" || rel.Date < best.Date)) {
+			best = rel
+			bestScore = s
+		}
+	}
+	return best
+}
+
+func releaseScore(rel release) int {
+	score := 0
+
+	if rel.Status == "Official" {
+		score += 4
+	}
+
+	if rel.ReleaseGroup.PrimaryType == "Album" {
+		score += 2
+	}
+
+	if len(rel.ReleaseGroup.SecondaryTypes) == 0 {
+		score += 1
+	}
+
+	return score
 }
 
 func parseYear(date string) int {
@@ -196,9 +230,16 @@ type artistInfo struct {
 type release struct {
 	ID           string         `json:"id"`
 	Title        string         `json:"title"`
+	Status       string         `json:"status"`
 	Date         string         `json:"date"`
 	ArtistCredit []artistCredit `json:"artist-credit"`
+	ReleaseGroup releaseGroup   `json:"release-group"`
 	Media        []media        `json:"media"`
+}
+
+type releaseGroup struct {
+	PrimaryType    string   `json:"primary-type"`
+	SecondaryTypes []string `json:"secondary-types"`
 }
 
 type media struct {

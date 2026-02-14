@@ -171,6 +171,95 @@ func TestSearch_MultipleArtistCredits(t *testing.T) {
 	}
 }
 
+func TestPickBestRelease(t *testing.T) {
+	compilation := release{
+		ID:     "comp-1",
+		Title:  "Sanremo 2023",
+		Status: "Official",
+		Date:   "2023-02-10",
+		ReleaseGroup: releaseGroup{
+			PrimaryType:    "Album",
+			SecondaryTypes: []string{"Compilation"},
+		},
+	}
+	album := release{
+		ID:     "album-1",
+		Title:  "Sirio",
+		Status: "Official",
+		Date:   "2022-06-03",
+		ReleaseGroup: releaseGroup{
+			PrimaryType: "Album",
+		},
+	}
+	single := release{
+		ID:     "single-1",
+		Title:  "CENERE",
+		Status: "Official",
+		Date:   "2023-01-01",
+		ReleaseGroup: releaseGroup{
+			PrimaryType: "Single",
+		},
+	}
+	bootleg := release{
+		ID:     "boot-1",
+		Title:  "Live Bootleg",
+		Status: "Bootleg",
+		Date:   "2020-01-01",
+		ReleaseGroup: releaseGroup{
+			PrimaryType: "Album",
+		},
+	}
+
+	tests := []struct {
+		name     string
+		releases []release
+		wantID   string
+	}{
+		{
+			name:     "album over compilation",
+			releases: []release{compilation, album},
+			wantID:   "album-1",
+		},
+		{
+			name:     "album over single",
+			releases: []release{single, album},
+			wantID:   "album-1",
+		},
+		{
+			name:     "official over bootleg",
+			releases: []release{bootleg, album},
+			wantID:   "album-1",
+		},
+		{
+			name:     "compilation first still picks album",
+			releases: []release{compilation, single, album},
+			wantID:   "album-1",
+		},
+		{
+			name: "earlier date wins at same score",
+			releases: []release{
+				{ID: "newer", Title: "B", Status: "Official", Date: "2023-01-01", ReleaseGroup: releaseGroup{PrimaryType: "Album"}},
+				{ID: "older", Title: "A", Status: "Official", Date: "2020-01-01", ReleaseGroup: releaseGroup{PrimaryType: "Album"}},
+			},
+			wantID: "older",
+		},
+		{
+			name:     "single release returns it",
+			releases: []release{compilation},
+			wantID:   "comp-1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := pickBestRelease(tt.releases)
+			if got.ID != tt.wantID {
+				t.Errorf("pickBestRelease() picked %q (%s), want %q", got.Title, got.ID, tt.wantID)
+			}
+		})
+	}
+}
+
 func TestBuildQuery(t *testing.T) {
 	tests := []struct {
 		name  string
