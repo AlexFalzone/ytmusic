@@ -175,10 +175,10 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("confidence_threshold must be between 0.0 and 1.0, got %.2f", c.ConfidenceThreshold)
 	}
 
-	validProviders := map[string]bool{"spotify": true, "musicbrainz": true}
+	validProviders := map[string]bool{"spotify": true, "musicbrainz": true, "deezer": true}
 	for _, p := range c.MetadataProviders {
 		if !validProviders[p] {
-			return fmt.Errorf("unknown metadata provider %q, valid providers: spotify, musicbrainz", p)
+			return fmt.Errorf("unknown metadata provider %q, valid providers: spotify, musicbrainz, deezer", p)
 		}
 	}
 

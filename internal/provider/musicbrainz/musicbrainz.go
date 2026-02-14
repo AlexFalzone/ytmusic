@@ -114,6 +114,9 @@ func buildQuery(query metadata.SearchQuery) string {
 	if query.Artist != "" {
 		parts = append(parts, fmt.Sprintf("artist:%q", query.Artist))
 	}
+	if query.Album != "" {
+		parts = append(parts, fmt.Sprintf("release:%q", query.Album))
+	}
 	return strings.Join(parts, " AND ")
 }
 

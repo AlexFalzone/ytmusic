@@ -22,11 +22,12 @@ audio_format: mp3
 verbose: false
 
 # Metadata providers to use, in order of priority
-# Supported: spotify, musicbrainz
+# Supported: spotify, musicbrainz, deezer
 # The resolver tries each provider in order until one returns results
 # If empty or omitted, metadata resolution is skipped
 metadata_providers:
   - spotify
+  - deezer
   - musicbrainz
 
 # Spotify API credentials (required only if "spotify" is in metadata_providers)

@@ -128,8 +128,12 @@ func TestValidate(t *testing.T) {
 		},
 		{
 			name:    "unknown provider",
-			modify:  func(c *Config) { c.MetadataProviders = []string{"deezer"} },
+			modify:  func(c *Config) { c.MetadataProviders = []string{"lastfm"} },
 			wantErr: true,
+		},
+		{
+			name:   "deezer provider",
+			modify: func(c *Config) { c.MetadataProviders = []string{"deezer"} },
 		},
 		{
 			name: "multiple valid providers",

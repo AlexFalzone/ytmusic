@@ -80,6 +80,7 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 
 	rawTitle := firstTag(existingTags, taglib.Title)
 	rawArtist := firstTag(existingTags, taglib.Artist)
+	rawAlbum := firstTag(existingTags, taglib.Album)
 
 	if rawTitle == "" {
 		r.logger.Debug("  Skipping: no title metadata")
@@ -88,7 +89,8 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 
 	// Normalize
 	query := NormalizeQuery(rawTitle, rawArtist)
-	r.logger.Debug("  Normalized: title=%q artist=%q", query.Title, query.Artist)
+	query.Album = strings.TrimSpace(rawAlbum)
+	r.logger.Debug("  Normalized: title=%q artist=%q album=%q", query.Title, query.Artist, query.Album)
 
 	if query.Title == "" {
 		return nil
@@ -198,11 +200,33 @@ func score(query SearchQuery, result TrackInfo) float64 {
 	titleScore := similarity(normalize(query.Title), normalize(result.Title))
 	artistScore := similarity(normalize(query.Artist), normalize(result.Artist))
 
+	var s float64
 	if query.Artist == "" {
-		return titleScore
+		s = titleScore
+	} else {
+		// Weight: 60% title, 40% artist
+		s = titleScore*0.6 + artistScore*0.4
 	}
-	// Weight: 60% title, 40% artist
-	return titleScore*0.6 + artistScore*0.4
+
+	// Boost results that match the existing album tag from yt-dlp
+	if query.Album != "" && result.Album != "" {
+		albumScore := similarity(normalize(query.Album), normalize(result.Album))
+		if albumScore > 0.8 {
+			s *= 1.1
+		}
+	}
+
+	// Penalize compilation albums so original releases are preferred
+	if strings.EqualFold(result.AlbumArtist, "Various Artists") {
+		s *= 0.8
+	}
+
+	// Clamp to 1.0
+	if s > 1.0 {
+		s = 1.0
+	}
+
+	return s
 }
 
 // similarity returns how similar two strings are (0.0-1.0).

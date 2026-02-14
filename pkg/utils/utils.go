@@ -108,8 +108,16 @@ func MoveAudioFiles(srcDir, dstDir string, subDirFunc func(string) string) (move
 		dst := filepath.Join(destDir, filepath.Base(file))
 		if moveErr := MoveFile(file, dst); moveErr != nil {
 			failed++
-		} else {
-			moved++
+			continue
+		}
+		moved++
+
+		// Move .lrc sidecar file if it exists
+		baseName := strings.TrimSuffix(file, filepath.Ext(file))
+		lrcSrc := baseName + ".lrc"
+		if _, err := os.Stat(lrcSrc); err == nil {
+			lrcDst := filepath.Join(destDir, strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))+".lrc")
+			MoveFile(lrcSrc, lrcDst)
 		}
 	}
 
