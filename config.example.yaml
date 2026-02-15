@@ -21,14 +21,19 @@ audio_format: mp3
 
 verbose: false
 
+# Skip lyrics fetching (synced .lrc and plain embedded)
+# skip_lyrics: false
+
 # Metadata providers to use, in order of priority
-# Supported: spotify, musicbrainz, deezer
+# Supported: spotify, musicbrainz, deezer, itunes
 # The resolver tries each provider in order until one returns results
+# Missing fields are filled by subsequent providers (gap filling)
 # If empty or omitted, metadata resolution is skipped
 metadata_providers:
   - spotify
   - deezer
   - musicbrainz
+  - itunes
 
 # Spotify API credentials (required only if "spotify" is in metadata_providers)
 # Get yours at https://developer.spotify.com/dashboard
