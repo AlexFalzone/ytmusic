@@ -49,6 +49,9 @@ go build -o ytmusic-web ./cmd/ytmusic-web
 -o, --output <dir>    Output directory (default: ~/Music)
 -c, --config <path>   Config file path
     --init-config     Create config file with defaults
+    --no-lyrics       Disable lyrics fetching
+    --lyrics-only <dir>   Fetch lyrics for existing audio files
+    --import-only <dir>   Resolve metadata for existing audio files
 -h, --help            Help
 ```
 
@@ -80,9 +83,12 @@ cookies_browser: brave
 audio_format: mp3
 output_dir: "~/Music"
 verbose: false
+skip_lyrics: false
 metadata_providers:
   - spotify
   - musicbrainz
+  - deezer
+  - itunes
 spotify_client_id: ""
 spotify_client_secret: ""
 confidence_threshold: 0.7
