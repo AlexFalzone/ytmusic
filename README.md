@@ -1,95 +1,83 @@
-## Quick Start (Docker - Recommended)
+# ytmusic
 
-```bash
-# Start web interface
-docker compose up -d ytmusic-web
+Download YouTube Music as tagged audio files. Automatically resolves metadata (title, artist, album, artwork, lyrics)
+from multiple providers.
 
-# Access at http://localhost:8080
-```
+## Table of Contents
 
-## Local Installation
+- [Prerequisites](#prerequisites)
+- [Build](#build)
+- [Usage](#usage)
+- [Options](#options)
+- [Configuration](#configuration)
+- [Metadata Providers](#metadata-providers)
+- [Docker](#docker)
 
-### Prerequisites
+## Prerequisites
 
 - Go 1.23+
 - yt-dlp
 - FFmpeg
 
-### Build
-
-```bash
-# CLI tool
-go build -o ytmusic ./cmd/ytmusic
-
-# Web interface
-go build -o ytmusic-web ./cmd/ytmusic-web
-```
-
-## CLI Usage
-
-```bash
-# Download playlist
-./ytmusic https://www.youtube.com/playlist?list=...
-
-# Preview mode
-./ytmusic --dry-run https://youtube.com/playlist?list=...
-
-# Custom options
-./ytmusic -p 8 -f flac https://youtube.com/playlist?list=...
-```
-
-### Options
+## Build
 
 ```
--v, --verbose         Detailed output
--n, --dry-run         Preview only
--p, --parallel <n>    Parallel downloads (1-10, default: 4)
--b, --browser <name>  Browser for cookies
--f, --format <fmt>    Audio format (mp3, flac, m4a, opus, wav, aac)
--o, --output <dir>    Output directory (default: ~/Music)
--c, --config <path>   Config file path
-    --init-config     Create config file with defaults
-    --no-lyrics       Disable lyrics fetching
-    --lyrics-only <dir>   Fetch lyrics for existing audio files
-    --import-only <dir>   Resolve metadata for existing audio files
--h, --help            Help
+make local   // Build both CLI and web
+make test    // Run tests
 ```
 
-## Web Interface
+## Usage
 
-```bash
-./ytmusic-web
+```
+ytmusic [options] <playlist_url>
+```
 
-# Custom port
-./ytmusic-web -port 3000
+## Options
+
+```
+-v, --verbose              Detailed output
+-n, --dry-run              Preview only (no download)
+-p, --parallel <n>         Parallel downloads (1-10, default: 4)
+-b, --browser <name>       Browser for cookie extraction (default: brave)
+-f, --format <fmt>         Audio format: mp3, m4a, opus, flac, wav, aac (default: mp3)
+-o, --output <dir>         Output directory (default: ~/Music)
+-c, --config <path>        Config file path
+    --no-lyrics            Skip lyrics fetching
+    --lyrics-only <dir>    Fetch lyrics for existing audio files
+    --import-only <dir>    Resolve metadata for existing audio files (no download)
+    --init-config          Create default config file
+-h, --help                 Help
 ```
 
 ## Configuration
 
+Look at `config.example.yaml` or just run `./ytmusic --init-config`
+
+## Metadata Providers
+
+| Provider    | API Key  | Rate Limit  |
+|-------------|----------|-------------|
+| Spotify     | Required | Token-based |
+| MusicBrainz | No       | 1 req/s     |
+| Deezer      | No       | None        |
+| iTunes      | No       | None        |
+
+Providers are tried in order. The first match above the confidence threshold wins. Missing fields (genre, track number,
+artwork, etc.) are filled by subsequent providers.
+
+## Docker
+
+Uses a multi-stage Dockerfile (Go builder + python-slim runtime with yt-dlp and FFmpeg static).
+
 ```bash
-# Initialize config
-./ytmusic --init-config
+make build                         # Build cli image
+make build-web                     # Build web image
 ```
 
-Config locations (checked in order):
-1. `./ytmusic.yaml`
-2. `~/.config/ytmusic/config.yaml`
-3. `~/.ytmusic.yaml`
+Volumes mounted from `docker-compose.yml`:
 
-Example `config.yaml`:
-```yaml
-parallel_jobs: 4
-cookies_browser: brave
-audio_format: mp3
-output_dir: "~/Music"
-verbose: false
-skip_lyrics: false
-metadata_providers:
-  - spotify
-  - musicbrainz
-  - deezer
-  - itunes
-spotify_client_id: ""
-spotify_client_secret: ""
-confidence_threshold: 0.7
-```
+| Container path | Host path | Content |
+|---------------|-----------|---------|
+| `/config`     | `./config`| Config YAML |
+| `/music`      | `./music` | Output audio files |
+| `/logs`       | `./logs`  | Log files |
