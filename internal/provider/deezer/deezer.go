@@ -67,15 +67,18 @@ func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]meta
 }
 
 func buildQuery(query metadata.SearchQuery) string {
+	escape := func(s string) string {
+		return strings.ReplaceAll(s, "\"", "")
+	}
 	var parts []string
 	if query.Title != "" {
-		parts = append(parts, "track:\""+query.Title+"\"")
+		parts = append(parts, "track:\""+escape(query.Title)+"\"")
 	}
 	if query.Artist != "" {
-		parts = append(parts, "artist:\""+query.Artist+"\"")
+		parts = append(parts, "artist:\""+escape(query.Artist)+"\"")
 	}
 	if query.Album != "" {
-		parts = append(parts, "album:\""+query.Album+"\"")
+		parts = append(parts, "album:\""+escape(query.Album)+"\"")
 	}
 	return strings.Join(parts, " ")
 }

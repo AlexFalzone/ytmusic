@@ -3,7 +3,9 @@ package lyrics
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"time"
@@ -28,18 +30,30 @@ func NewClient() *Client {
 
 // Fetch retrieves lyrics for the given track from LRCLib.
 // Returns empty Result (no error) when lyrics are not found.
-// Retries once on transient errors (timeout, EOF, connection reset).
+// Retries once on transient network errors.
 func (c *Client) Fetch(ctx context.Context, artist, title, album string) (Result, error) {
 	result, err := c.doFetch(ctx, artist, title, album)
-	if err != nil {
-		select {
-		case <-ctx.Done():
-			return Result{}, err
-		case <-time.After(2 * time.Second):
-		}
-		return c.doFetch(ctx, artist, title, album)
+	if err == nil {
+		return result, nil
 	}
-	return result, nil
+
+	// Only retry on network-level errors (timeout, connection reset, etc.)
+	// Don't retry on API errors (4xx, 5xx) which would fail identically.
+	if !isTransient(err) {
+		return Result{}, err
+	}
+
+	select {
+	case <-ctx.Done():
+		return Result{}, err
+	case <-time.After(2 * time.Second):
+	}
+	return c.doFetch(ctx, artist, title, album)
+}
+
+func isTransient(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr)
 }
 
 func (c *Client) doFetch(ctx context.Context, artist, title, album string) (Result, error) {

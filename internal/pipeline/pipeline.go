@@ -138,14 +138,18 @@ func ResolveLyrics(ctx context.Context, dir string, log *logger.Logger) {
 	var wg sync.WaitGroup
 
 	for _, path := range files {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			break
-		default:
 		}
 
 		tags, err := taglib.ReadTags(path)
 		if err != nil {
+			continue
+		}
+
+		lrcPath := strings.TrimSuffix(path, filepath.Ext(path)) + ".lrc"
+		if _, err := os.Stat(lrcPath); err == nil {
+			log.Debug("lyrics already exist: %s", filepath.Base(lrcPath))
 			continue
 		}
 
@@ -158,7 +162,7 @@ func ResolveLyrics(ctx context.Context, dir string, log *logger.Logger) {
 
 		wg.Add(1)
 		sem <- struct{}{}
-		go func(path, artist, title, album string) {
+		go func(path, lrcPath, artist, title, album string) {
 			defer wg.Done()
 			defer func() { <-sem }()
 
@@ -169,7 +173,6 @@ func ResolveLyrics(ctx context.Context, dir string, log *logger.Logger) {
 			}
 
 			if result.Synced != "" {
-				lrcPath := strings.TrimSuffix(path, filepath.Ext(path)) + ".lrc"
 				if err := os.WriteFile(lrcPath, []byte(result.Synced), 0644); err != nil {
 					log.Debug("failed to write .lrc file: %v", err)
 				} else {
@@ -186,7 +189,7 @@ func ResolveLyrics(ctx context.Context, dir string, log *logger.Logger) {
 			} else {
 				log.Debug("no lyrics found for %q", title)
 			}
-		}(path, artist, title, album)
+		}(path, lrcPath, artist, title, album)
 	}
 
 	wg.Wait()

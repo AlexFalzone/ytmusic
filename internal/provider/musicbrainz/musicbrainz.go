@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"ytmusic/internal/metadata"
@@ -18,6 +19,7 @@ import (
 type Client struct {
 	httpClient  *http.Client
 	apiURL      string
+	mu          sync.Mutex
 	lastRequest time.Time
 }
 
@@ -69,11 +71,17 @@ func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]meta
 
 // rateLimit enforces MusicBrainz's 1 request/second limit.
 func (c *Client) rateLimit() {
+	c.mu.Lock()
 	elapsed := time.Since(c.lastRequest)
+	c.mu.Unlock()
+
 	if elapsed < time.Second {
 		time.Sleep(time.Second - elapsed)
 	}
+
+	c.mu.Lock()
 	c.lastRequest = time.Now()
+	c.mu.Unlock()
 }
 
 // doWithRetry executes the request, retrying on 429/503 with backoff.
@@ -98,7 +106,9 @@ func (c *Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Resp
 		case <-time.After(time.Duration(retryAfter) * time.Second):
 		}
 
+		c.mu.Lock()
 		c.lastRequest = time.Now()
+		c.mu.Unlock()
 		retry := req.Clone(ctx)
 		return c.httpClient.Do(retry)
 	}

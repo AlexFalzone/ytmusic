@@ -22,9 +22,10 @@ const defaultConfidenceThreshold = 0.7
 // the primary match (fallback) and then fills missing fields from the remaining
 // providers (gap filling).
 type Resolver struct {
-	providers []Provider
-	logger    *logger.Logger
-	threshold float64
+	providers  []Provider
+	logger     *logger.Logger
+	threshold  float64
+	httpClient *http.Client
 }
 
 // NewResolver creates a new Resolver with the given providers.
@@ -34,9 +35,10 @@ func NewResolver(providers []Provider, log *logger.Logger, threshold float64) *R
 		threshold = defaultConfidenceThreshold
 	}
 	return &Resolver{
-		providers: providers,
-		logger:    log,
-		threshold: threshold,
+		providers:  providers,
+		logger:     log,
+		threshold:  threshold,
+		httpClient: &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
@@ -264,8 +266,7 @@ func (r *Resolver) downloadAndEmbedArtwork(ctx context.Context, filePath, artwor
 		return fmt.Errorf("failed to create artwork request: %w", err)
 	}
 
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := r.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to download artwork: %w", err)
 	}

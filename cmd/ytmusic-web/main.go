@@ -27,17 +27,10 @@ func main() {
 	flag.StringVar(&configPath, "config", "", "Config file path")
 	flag.Parse()
 
-	// Load config or use defaults
-	var cfg config.Config
-	if configPath != "" {
-		var err error
-		cfg, err = config.LoadConfigFile(configPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Config error: %v\n", err)
-			os.Exit(1)
-		}
-	} else {
-		cfg = config.DefaultConfig()
+	cfg, err := config.LoadConfigFile(configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Config error: %v\n", err)
+		os.Exit(1)
 	}
 
 	// Setup logger with file logging

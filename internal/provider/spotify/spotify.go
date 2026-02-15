@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"ytmusic/internal/metadata"
 )
@@ -171,8 +172,10 @@ func formatGenres(genres []string) string {
 func titleCase(s string) string {
 	words := strings.Fields(s)
 	for i, w := range words {
-		if len(w) > 0 {
-			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		r := []rune(w)
+		if len(r) > 0 {
+			r[0] = unicode.ToUpper(r[0])
+			words[i] = string(r)
 		}
 	}
 	return strings.Join(words, " ")
