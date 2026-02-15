@@ -22,16 +22,16 @@ build-web:
 	docker compose build --target web ytmusic-web
 
 up:
-	docker-compose up -d ytmusic-web
+	docker compose up -d ytmusic-web
 
 down:
-	docker-compose down
+	docker compose down
 
 logs:
-	docker-compose logs -f ytmusic-web
+	docker compose logs -f ytmusic-web
 
 clean:
-	docker-compose down -v --rmi all
+	docker compose down -v --rmi all
 
 local:
 	go build -o ytmusic ./cmd/ytmusic
