@@ -19,15 +19,13 @@ func newTestClient(url string) *Client {
 }
 
 func TestSearch_ParsesResponse(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/recording" {
-			t.Errorf("unexpected path: %s", r.URL.Path)
-		}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/recording", func(w http.ResponseWriter, r *http.Request) {
 		if ua := r.Header.Get("User-Agent"); ua == "" {
 			t.Error("missing User-Agent header")
 		}
-
 		w.Header().Set("Content-Type", "application/json")
+		// artwork URL will be rewritten to point to this test server
 		w.Write([]byte(`{
 			"recordings": [{
 				"id": "rec-1",
@@ -44,10 +42,17 @@ func TestSearch_ParsesResponse(t *testing.T) {
 				"isrcs": ["GBUM71029604"]
 			}]
 		}`))
-	}))
+	})
+	mux.HandleFunc("/release/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
+	// Override artwork base URL to point to test server
+	c.artworkBaseURL = srv.URL + "/release"
 	results, err := c.Search(context.Background(), metadata.SearchQuery{
 		Title:  "Bohemian Rhapsody",
 		Artist: "Queen",
@@ -84,8 +89,9 @@ func TestSearch_ParsesResponse(t *testing.T) {
 	if r.Duration != 354*time.Second {
 		t.Errorf("Duration = %v, want %v", r.Duration, 354*time.Second)
 	}
-	if r.ArtworkURL != "https://coverartarchive.org/release/rel-1/front-500" {
-		t.Errorf("ArtworkURL = %q", r.ArtworkURL)
+	wantArtwork := srv.URL + "/release/rel-1/front-500"
+	if r.ArtworkURL != wantArtwork {
+		t.Errorf("ArtworkURL = %q, want %q", r.ArtworkURL, wantArtwork)
 	}
 }
 

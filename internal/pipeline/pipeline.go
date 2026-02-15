@@ -15,6 +15,7 @@ import (
 	"ytmusic/internal/lyrics"
 	"ytmusic/internal/metadata"
 	"ytmusic/internal/provider/deezer"
+	"ytmusic/internal/provider/itunes"
 	"ytmusic/internal/provider/musicbrainz"
 	"ytmusic/internal/provider/spotify"
 	"ytmusic/pkg/utils"
@@ -100,6 +101,25 @@ func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 	return nil
 }
 
+// RunImportOnly resolves metadata and lyrics for existing audio files in dir.
+func RunImportOnly(ctx context.Context, cfg config.Config, log *logger.Logger, dir string) error {
+	providers := buildProviders(cfg, log)
+	if len(providers) > 0 {
+		imp := importer.New(cfg, log, providers)
+		if err := imp.Import(ctx, dir); err != nil {
+			return fmt.Errorf("metadata resolution failed: %w", err)
+		}
+	} else {
+		log.Info("No metadata providers configured, skipping metadata resolution")
+	}
+
+	if !cfg.SkipLyrics {
+		ResolveLyrics(ctx, dir, log)
+	}
+
+	return nil
+}
+
 // buildProviders creates metadata providers based on cfg.MetadataProviders.
 // Returns nil if no providers are configured.
 func buildProviders(cfg config.Config, log *logger.Logger) []metadata.Provider {
@@ -116,6 +136,8 @@ func buildProviders(cfg config.Config, log *logger.Logger) []metadata.Provider {
 			providers = append(providers, musicbrainz.New())
 		case "deezer":
 			providers = append(providers, deezer.New())
+		case "itunes":
+			providers = append(providers, itunes.New())
 		}
 	}
 

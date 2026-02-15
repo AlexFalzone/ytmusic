@@ -23,6 +23,7 @@ type Config struct {
 	ConfidenceThreshold float64  `yaml:"confidence_threshold"`
 	SkipLyrics          bool     `yaml:"skip_lyrics"`
 	LyricsOnly          string   `yaml:"-"`
+	ImportOnly          string   `yaml:"-"`
 	OutputDir           string   `yaml:"output_dir"`
 }
 
@@ -137,20 +138,9 @@ func homeDir() string {
 	return home
 }
 
-// Validate checks if the configuration is valid
-func (c *Config) Validate() error {
-	// DryRun mode doesn't require URL validation
-	if c.DryRun && c.PlaylistURL == "" {
-		return nil
-	}
-
-	if c.PlaylistURL == "" {
-		return fmt.Errorf("playlist URL cannot be empty")
-	}
-	if !strings.HasPrefix(c.PlaylistURL, "http://") && !strings.HasPrefix(c.PlaylistURL, "https://") {
-		return fmt.Errorf("playlist URL must start with http:// or https://")
-	}
-
+// ValidateBase checks non-URL configuration fields.
+// Used by the web server at startup to catch config errors early.
+func (c *Config) ValidateBase() error {
 	if c.ParallelJobs < 1 {
 		return fmt.Errorf("parallel jobs must be at least 1, got %d", c.ParallelJobs)
 	}
@@ -178,10 +168,10 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("confidence_threshold must be between 0.0 and 1.0, got %.2f", c.ConfidenceThreshold)
 	}
 
-	validProviders := map[string]bool{"spotify": true, "musicbrainz": true, "deezer": true}
+	validProviders := map[string]bool{"spotify": true, "musicbrainz": true, "deezer": true, "itunes": true}
 	for _, p := range c.MetadataProviders {
 		if !validProviders[p] {
-			return fmt.Errorf("unknown metadata provider %q, valid providers: spotify, musicbrainz, deezer", p)
+			return fmt.Errorf("unknown metadata provider %q, valid providers: spotify, musicbrainz, deezer, itunes", p)
 		}
 	}
 
@@ -192,6 +182,26 @@ func (c *Config) Validate() error {
 		if c.SpotifyClientSecret == "" {
 			return fmt.Errorf("spotify_client_secret is required when spotify is in metadata_providers")
 		}
+	}
+
+	return nil
+}
+
+// Validate checks the full configuration including playlist URL.
+func (c *Config) Validate() error {
+	if err := c.ValidateBase(); err != nil {
+		return err
+	}
+
+	if c.DryRun && c.PlaylistURL == "" {
+		return nil
+	}
+
+	if c.PlaylistURL == "" {
+		return fmt.Errorf("playlist URL cannot be empty")
+	}
+	if !strings.HasPrefix(c.PlaylistURL, "http://") && !strings.HasPrefix(c.PlaylistURL, "https://") {
+		return fmt.Errorf("playlist URL must start with http:// or https://")
 	}
 
 	return nil

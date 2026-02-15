@@ -17,17 +17,19 @@ import (
 
 // Client is a MusicBrainz Web API client that implements metadata.Provider.
 type Client struct {
-	httpClient  *http.Client
-	apiURL      string
-	mu          sync.Mutex
-	lastRequest time.Time
+	httpClient     *http.Client
+	apiURL         string
+	artworkBaseURL string
+	mu             sync.Mutex
+	lastRequest    time.Time
 }
 
 // New creates a new MusicBrainz client.
 func New() *Client {
 	return &Client{
-		httpClient: &http.Client{Timeout: 10 * time.Second},
-		apiURL:     "https://musicbrainz.org/ws/2",
+		httpClient:     &http.Client{Timeout: 10 * time.Second},
+		apiURL:         "https://musicbrainz.org/ws/2",
+		artworkBaseURL: "https://coverartarchive.org/release",
 	}
 }
 
@@ -66,7 +68,7 @@ func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]meta
 		return nil, fmt.Errorf("failed to decode musicbrainz response: %w", err)
 	}
 
-	return parseRecordings(searchResp.Recordings), nil
+	return c.parseRecordings(ctx, searchResp.Recordings), nil
 }
 
 // rateLimit enforces MusicBrainz's 1 request/second limit.
@@ -130,7 +132,7 @@ func buildQuery(query metadata.SearchQuery) string {
 	return strings.Join(parts, " AND ")
 }
 
-func parseRecordings(recordings []recording) []metadata.TrackInfo {
+func (c *Client) parseRecordings(ctx context.Context, recordings []recording) []metadata.TrackInfo {
 	var results []metadata.TrackInfo
 	for _, rec := range recordings {
 		info := metadata.TrackInfo{
@@ -151,7 +153,11 @@ func parseRecordings(recordings []recording) []metadata.TrackInfo {
 			}
 			info.Year = parseYear(rel.Date)
 			info.ReleaseDate = rel.Date
-			info.ArtworkURL = fmt.Sprintf("https://coverartarchive.org/release/%s/front-500", rel.ID)
+
+			artworkURL := fmt.Sprintf("%s/%s/front-500", c.artworkBaseURL, rel.ID)
+			if c.hasArtwork(ctx, artworkURL) {
+				info.ArtworkURL = artworkURL
+			}
 
 			if len(rel.Media) > 0 && len(rel.Media[0].Track) > 0 {
 				if n, err := strconv.Atoi(rel.Media[0].Track[0].Number); err == nil {
@@ -163,6 +169,20 @@ func parseRecordings(recordings []recording) []metadata.TrackInfo {
 		results = append(results, info)
 	}
 	return results
+}
+
+// hasArtwork checks if artwork exists at the given URL via a HEAD request.
+func (c *Client) hasArtwork(ctx context.Context, artworkURL string) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, artworkURL, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusTemporaryRedirect
 }
 
 func joinArtistCredits(credits []artistCredit) string {

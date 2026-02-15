@@ -101,6 +101,13 @@ func parseArgs() (config.Config, string, error) {
 			i++
 			cfg.LyricsOnly = config.ExpandHome(args[i])
 
+		case "--import-only":
+			if i+1 >= len(args) {
+				return config.Config{}, "", fmt.Errorf("--import-only requires a directory path")
+			}
+			i++
+			cfg.ImportOnly = config.ExpandHome(args[i])
+
 		case "--config", "-c":
 			i++
 
@@ -163,6 +170,7 @@ func printUsage() {
 	fmt.Println("  -o, --output <dir>         Output directory (default: ~/Music)")
 	fmt.Println("      --no-lyrics            Skip lyrics fetching")
 	fmt.Println("      --lyrics-only <dir>    Fetch lyrics only for existing files in directory")
+	fmt.Println("      --import-only <dir>    Resolve metadata and lyrics for existing files (no download)")
 	fmt.Println("  -c, --config <path>        Path to config file")
 	fmt.Println("  -h, --help                 Show this help message")
 	fmt.Println()

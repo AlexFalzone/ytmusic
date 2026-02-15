@@ -52,6 +52,15 @@ func main() {
 		return
 	}
 
+	if cfg.ImportOnly != "" {
+		if err := pipeline.RunImportOnly(sh.Context(), cfg, log, cfg.ImportOnly); err != nil {
+			log.Error("%v", err)
+			os.Exit(1)
+		}
+		log.Info("=== Import completed ===")
+		return
+	}
+
 	if err := cfg.Validate(); err != nil {
 		log.Error("Configuration error: %v", err)
 		os.Exit(1)
