@@ -16,10 +16,10 @@ help:
 	@echo "  make test       - Run tests"
 
 build:
-	docker compose build --target cli ytmusic-cli
+	docker compose build ytmusic-cli
 
 build-web:
-	docker compose build --target web ytmusic-web
+	docker compose build ytmusic-web
 
 up:
 	docker compose up -d ytmusic-web
