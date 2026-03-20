@@ -8,7 +8,7 @@ services:
     image: ytmusic:cli
     container_name: ytmusic-cli
     volumes:
-      - ./config:/config
+      - ./config:/root/.config/ytmusic
       - ./music:/music
       - ./logs:/logs
       - ytmusic-cache:/root/.cache
@@ -28,7 +28,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./config:/config
+      - ./config:/root/.config/ytmusic
       - ./music:/music
       - ./logs:/logs
       - ytmusic-cache:/root/.cache
