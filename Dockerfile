@@ -45,13 +45,7 @@ COPY --from=ffmpeg-downloader /ffmpeg/ffprobe /usr/local/bin/ffprobe
 
 RUN pip install --no-cache-dir yt-dlp && pip cache purge
 
-RUN mkdir -p /config /music /tmp/ytmusic /logs /root/.config/ytmusic
-
-RUN echo "parallel_jobs: 4\n\
-cookies_browser: brave\n\
-audio_format: mp3\n\
-verbose: false\n\
-dry_run: false" > /root/.config/ytmusic/config.yaml
+RUN mkdir -p /config /music /tmp/ytmusic /logs
 
 ENV HOME=/root \
     PATH="/usr/local/bin:${PATH}" \
