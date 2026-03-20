@@ -95,4 +95,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/api/jobs || exit 1
 
 ENTRYPOINT ["ytmusic-web"]
-CMD ["-port", "8080"]
+CMD ["-config", "/config/config.yaml", "-port", "8080"]
