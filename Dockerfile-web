@@ -29,15 +29,8 @@ COPY --from=builder /build/ytmusic-web /usr/local/bin/ytmusic-web
 COPY web/static /app/web/static
 COPY config.example.yaml /etc/ytmusic/config.example.yaml
 
-RUN mkdir -p /config /music /tmp/ytmusic /logs /root/.config/ytmusic
+RUN mkdir -p /config /music /tmp/ytmusic /logs
 
-RUN echo "parallel_jobs: 4\n\
-cookies_browser: brave\n\
-audio_format: mp3\n\
-verbose: false\n\
-dry_run: false" > /root/.config/ytmusic/config.yaml
-
-ENV HOME=/root
 ENV PATH="/usr/local/bin:${PATH}"
 
 VOLUME ["/config", "/music", "/logs"]
@@ -49,4 +42,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/api/jobs || exit 1
 
 ENTRYPOINT ["ytmusic-web"]
-CMD ["-port", "8080"]
+CMD ["-config", "/config/config.yaml", "-port", "8080"]
