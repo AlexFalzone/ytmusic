@@ -3,7 +3,9 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"ytmusic/internal/pipeline"
@@ -67,7 +69,17 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobs := s.jobMgr.ListJobs()
+	limit := 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			if n > 200 {
+				n = 200
+			}
+			limit = n
+		}
+	}
+
+	jobs := s.jobMgr.ListJobs(limit)
 	responses := make([]*JobResponse, len(jobs))
 	for i, job := range jobs {
 		responses[i] = s.jobToResponse(job)
@@ -123,6 +135,16 @@ func (s *Server) handleJobAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) processJob(job *Job) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Error("panic in job %s: %v", job.ID, r)
+			s.jobMgr.UpdateJob(job.ID, func(j *Job) {
+				j.Status = StatusFailed
+				j.Error = fmt.Sprintf("internal error: %v", r)
+			})
+		}
+	}()
+
 	ctx, cancel := context.WithCancel(s.ctx)
 	defer cancel()
 

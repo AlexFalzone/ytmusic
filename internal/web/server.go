@@ -28,7 +28,7 @@ func (s *Server) Router() http.Handler {
 	mux := http.NewServeMux()
 
 	// Static files
-	mux.Handle("/", http.FileServer(http.Dir("web/static")))
+	mux.Handle("/", s.staticCacheMiddleware(http.FileServer(http.Dir("web/static"))))
 
 	// API endpoints
 	mux.HandleFunc("/api/download", s.handleDownload)
@@ -37,6 +37,13 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("/ws", s.handleWebSocket)
 
 	return s.loggingMiddleware(mux)
+}
+
+func (s *Server) staticCacheMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) loggingMiddleware(next http.Handler) http.Handler {

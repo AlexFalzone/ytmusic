@@ -48,8 +48,12 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Send initial job state
 	job, err := s.jobMgr.GetJob(jobID)
 	if err == nil {
-		data, _ := json.Marshal(s.jobToResponse(job))
-		conn.WriteMessage(websocket.TextMessage, data)
+		data, err := json.Marshal(s.jobToResponse(job))
+		if err != nil {
+			s.logger.Error("failed to marshal initial job response: %v", err)
+		} else {
+			conn.WriteMessage(websocket.TextMessage, data)
+		}
 	}
 
 	ticker := time.NewTicker(30 * time.Second)

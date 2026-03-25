@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -112,14 +113,22 @@ func (jm *JobManager) GetJob(id string) (*Job, error) {
 	return job, nil
 }
 
-// ListJobs returns all jobs
-func (jm *JobManager) ListJobs() []*Job {
+// ListJobs returns the most recent jobs up to limit, sorted newest first.
+func (jm *JobManager) ListJobs(limit int) []*Job {
 	jm.mu.RLock()
 	defer jm.mu.RUnlock()
 
 	jobs := make([]*Job, 0, len(jm.jobs))
 	for _, job := range jm.jobs {
 		jobs = append(jobs, job)
+	}
+
+	sort.Slice(jobs, func(i, j int) bool {
+		return jobs[i].CreatedAt.After(jobs[j].CreatedAt)
+	})
+
+	if limit > 0 && len(jobs) > limit {
+		jobs = jobs[:limit]
 	}
 	return jobs
 }
