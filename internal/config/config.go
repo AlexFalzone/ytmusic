@@ -20,6 +20,7 @@ type Config struct {
 	MetadataProviders   []string `yaml:"metadata_providers"`
 	SpotifyClientID     string   `yaml:"spotify_client_id"`
 	SpotifyClientSecret string   `yaml:"spotify_client_secret"`
+	AcoustIDAPIKey      string   `yaml:"acoustid_api_key"`
 	ConfidenceThreshold float64  `yaml:"confidence_threshold"`
 	SkipLyrics          bool     `yaml:"skip_lyrics"`
 	LyricsOnly          string   `yaml:"-"`

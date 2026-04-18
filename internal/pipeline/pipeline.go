@@ -10,6 +10,7 @@ import (
 
 	"ytmusic/internal/config"
 	"ytmusic/internal/downloader"
+	"ytmusic/internal/fingerprint"
 	"ytmusic/internal/importer"
 	"ytmusic/internal/logger"
 	"ytmusic/internal/lyrics"
@@ -71,8 +72,9 @@ func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 	}
 
 	providers := buildProviders(cfg, log)
-	if len(providers) > 0 {
-		imp := importer.New(cfg, log, providers)
+	fp := buildFingerprinter(cfg)
+	if len(providers) > 0 || fp != nil {
+		imp := importer.New(cfg, log, providers, fp)
 		if err := imp.Import(ctx, mergedDir); err != nil {
 			msg := fmt.Sprintf("metadata resolution failed: %v", err)
 			log.Warn(msg)
@@ -104,8 +106,9 @@ func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 // RunImportOnly resolves metadata and lyrics for existing audio files in dir.
 func RunImportOnly(ctx context.Context, cfg config.Config, log *logger.Logger, dir string) error {
 	providers := buildProviders(cfg, log)
-	if len(providers) > 0 {
-		imp := importer.New(cfg, log, providers)
+	fp := buildFingerprinter(cfg)
+	if len(providers) > 0 || fp != nil {
+		imp := importer.New(cfg, log, providers, fp)
 		if err := imp.Import(ctx, dir); err != nil {
 			return fmt.Errorf("metadata resolution failed: %w", err)
 		}
@@ -142,6 +145,17 @@ func buildProviders(cfg config.Config, log *logger.Logger) []metadata.Provider {
 	}
 
 	return providers
+}
+
+// buildFingerprinter creates an AcoustID-based fingerprinter if configured.
+// Returns nil if AcoustIDAPIKey is empty, disabling fingerprinting.
+func buildFingerprinter(cfg config.Config) metadata.Fingerprinter {
+	if cfg.AcoustIDAPIKey == "" {
+		return nil
+	}
+	mbClient := musicbrainz.New()
+	acoustid := fingerprint.NewAcoustIDClient(cfg.AcoustIDAPIKey, "")
+	return fingerprint.New(acoustid, mbClient.LookupByMBID)
 }
 
 // ResolveLyrics fetches lyrics from LRCLib for each audio file in dir.

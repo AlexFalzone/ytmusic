@@ -13,17 +13,19 @@ import (
 
 // Importer handles resolving and writing metadata for downloaded audio files.
 type Importer struct {
-	Config    config.Config
-	Logger    *logger.Logger
-	providers []metadata.Provider
+	Config        config.Config
+	Logger        *logger.Logger
+	providers     []metadata.Provider
+	fingerprinter metadata.Fingerprinter // nil if not configured
 }
 
 // New creates a new Importer instance with the given metadata providers.
-func New(cfg config.Config, log *logger.Logger, providers []metadata.Provider) *Importer {
+func New(cfg config.Config, log *logger.Logger, providers []metadata.Provider, fp metadata.Fingerprinter) *Importer {
 	return &Importer{
-		Config:    cfg,
-		Logger:    log,
-		providers: providers,
+		Config:        cfg,
+		Logger:        log,
+		providers:     providers,
+		fingerprinter: fp,
 	}
 }
 
@@ -51,6 +53,9 @@ func (i *Importer) Import(ctx context.Context, dir string) error {
 	i.Logger.Debug("Found %d audio files", len(files))
 
 	resolver := metadata.NewResolver(i.providers, i.Logger, i.Config.ConfidenceThreshold)
+	if i.fingerprinter != nil {
+		resolver = resolver.WithFingerprinter(i.fingerprinter)
+	}
 	if err := resolver.Resolve(ctx, files); err != nil {
 		return fmt.Errorf("metadata resolution failed: %w", err)
 	}
