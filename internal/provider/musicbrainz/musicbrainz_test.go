@@ -2,6 +2,7 @@ package musicbrainz
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -296,5 +297,65 @@ func TestBuildQuery(t *testing.T) {
 				t.Errorf("buildQuery() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestLookupByMBID_Found(t *testing.T) {
+	recording := map[string]any{
+		"id":     "mbid-abc",
+		"title":  "Test Track",
+		"length": 240000,
+		"artist-credit": []map[string]any{
+			{"artist": map[string]any{"id": "artist-1", "name": "Test Artist"}},
+		},
+		"releases": []map[string]any{
+			{
+				"id":     "release-1",
+				"title":  "Test Album",
+				"status": "Official",
+				"date":   "2020-06-01",
+				"artist-credit": []map[string]any{
+					{"artist": map[string]any{"id": "artist-1", "name": "Test Artist"}},
+				},
+				"release-group": map[string]any{
+					"primary-type":    "Album",
+					"secondary-types": []any{},
+				},
+				"media": []map[string]any{
+					{"track": []map[string]any{{"number": "3"}}},
+				},
+			},
+		},
+		"isrcs": []string{"USUM72000001"},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(recording)
+	}))
+	defer srv.Close()
+
+	client := NewWithURL(srv.URL, "https://coverartarchive.org/release")
+	info, err := client.LookupByMBID(context.Background(), "mbid-abc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.Title != "Test Track" {
+		t.Errorf("title: got %q, want %q", info.Title, "Test Track")
+	}
+	if info.Artist != "Test Artist" {
+		t.Errorf("artist: got %q, want %q", info.Artist, "Test Artist")
+	}
+	if info.Album != "Test Album" {
+		t.Errorf("album: got %q, want %q", info.Album, "Test Album")
+	}
+	if info.TrackNumber != 3 {
+		t.Errorf("track number: got %d, want 3", info.TrackNumber)
+	}
+	if info.Year != 2020 {
+		t.Errorf("year: got %d, want 2020", info.Year)
+	}
+	if info.ISRC != "USUM72000001" {
+		t.Errorf("ISRC: got %q, want %q", info.ISRC, "USUM72000001")
 	}
 }

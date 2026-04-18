@@ -33,6 +33,15 @@ func New() *Client {
 	}
 }
 
+// NewWithURL creates a client with custom API and artwork base URLs (used in tests).
+func NewWithURL(apiURL, artworkBaseURL string) *Client {
+	return &Client{
+		httpClient:     &http.Client{Timeout: 10 * time.Second},
+		apiURL:         apiURL,
+		artworkBaseURL: artworkBaseURL,
+	}
+}
+
 func (c *Client) Name() string { return "musicbrainz" }
 
 // Search queries the MusicBrainz recording search API and returns matching tracks.
@@ -69,6 +78,42 @@ func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]meta
 	}
 
 	return c.parseRecordings(ctx, searchResp.Recordings), nil
+}
+
+// LookupByMBID fetches a single recording by its MusicBrainz recording ID.
+// This bypasses text search and provides authoritative metadata.
+func (c *Client) LookupByMBID(ctx context.Context, mbid string) (metadata.TrackInfo, error) {
+	c.rateLimit()
+
+	reqURL := fmt.Sprintf("%s/recording/%s?inc=artists+releases+isrcs+artist-credits&fmt=json", c.apiURL, mbid)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return metadata.TrackInfo{}, fmt.Errorf("failed to create musicbrainz lookup request: %w", err)
+	}
+	req.Header.Set("User-Agent", "ytmusic/1.0")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.doWithRetry(ctx, req)
+	if err != nil {
+		return metadata.TrackInfo{}, fmt.Errorf("musicbrainz lookup failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return metadata.TrackInfo{}, fmt.Errorf("musicbrainz lookup returned %d: %s", resp.StatusCode, body)
+	}
+
+	var rec recording
+	if err := json.NewDecoder(resp.Body).Decode(&rec); err != nil {
+		return metadata.TrackInfo{}, fmt.Errorf("failed to decode musicbrainz recording: %w", err)
+	}
+
+	results := c.parseRecordings(ctx, []recording{rec})
+	if len(results) == 0 {
+		return metadata.TrackInfo{}, fmt.Errorf("no parseable data in musicbrainz recording %s", mbid)
+	}
+	return results[0], nil
 }
 
 // rateLimit enforces MusicBrainz's 1 request/second limit.
