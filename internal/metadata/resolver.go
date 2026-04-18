@@ -54,7 +54,7 @@ func (r *Resolver) WithFingerprinter(f Fingerprinter) *Resolver {
 // metadata, normalizes it, searches the provider, scores the best match, and
 // writes improved metadata back if confident enough.
 func (r *Resolver) Resolve(ctx context.Context, files []string) error {
-	r.logger.Info("=== Resolving metadata for %d files ===", len(files))
+	r.logger.Info("resolving metadata for %d files", len(files))
 
 	var failed int
 	for i, path := range files {
