@@ -90,7 +90,7 @@ func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 		ResolveLyrics(ctx, mergedDir, log)
 	}
 
-	log.Info("=== Moving files to %s ===", cfg.OutputDir)
+	log.Info("moving files to %s", cfg.OutputDir)
 	moved, failed, err := utils.MoveAudioFiles(mergedDir, cfg.OutputDir, metadata.SubDirFromTags)
 	if err != nil {
 		return fmt.Errorf("failed to move files to output: %w", err)
@@ -166,7 +166,7 @@ func ResolveLyrics(ctx context.Context, dir string, log *logger.Logger) {
 		return
 	}
 
-	log.Info("=== Fetching lyrics for %d files ===", len(files))
+	log.Info("fetching lyrics for %d files", len(files))
 	client := lyrics.NewClient()
 
 	const workers = 3

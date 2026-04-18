@@ -32,7 +32,7 @@ func New(cfg config.Config, log *logger.Logger, providers []metadata.Provider, f
 // Import resolves metadata for all audio files in the given directory,
 // then writes improved tags.
 func (i *Importer) Import(ctx context.Context, dir string) error {
-	i.Logger.Info("=== Resolving metadata ===")
+	i.Logger.Info("resolving metadata")
 	i.Logger.Debug("Folder: %s", dir)
 
 	if dir == "" {

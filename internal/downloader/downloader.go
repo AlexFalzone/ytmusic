@@ -34,7 +34,7 @@ func New(cfg config.Config, log *logger.Logger, tmpDir string) *Downloader {
 
 // ExtractURLs extracts individual video URLs from a playlist
 func (d *Downloader) ExtractURLs(ctx context.Context) ([]string, error) {
-	d.Logger.Info("=== Extracting URLs from playlist ===")
+	d.Logger.Info("extracting urls from playlist")
 	d.Logger.Debug("Playlist URL: %s", d.Config.PlaylistURL)
 
 	cmd := exec.CommandContext(ctx, "yt-dlp",
@@ -73,7 +73,7 @@ func (d *Downloader) ExtractURLs(ctx context.Context) ([]string, error) {
 
 // FetchMetadata fetches video metadata without downloading (for dry-run)
 func (d *Downloader) FetchMetadata(ctx context.Context, urls []string) error {
-	d.Logger.Info("=== Fetching video metadata (dry-run) ===")
+	d.Logger.Info("fetching video metadata (dry-run)")
 
 	for i, url := range urls {
 		select {
@@ -167,7 +167,7 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadSt
 		return stats, fmt.Errorf("no URLs to download")
 	}
 
-	d.Logger.Info("=== Starting download (%d videos, %d parallel) ===", len(urls), d.Config.ParallelJobs)
+	d.Logger.Info("starting download (%d videos, %d parallel)", len(urls), d.Config.ParallelJobs)
 
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, d.Config.ParallelJobs)
@@ -235,7 +235,7 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadSt
 
 // MergeFiles collects all audio files into a single flat directory for metadata resolution.
 func (d *Downloader) MergeFiles() (string, error) {
-	d.Logger.Info("=== Merging audio files ===")
+	d.Logger.Info("merging audio files")
 
 	mergedDir := filepath.Join(d.TmpDir, "merged")
 	if err := os.MkdirAll(mergedDir, 0755); err != nil {
