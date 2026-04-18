@@ -13,15 +13,17 @@ type Logger struct {
 	writer  io.Writer
 	mu      *sync.Mutex
 	fileLog *os.File
-	hasBar  bool
+	hasBar  *bool
 	prefix  string
 }
 
 func New(verbose bool) *Logger {
+	hasBar := false
 	return &Logger{
 		Verbose: verbose,
 		writer:  os.Stdout,
 		mu:      &sync.Mutex{},
+		hasBar:  &hasBar,
 	}
 }
 
@@ -33,7 +35,7 @@ func (l *Logger) WithPrefix(prefix string) *Logger {
 		writer:  l.writer,
 		mu:      l.mu,
 		fileLog: l.fileLog,
-		hasBar:  l.hasBar,
+		hasBar:  l.hasBar, // shared pointer so SetProgressBar on parent propagates to all children
 		prefix:  prefix,
 	}
 }
@@ -52,7 +54,7 @@ func (l *Logger) SetFileLog(path string) error {
 func (l *Logger) SetProgressBar(active bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.hasBar = active
+	*l.hasBar = active
 }
 
 func (l *Logger) Close() error {
@@ -69,11 +71,23 @@ func (l *Logger) Info(format string, args ...interface{}) {
 }
 
 func (l *Logger) Debug(format string, args ...interface{}) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.debugLocked(format, args...)
+}
+
+// debugLocked writes a DEBUG line; caller must hold l.mu.
+// Always captures debug detail in the file even when not printing to stdout.
+func (l *Logger) debugLocked(format string, args ...interface{}) {
 	if l.Verbose {
-		l.log("DEBUG", format, args...)
+		msg := l.formatMsg("DEBUG", format, args...)
+		fmt.Fprint(l.writer, msg)
+		if l.fileLog != nil {
+			l.fileLog.WriteString(msg) //nolint:errcheck — best-effort file write
+		}
 	} else if l.fileLog != nil {
-		// Always capture debug detail in the file even when not printing to stdout.
-		l.logToFile("DEBUG", format, args...)
+		msg := l.formatMsg("DEBUG", format, args...)
+		l.fileLog.WriteString(msg) //nolint:errcheck — best-effort file write
 	}
 }
 
@@ -95,7 +109,7 @@ func (l *Logger) log(level, format string, args ...interface{}) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	msg := l.formatMsg(level, format, args...)
-	if l.Verbose || !l.hasBar {
+	if l.Verbose || !*l.hasBar {
 		fmt.Fprint(l.writer, msg)
 	}
 	if l.fileLog != nil {
@@ -103,16 +117,6 @@ func (l *Logger) log(level, format string, args ...interface{}) {
 	}
 }
 
-func (l *Logger) logToFile(level, format string, args ...interface{}) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.fileLog != nil {
-		msg := l.formatMsg(level, format, args...)
-		l.fileLog.WriteString(msg) //nolint:errcheck — best-effort file write
-	}
-}
-
-// formatMsg builds the final log line with timestamp, level, optional prefix, and message body.
 func (l *Logger) formatMsg(level, format string, args ...interface{}) string {
 	ts := time.Now().Format("2006-01-02 15:04:05")
 	body := fmt.Sprintf(format, args...)
