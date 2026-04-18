@@ -135,9 +135,11 @@ func (s *Server) handleJobAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) processJob(job *Job) {
+	jobLog := s.logger.WithPrefix(job.ID)
+
 	defer func() {
 		if r := recover(); r != nil {
-			s.logger.Error("panic in job %s: %v", job.ID, r)
+			jobLog.Error("panic: %v", r)
 			s.jobMgr.UpdateJob(job.ID, func(j *Job) {
 				j.Status = StatusFailed
 				j.Error = fmt.Sprintf("internal error: %v", r)
@@ -153,11 +155,11 @@ func (s *Server) processJob(job *Job) {
 		j.Status = StatusRunning
 	})
 
-	s.logger.Info("Starting job %s", job.ID)
+	jobLog.Info("starting")
 
 	tempDir, err := utils.CreateTempDir()
 	if err != nil {
-		s.logger.Error("Failed to create temp dir: %v", err)
+		jobLog.Error("failed to create temp dir: %v", err)
 		s.jobMgr.UpdateJob(job.ID, func(j *Job) {
 			j.Status = StatusFailed
 			j.Error = err.Error()
@@ -183,8 +185,8 @@ func (s *Server) processJob(job *Job) {
 		},
 	}
 
-	if err := pipeline.Run(ctx, job.Config, s.logger, tempDir, hooks); err != nil {
-		s.logger.Error("Job %s failed: %v", job.ID, err)
+	if err := pipeline.Run(ctx, job.Config, jobLog, tempDir, hooks); err != nil {
+		jobLog.Error("job failed: %v", err)
 		s.jobMgr.UpdateJob(job.ID, func(j *Job) {
 			j.Status = StatusFailed
 			j.Error = err.Error()
@@ -200,9 +202,9 @@ func (s *Server) processJob(job *Job) {
 	})
 
 	if warningMsg != "" {
-		s.logger.Info("Job %s completed with warnings: %s", job.ID, warningMsg)
+		jobLog.Info("completed with warnings: %s", warningMsg)
 	} else {
-		s.logger.Info("Job %s completed successfully", job.ID)
+		jobLog.Info("completed successfully")
 	}
 }
 
