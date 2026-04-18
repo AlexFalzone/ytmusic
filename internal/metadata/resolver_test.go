@@ -383,3 +383,20 @@ func TestSimilarity(t *testing.T) {
 		}
 	}
 }
+
+type stubFingerprinter struct {
+	info  TrackInfo
+	found bool
+}
+
+func (s *stubFingerprinter) LookupByFile(_ context.Context, _ string) (TrackInfo, bool, error) {
+	return s.info, s.found, nil
+}
+
+func TestResolver_WithFingerprinter_NotNil(t *testing.T) {
+	r := NewResolver(nil, nil, 0)
+	r2 := r.WithFingerprinter(&stubFingerprinter{})
+	if r2 == nil {
+		t.Fatal("WithFingerprinter returned nil")
+	}
+}

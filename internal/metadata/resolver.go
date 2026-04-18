@@ -22,10 +22,11 @@ const defaultConfidenceThreshold = 0.7
 // the primary match (fallback) and then fills missing fields from the remaining
 // providers (gap filling).
 type Resolver struct {
-	providers  []Provider
-	logger     *logger.Logger
-	threshold  float64
-	httpClient *http.Client
+	providers     []Provider
+	logger        *logger.Logger
+	threshold     float64
+	fingerprinter Fingerprinter // nil if not configured
+	httpClient    *http.Client
 }
 
 // NewResolver creates a new Resolver with the given providers.
@@ -40,6 +41,13 @@ func NewResolver(providers []Provider, log *logger.Logger, threshold float64) *R
 		threshold:  threshold,
 		httpClient: &http.Client{Timeout: 15 * time.Second},
 	}
+}
+
+// WithFingerprinter attaches an audio fingerprinter for pre-search identification.
+// Returns the same Resolver to allow chaining.
+func (r *Resolver) WithFingerprinter(f Fingerprinter) *Resolver {
+	r.fingerprinter = f
+	return r
 }
 
 // Resolve processes a list of audio file paths: for each file, it reads existing
@@ -97,6 +105,24 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 
 	if query.Title == "" {
 		return nil
+	}
+
+	// Try acoustic fingerprinting first for a definitive identification.
+	if r.fingerprinter != nil {
+		if info, found, err := r.fingerprinter.LookupByFile(ctx, path); err == nil && found {
+			r.logger.Debug("  Fingerprint match: %q by %q", info.Title, info.Artist)
+			info = r.fillGaps(ctx, query, info, -1)
+			if err := WriteTags(path, info); err != nil {
+				return fmt.Errorf("failed to write tags: %w", err)
+			}
+			if info.ArtworkURL != "" {
+				if err := r.downloadAndEmbedArtwork(ctx, path, info.ArtworkURL); err != nil {
+					r.logger.Warn("  Failed to embed artwork: %v", err)
+				}
+			}
+			ensureAlbumArtist(path)
+			return nil
+		}
 	}
 
 	best, matchIdx := r.findPrimaryMatch(ctx, query)
