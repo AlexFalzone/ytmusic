@@ -39,6 +39,7 @@ FROM python:3.11-slim AS base
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ca-certificates \
+        libchromaprint-tools \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
