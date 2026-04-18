@@ -24,12 +24,12 @@ RUN apk add --no-cache upx && \
 FROM alpine:3.19 AS ffmpeg-downloader
 
 RUN apk add --no-cache curl xz && \
-    curl -fL https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz -o /tmp/ffmpeg.tar.xz && \
-    curl -fL https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz.md5 -o /tmp/ffmpeg.tar.xz.md5 && \
-    cd /tmp && md5sum -c ffmpeg.tar.xz.md5 && \
+    curl -fL https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz -o /tmp/ffmpeg-release-amd64-static.tar.xz && \
+    curl -fL https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz.md5 -o /tmp/ffmpeg-release-amd64-static.tar.xz.md5 && \
+    cd /tmp && md5sum -c ffmpeg-release-amd64-static.tar.xz.md5 && \
     mkdir /ffmpeg && \
-    tar -xf /tmp/ffmpeg.tar.xz -C /ffmpeg --strip-components=1 && \
-    rm /tmp/ffmpeg.tar.xz /tmp/ffmpeg.tar.xz.md5
+    tar -xf /tmp/ffmpeg-release-amd64-static.tar.xz -C /ffmpeg --strip-components=1 && \
+    rm /tmp/ffmpeg-release-amd64-static.tar.xz /tmp/ffmpeg-release-amd64-static.tar.xz.md5
 
 # ==================================================
 # Base runtime
