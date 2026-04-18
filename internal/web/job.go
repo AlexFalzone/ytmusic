@@ -203,6 +203,8 @@ func (jm *JobManager) notifyListeners(jobID string, job *Job) {
 
 func generateJobID() string {
 	b := make([]byte, 8)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("failed to generate job ID: %v", err))
+	}
 	return fmt.Sprintf("job_%x", b)
 }
