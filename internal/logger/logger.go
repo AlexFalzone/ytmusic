@@ -5,120 +5,119 @@ import (
 	"io"
 	"os"
 	"sync"
+	"time"
 )
 
-// Logger handles structured logging with optional file output
 type Logger struct {
 	Verbose bool
 	writer  io.Writer
-	mu      sync.Mutex
+	mu      *sync.Mutex
 	fileLog *os.File
 	hasBar  bool
+	prefix  string
 }
 
-// New creates a new Logger instance
 func New(verbose bool) *Logger {
 	return &Logger{
 		Verbose: verbose,
 		writer:  os.Stdout,
+		mu:      &sync.Mutex{},
 	}
 }
 
-// SetFileLog enables logging to a file
+// WithPrefix returns a child logger that prepends [prefix] to every message body.
+// The child shares the parent's writer, fileLog, and mutex so concurrent writes remain safe.
+func (l *Logger) WithPrefix(prefix string) *Logger {
+	return &Logger{
+		Verbose: l.Verbose,
+		writer:  l.writer,
+		mu:      l.mu,
+		fileLog: l.fileLog,
+		hasBar:  l.hasBar,
+		prefix:  prefix,
+	}
+}
+
 func (l *Logger) SetFileLog(path string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		return fmt.Errorf("failed to open log file: %w", err)
+		return fmt.Errorf("opening log file: %w", err)
 	}
-
 	l.fileLog = f
 	return nil
 }
 
-// SetProgressBar indicates that a progress bar is active
 func (l *Logger) SetProgressBar(active bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.hasBar = active
 }
 
-// Close closes the log file if open
 func (l *Logger) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-
 	if l.fileLog != nil {
 		return l.fileLog.Close()
 	}
 	return nil
 }
 
-// Info logs informational messages
 func (l *Logger) Info(format string, args ...interface{}) {
 	l.log("INFO", format, args...)
 }
 
-// Debug logs detailed messages only in verbose mode
 func (l *Logger) Debug(format string, args ...interface{}) {
 	if l.Verbose {
 		l.log("DEBUG", format, args...)
 	} else if l.fileLog != nil {
-		// Always log debug to file even in non-verbose mode
+		// Always capture debug detail in the file even when not printing to stdout.
 		l.logToFile("DEBUG", format, args...)
 	}
 }
 
-// Error logs error messages to stderr
 func (l *Logger) Error(format string, args ...interface{}) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-
-	msg := fmt.Sprintf("[ERROR] "+format+"\n", args...)
+	msg := l.formatMsg("ERROR", format, args...)
 	fmt.Fprint(os.Stderr, msg)
-
 	if l.fileLog != nil {
-		l.fileLog.WriteString(msg)
+		l.fileLog.WriteString(msg) //nolint:errcheck — best-effort file write
 	}
 }
 
-// Warn logs warning messages
 func (l *Logger) Warn(format string, args ...interface{}) {
 	l.log("WARN", format, args...)
 }
 
-// log handles the actual logging
 func (l *Logger) log(level, format string, args ...interface{}) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-
-	var msg string
-	if level == "INFO" {
-		msg = fmt.Sprintf(format+"\n", args...)
-	} else {
-		msg = fmt.Sprintf("["+level+"] "+format+"\n", args...)
-	}
-
-	// Write to stdout (unless we have a progress bar and not verbose)
+	msg := l.formatMsg(level, format, args...)
 	if l.Verbose || !l.hasBar {
 		fmt.Fprint(l.writer, msg)
 	}
-
-	// Always write to file if available
 	if l.fileLog != nil {
-		l.fileLog.WriteString(msg)
+		l.fileLog.WriteString(msg) //nolint:errcheck — best-effort file write
 	}
 }
 
-// logToFile writes only to file
 func (l *Logger) logToFile(level, format string, args ...interface{}) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-
 	if l.fileLog != nil {
-		msg := fmt.Sprintf("["+level+"] "+format+"\n", args...)
-		l.fileLog.WriteString(msg)
+		msg := l.formatMsg(level, format, args...)
+		l.fileLog.WriteString(msg) //nolint:errcheck — best-effort file write
 	}
+}
+
+// formatMsg builds the final log line with timestamp, level, optional prefix, and message body.
+func (l *Logger) formatMsg(level, format string, args ...interface{}) string {
+	ts := time.Now().Format("2006-01-02 15:04:05")
+	body := fmt.Sprintf(format, args...)
+	if l.prefix != "" {
+		return fmt.Sprintf("%s [%s] [%s] %s\n", ts, level, l.prefix, body)
+	}
+	return fmt.Sprintf("%s [%s] %s\n", ts, level, body)
 }
