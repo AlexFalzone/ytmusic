@@ -35,3 +35,9 @@ type Provider interface {
 	Name() string
 	Search(ctx context.Context, query SearchQuery) ([]TrackInfo, error)
 }
+
+// Fingerprinter identifies an audio file by its acoustic fingerprint and returns
+// the best matching TrackInfo. Returns (zero, false, nil) when no match is found.
+type Fingerprinter interface {
+	LookupByFile(ctx context.Context, path string) (TrackInfo, bool, error)
+}
