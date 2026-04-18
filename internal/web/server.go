@@ -3,6 +3,8 @@ package web
 import (
 	"context"
 	"net/http"
+	"strings"
+	"time"
 
 	"ytmusic/internal/config"
 	"ytmusic/internal/logger"
@@ -46,9 +48,26 @@ func (s *Server) staticCacheMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+type responseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (rw *responseWriter) WriteHeader(status int) {
+	rw.status = status
+	rw.ResponseWriter.WriteHeader(status)
+}
+
 func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.logger.Debug("%s %s", r.Method, r.URL.Path)
-		next.ServeHTTP(w, r)
+		if !strings.HasPrefix(r.URL.Path, "/api/") || r.Header.Get("Upgrade") == "websocket" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
+		start := time.Now()
+		next.ServeHTTP(rw, r)
+		s.logger.Info("%s %s %d (%s)", r.Method, r.URL.Path, rw.status, time.Since(start).Round(time.Millisecond))
 	})
 }
