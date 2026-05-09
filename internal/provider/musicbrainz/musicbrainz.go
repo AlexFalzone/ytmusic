@@ -205,8 +205,17 @@ func (c *Client) parseRecordings(ctx context.Context, recordings []recording) []
 			}
 
 			if len(rel.Media) > 0 && len(rel.Media[0].Track) > 0 {
-				if n, err := strconv.Atoi(rel.Media[0].Track[0].Number); err == nil {
+				m := rel.Media[0]
+				if n, err := strconv.Atoi(m.Track[0].Number); err == nil {
 					info.TrackNumber = n
+				} else if m.Track[0].Position > 0 {
+					info.TrackNumber = m.Track[0].Position
+				}
+				if m.TrackCount > 0 {
+					info.TotalTracks = m.TrackCount
+				}
+				if m.Position > 0 {
+					info.DiscNumber = m.Position
 				}
 			}
 		}
@@ -239,14 +248,24 @@ func joinArtistCredits(credits []artistCredit) string {
 }
 
 // pickBestRelease selects the most appropriate release for tagging.
-// Prefers: Official status, Album type, no secondary types (not Compilation), earliest date.
+// Prefers: Official status, Album type, no secondary types (not Compilation).
+// Among equal-scored releases, prefers the one that has track position data (so we
+// don't lose track numbers by picking a release the recording isn't actually on),
+// then the earliest date.
 func pickBestRelease(releases []release) release {
 	best := releases[0]
 	bestScore := releaseScore(best)
 
 	for _, rel := range releases[1:] {
 		s := releaseScore(rel)
-		if s > bestScore || (s == bestScore && rel.Date != "" && (best.Date == "" || rel.Date < best.Date)) {
+		relHasTrack := len(rel.Media) > 0 && len(rel.Media[0].Track) > 0
+		bestHasTrack := len(best.Media) > 0 && len(best.Media[0].Track) > 0
+
+		betterScore := s > bestScore
+		sameScoreWithTrack := s == bestScore && relHasTrack && !bestHasTrack
+		sameScoreEarlierDate := s == bestScore && relHasTrack == bestHasTrack && rel.Date != "" && (best.Date == "" || rel.Date < best.Date)
+
+		if betterScore || sameScoreWithTrack || sameScoreEarlierDate {
 			best = rel
 			bestScore = s
 		}
@@ -321,9 +340,12 @@ type releaseGroup struct {
 }
 
 type media struct {
-	Track []track `json:"track"`
+	Position   int     `json:"position"`    // disc number (1-indexed)
+	TrackCount int     `json:"track-count"` // total tracks on this disc
+	Track      []track `json:"track"`
 }
 
 type track struct {
-	Number string `json:"number"`
+	Number   string `json:"number"`   // display number (may be non-numeric, e.g. "A1")
+	Position int    `json:"position"` // numeric position, used when Number is non-numeric
 }

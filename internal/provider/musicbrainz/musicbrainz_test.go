@@ -38,7 +38,7 @@ func TestSearch_ParsesResponse(t *testing.T) {
 					"title": "A Night at the Opera",
 					"date": "1975-10-31",
 					"artist-credit": [{"artist": {"id": "a1", "name": "Queen"}}],
-					"media": [{"track": [{"number": "11"}]}]
+					"media": [{"position": 1, "track-count": 12, "track": [{"number": "11", "position": 11}]}]
 				}],
 				"isrcs": ["GBUM71029604"]
 			}]
@@ -83,6 +83,12 @@ func TestSearch_ParsesResponse(t *testing.T) {
 	}
 	if r.TrackNumber != 11 {
 		t.Errorf("TrackNumber = %d, want 11", r.TrackNumber)
+	}
+	if r.TotalTracks != 12 {
+		t.Errorf("TotalTracks = %d, want 12", r.TotalTracks)
+	}
+	if r.DiscNumber != 1 {
+		t.Errorf("DiscNumber = %d, want 1", r.DiscNumber)
 	}
 	if r.ISRC != "GBUM71029604" {
 		t.Errorf("ISRC = %q, want %q", r.ISRC, "GBUM71029604")
@@ -249,6 +255,22 @@ func TestPickBestRelease(t *testing.T) {
 				{ID: "older", Title: "A", Status: "Official", Date: "2020-01-01", ReleaseGroup: releaseGroup{PrimaryType: "Album"}},
 			},
 			wantID: "older",
+		},
+		{
+			name: "release with track data beats earlier date without",
+			releases: []release{
+				{
+					ID: "regular", Title: "Album", Status: "Official", Date: "2020-01-01",
+					ReleaseGroup: releaseGroup{PrimaryType: "Album"},
+					// no Media: this recording is not on this release
+				},
+				{
+					ID: "deluxe", Title: "Album (Deluxe Edition)", Status: "Official", Date: "2020-06-01",
+					ReleaseGroup: releaseGroup{PrimaryType: "Album"},
+					Media:        []media{{Position: 1, TrackCount: 14, Track: []track{{Number: "13", Position: 13}}}},
+				},
+			},
+			wantID: "deluxe",
 		},
 		{
 			name:     "single release returns it",
