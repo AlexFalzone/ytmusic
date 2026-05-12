@@ -71,10 +71,16 @@ func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 		return fmt.Errorf("failed to merge files: %w", err)
 	}
 
-	providers := buildProviders(cfg, log)
-	fp := buildFingerprinter(cfg)
-	if len(providers) > 0 || fp != nil {
-		imp := importer.New(cfg, log, providers, fp)
+	c := buildComponents(cfg, log)
+	if len(c.providers) > 0 || c.fingerprinter != nil {
+		imp := importer.New(cfg, log, c.providers, c.fingerprinter)
+		if c.albumResolver != nil {
+			imp.WithAlbumResolver(c.albumResolver)
+		}
+		if c.fingerprinter != nil && c.releaseResolver != nil {
+			imp.WithBatchFingerprinter(c.fingerprinter)
+			imp.WithReleaseResolver(c.releaseResolver)
+		}
 		if err := imp.Import(ctx, mergedDir); err != nil {
 			msg := fmt.Sprintf("metadata resolution failed: %v", err)
 			log.Warn(msg)
@@ -105,10 +111,16 @@ func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 
 // RunImportOnly resolves metadata and lyrics for existing audio files in dir.
 func RunImportOnly(ctx context.Context, cfg config.Config, log *logger.Logger, dir string) error {
-	providers := buildProviders(cfg, log)
-	fp := buildFingerprinter(cfg)
-	if len(providers) > 0 || fp != nil {
-		imp := importer.New(cfg, log, providers, fp)
+	c := buildComponents(cfg, log)
+	if len(c.providers) > 0 || c.fingerprinter != nil {
+		imp := importer.New(cfg, log, c.providers, c.fingerprinter)
+		if c.albumResolver != nil {
+			imp.WithAlbumResolver(c.albumResolver)
+		}
+		if c.fingerprinter != nil && c.releaseResolver != nil {
+			imp.WithBatchFingerprinter(c.fingerprinter)
+			imp.WithReleaseResolver(c.releaseResolver)
+		}
 		if err := imp.Import(ctx, dir); err != nil {
 			return fmt.Errorf("metadata resolution failed: %w", err)
 		}
@@ -123,11 +135,27 @@ func RunImportOnly(ctx context.Context, cfg config.Config, log *logger.Logger, d
 	return nil
 }
 
-// buildProviders creates metadata providers based on cfg.MetadataProviders.
-// Returns nil if no providers are configured.
-func buildProviders(cfg config.Config, log *logger.Logger) []metadata.Provider {
-	if len(cfg.MetadataProviders) == 0 {
-		return nil
+type components struct {
+	providers       []metadata.Provider
+	fingerprinter   *fingerprint.Fingerprinter // nil if AcoustID not configured
+	albumResolver   metadata.AlbumResolver     // nil if musicbrainz not in providers
+	releaseResolver metadata.ReleaseResolver   // nil if musicbrainz not in providers
+}
+
+// buildComponents creates all metadata-related components, sharing a single
+// MusicBrainz client so its rate limiter is coordinated across all usages.
+func buildComponents(cfg config.Config, log *logger.Logger) components {
+	var mbClient *musicbrainz.Client
+	for _, p := range cfg.MetadataProviders {
+		if p == "musicbrainz" {
+			mbClient = musicbrainz.New()
+			break
+		}
+	}
+	// Also need a MusicBrainz client for fingerprint MBID lookups even when the
+	// musicbrainz search provider is not in the provider list.
+	if mbClient == nil && cfg.AcoustIDAPIKey != "" {
+		mbClient = musicbrainz.New()
 	}
 
 	var providers []metadata.Provider
@@ -136,7 +164,7 @@ func buildProviders(cfg config.Config, log *logger.Logger) []metadata.Provider {
 		case "spotify":
 			providers = append(providers, spotify.New(cfg.SpotifyClientID, cfg.SpotifyClientSecret))
 		case "musicbrainz":
-			providers = append(providers, musicbrainz.New())
+			providers = append(providers, mbClient)
 		case "deezer":
 			providers = append(providers, deezer.New())
 		case "itunes":
@@ -144,20 +172,27 @@ func buildProviders(cfg config.Config, log *logger.Logger) []metadata.Provider {
 		}
 	}
 
-	return providers
-}
-
-// buildFingerprinter creates an AcoustID-based fingerprinter if configured.
-// Returns nil if AcoustIDAPIKey is empty, disabling fingerprinting.
-func buildFingerprinter(cfg config.Config) metadata.Fingerprinter {
-	if cfg.AcoustIDAPIKey == "" {
-		return nil
+	var fp *fingerprint.Fingerprinter
+	if cfg.AcoustIDAPIKey != "" {
+		acoustid := fingerprint.NewAcoustIDClient(cfg.AcoustIDAPIKey, "")
+		fp = fingerprint.New(acoustid, func(ctx context.Context, mbid, preferAlbum string) (metadata.TrackInfo, error) {
+			return mbClient.LookupByMBID(ctx, mbid, preferAlbum)
+		})
 	}
-	mbClient := musicbrainz.New()
-	acoustid := fingerprint.NewAcoustIDClient(cfg.AcoustIDAPIKey, "")
-	return fingerprint.New(acoustid, func(ctx context.Context, mbid, preferAlbum string) (metadata.TrackInfo, error) {
-		return mbClient.LookupByMBID(ctx, mbid, preferAlbum)
-	})
+
+	var ar metadata.AlbumResolver
+	var rr metadata.ReleaseResolver
+	if mbClient != nil {
+		ar = mbClient
+		rr = mbClient
+	}
+
+	return components{
+		providers:       providers,
+		fingerprinter:   fp,
+		albumResolver:   ar,
+		releaseResolver: rr,
+	}
 }
 
 // ResolveLyrics fetches lyrics from LRCLib for each audio file in dir.

@@ -13,10 +13,13 @@ import (
 
 // Importer handles resolving and writing metadata for downloaded audio files.
 type Importer struct {
-	Config        config.Config
-	Logger        *logger.Logger
-	providers     []metadata.Provider
-	fingerprinter metadata.Fingerprinter // nil if not configured
+	Config             config.Config
+	Logger             *logger.Logger
+	providers          []metadata.Provider
+	fingerprinter      metadata.Fingerprinter      // nil if not configured
+	albumResolver      metadata.AlbumResolver      // nil if not configured
+	batchFingerprinter metadata.BatchFingerprinter // nil if not configured
+	releaseResolver    metadata.ReleaseResolver    // nil if not configured
 }
 
 // New creates a new Importer instance with the given metadata providers.
@@ -27,6 +30,24 @@ func New(cfg config.Config, log *logger.Logger, providers []metadata.Provider, f
 		providers:     providers,
 		fingerprinter: fp,
 	}
+}
+
+// WithAlbumResolver attaches an album resolver for the album-first positional-tag phase.
+func (i *Importer) WithAlbumResolver(ar metadata.AlbumResolver) *Importer {
+	i.albumResolver = ar
+	return i
+}
+
+// WithBatchFingerprinter attaches a batch fingerprinter for the batch-fingerprint phase.
+func (i *Importer) WithBatchFingerprinter(bf metadata.BatchFingerprinter) *Importer {
+	i.batchFingerprinter = bf
+	return i
+}
+
+// WithReleaseResolver attaches a release resolver for dominant-release detection.
+func (i *Importer) WithReleaseResolver(rr metadata.ReleaseResolver) *Importer {
+	i.releaseResolver = rr
+	return i
 }
 
 // Import resolves metadata for all audio files in the given directory,
@@ -55,6 +76,15 @@ func (i *Importer) Import(ctx context.Context, dir string) error {
 	resolver := metadata.NewResolver(i.providers, i.Logger, i.Config.ConfidenceThreshold)
 	if i.fingerprinter != nil {
 		resolver = resolver.WithFingerprinter(i.fingerprinter)
+	}
+	if i.albumResolver != nil {
+		resolver = resolver.WithAlbumResolver(i.albumResolver)
+	}
+	if i.batchFingerprinter != nil {
+		resolver = resolver.WithBatchFingerprinter(i.batchFingerprinter)
+	}
+	if i.releaseResolver != nil {
+		resolver = resolver.WithReleaseResolver(i.releaseResolver)
 	}
 	if err := resolver.Resolve(ctx, files); err != nil {
 		return fmt.Errorf("metadata resolution failed: %w", err)

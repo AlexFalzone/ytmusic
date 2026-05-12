@@ -257,6 +257,26 @@ func TestPickBestRelease(t *testing.T) {
 			wantID: "older",
 		},
 		{
+			name: "year-only date treated as Jan 1, not preferred over full earlier date",
+			releases: []release{
+				// "2020" means somewhere in 2020; "2020-03-15" is a known earlier-in-year date
+				// Both same score; the month-precision one should win (more precise and earlier)
+				{ID: "partial", Title: "A", Status: "Official", Date: "2020", ReleaseGroup: releaseGroup{PrimaryType: "Album"}},
+				{ID: "precise", Title: "B", Status: "Official", Date: "2020-03-15", ReleaseGroup: releaseGroup{PrimaryType: "Album"}},
+			},
+			// "2020" padded to "2020-01-01" < "2020-03-15" → partial wins as "earlier"
+			wantID: "partial",
+		},
+		{
+			name: "year-month date compared correctly against full date",
+			releases: []release{
+				{ID: "full", Title: "A", Status: "Official", Date: "2020-03-01", ReleaseGroup: releaseGroup{PrimaryType: "Album"}},
+				{ID: "yearmonth", Title: "B", Status: "Official", Date: "2020-01", ReleaseGroup: releaseGroup{PrimaryType: "Album"}},
+			},
+			// "2020-01" padded to "2020-01-01" < "2020-03-01" → yearmonth wins
+			wantID: "yearmonth",
+		},
+		{
 			name: "release with track data beats earlier date without",
 			releases: []release{
 				{
@@ -405,5 +425,263 @@ func TestLookupByMBID_Found(t *testing.T) {
 	}
 	if info.ISRC != "USUM72000001" {
 		t.Errorf("ISRC: got %q, want %q", info.ISRC, "USUM72000001")
+	}
+}
+
+func TestSearchRelease_ReturnsCandidates(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/release" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"releases": [
+				{
+					"id": "release-lp",
+					"title": "LP!",
+					"date": "2021-10-22",
+					"artist-credit": [{"artist": {"id": "a1", "name": "JPEGMAFIA"}}],
+					"release-group": {"primary-type": "Album", "secondary-types": []}
+				}
+			]
+		}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv.URL)
+	candidates, err := c.searchRelease(context.Background(), "LP!", "JPEGMAFIA")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(candidates) != 1 {
+		t.Fatalf("got %d candidates, want 1", len(candidates))
+	}
+	if candidates[0].ID != "release-lp" {
+		t.Errorf("ID = %q, want release-lp", candidates[0].ID)
+	}
+	if candidates[0].Title != "LP!" {
+		t.Errorf("Title = %q, want LP!", candidates[0].Title)
+	}
+}
+
+func TestSearchRelease_EmptyResults(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"releases": []}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv.URL)
+	candidates, err := c.searchRelease(context.Background(), "Nonexistent Album", "Nobody")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(candidates) != 0 {
+		t.Errorf("expected 0 candidates, got %d", len(candidates))
+	}
+}
+
+func TestLookupRelease_ReturnsTracklist(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"id": "release-lp",
+			"title": "LP!",
+			"artist-credit": [{"artist": {"id": "a1", "name": "JPEGMAFIA"}}],
+			"media": [
+				{
+					"position": 1,
+					"track-count": 3,
+					"tracks": [
+						{"number": "1", "position": 1, "title": "TRUST!", "recording": {"id": "rec-1"}},
+						{"number": "2", "position": 2, "title": "DIRTY!", "recording": {"id": "rec-2"}},
+						{"number": "3", "position": 3, "title": "NEMO!",  "recording": {"id": "rec-3"}}
+					]
+				}
+			]
+		}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv.URL)
+	tl, err := c.lookupRelease(context.Background(), "release-lp")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tl.ID != "release-lp" {
+		t.Errorf("ID = %q, want release-lp", tl.ID)
+	}
+	if tl.Artist != "JPEGMAFIA" {
+		t.Errorf("Artist = %q, want JPEGMAFIA", tl.Artist)
+	}
+	if len(tl.Tracks) != 3 {
+		t.Fatalf("got %d tracks, want 3", len(tl.Tracks))
+	}
+	if tl.Tracks[0].TrackNumber != 1 || tl.Tracks[0].DiscNumber != 1 || tl.Tracks[0].Title != "TRUST!" {
+		t.Errorf("track 0 = %+v, unexpected", tl.Tracks[0])
+	}
+	if tl.Tracks[2].MBID != "rec-3" {
+		t.Errorf("track 2 MBID = %q, want rec-3", tl.Tracks[2].MBID)
+	}
+}
+
+func TestLookupRelease_MultiDisc(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"id": "release-multi",
+			"title": "Double Album",
+			"artist-credit": [{"artist": {"id": "a1", "name": "Artist"}}],
+			"media": [
+				{
+					"position": 1,
+					"tracks": [
+						{"number": "1", "position": 1, "title": "Side A Track 1", "recording": {"id": "r1"}}
+					]
+				},
+				{
+					"position": 2,
+					"tracks": [
+						{"number": "1", "position": 1, "title": "Side B Track 1", "recording": {"id": "r2"}}
+					]
+				}
+			]
+		}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv.URL)
+	tl, err := c.lookupRelease(context.Background(), "release-multi")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tl.Tracks) != 2 {
+		t.Fatalf("got %d tracks, want 2", len(tl.Tracks))
+	}
+	if tl.Tracks[0].DiscNumber != 1 {
+		t.Errorf("track 0 DiscNumber = %d, want 1", tl.Tracks[0].DiscNumber)
+	}
+	if tl.Tracks[1].DiscNumber != 2 {
+		t.Errorf("track 1 DiscNumber = %d, want 2", tl.Tracks[1].DiscNumber)
+	}
+}
+
+func TestResolveAlbum_ReturnsBestMatchingTracklist(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/release", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"releases": [{"id": "r1", "title": "LP!", "date": "2021-10-22", "artist-credit": [{"artist": {"id": "a1", "name": "JPEGMAFIA"}}], "release-group": {"primary-type": "Album", "secondary-types": []}}]}`))
+	})
+	mux.HandleFunc("/release/r1", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id": "r1", "title": "LP!", "artist-credit": [{"artist": {"id": "a1", "name": "JPEGMAFIA"}}], "media": [{"position": 1, "tracks": [{"number": "1", "position": 1, "title": "TRUST!", "recording": {"id": "rec-1"}}]}]}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c := newTestClient(srv.URL)
+	tl, found, err := c.ResolveAlbum(context.Background(), "LP!", "JPEGMAFIA")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !found {
+		t.Fatal("expected found=true")
+	}
+	if tl.Title != "LP!" {
+		t.Errorf("Title = %q, want LP!", tl.Title)
+	}
+	if len(tl.Tracks) != 1 || tl.Tracks[0].Title != "TRUST!" {
+		t.Errorf("unexpected tracks: %+v", tl.Tracks)
+	}
+}
+
+func TestResolveAlbum_NotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"releases": []}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv.URL)
+	_, found, err := c.ResolveAlbum(context.Background(), "Ghost Album", "Unknown")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if found {
+		t.Fatal("expected found=false for empty results")
+	}
+}
+
+func TestReleaseIDsForRecording_ReturnsIDs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"id": "rec-1",
+			"title": "TRUST!",
+			"releases": [
+				{"id": "rel-lp", "title": "LP!"},
+				{"id": "rel-offline", "title": "LP! OFFLINE"}
+			]
+		}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv.URL)
+	ids, err := c.ReleaseIDsForRecording(context.Background(), "rec-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("got %d IDs, want 2", len(ids))
+	}
+	if ids[0] != "rel-lp" || ids[1] != "rel-offline" {
+		t.Errorf("IDs = %v, want [rel-lp rel-offline]", ids)
+	}
+}
+
+func TestReleaseIDsForRecording_NoReleases(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id": "rec-x", "title": "Unknown", "releases": []}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv.URL)
+	ids, err := c.ReleaseIDsForRecording(context.Background(), "rec-x")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Errorf("expected empty IDs, got %v", ids)
+	}
+}
+
+func TestLookupTracklist_DelegatesToLookupRelease(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{
+			"id": "rel-lp",
+			"title": "LP!",
+			"artist-credit": [{"artist": {"id": "a1", "name": "JPEGMAFIA"}}],
+			"media": [{
+				"position": 1,
+				"tracks": [
+					{"number": "1", "position": 1, "title": "TRUST!", "recording": {"id": "rec-1"}}
+				]
+			}]
+		}`))
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv.URL)
+	tl, err := c.LookupTracklist(context.Background(), "rel-lp")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tl.ID != "rel-lp" {
+		t.Errorf("ID = %q, want rel-lp", tl.ID)
+	}
+	if len(tl.Tracks) != 1 || tl.Tracks[0].Title != "TRUST!" {
+		t.Errorf("unexpected tracks: %+v", tl.Tracks)
 	}
 }

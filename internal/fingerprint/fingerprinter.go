@@ -2,6 +2,7 @@ package fingerprint
 
 import (
 	"context"
+	"sync"
 
 	"ytmusic/internal/metadata"
 )
@@ -43,6 +44,48 @@ func New(acoustidClient *AcoustIDClient, mbidLookup func(ctx context.Context, mb
 // NewFingerprinter creates a Fingerprinter with injected dependencies (used in tests).
 func NewFingerprinter(fp fpcalcGenerator, ac acoustidLookup, mbidLookup func(ctx context.Context, mbid, preferAlbum string) (metadata.TrackInfo, error)) *Fingerprinter {
 	return &Fingerprinter{fpcalc: fp, acoustid: ac, mbidLookup: mbidLookup}
+}
+
+// BatchLookupByFiles fingerprints all paths in parallel (max 4 concurrent) and
+// returns FileMatch entries only for files whose AcoustID lookup returned a recording MBID.
+// The mbidLookup step is intentionally skipped here; callers use the MBID directly.
+func (f *Fingerprinter) BatchLookupByFiles(ctx context.Context, paths []string) []metadata.FileMatch {
+	type slot struct {
+		match metadata.FileMatch
+		ok    bool
+	}
+
+	slots := make([]slot, len(paths))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 4)
+
+	for i, path := range paths {
+		wg.Add(1)
+		go func(i int, path string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			fp, err := f.fpcalc.Generate(ctx, path)
+			if err != nil {
+				return
+			}
+			mbid, found, err := f.acoustid.Lookup(ctx, fp)
+			if err != nil || !found {
+				return
+			}
+			slots[i] = slot{match: metadata.FileMatch{Path: path, MBID: mbid}, ok: true}
+		}(i, path)
+	}
+	wg.Wait()
+
+	var matches []metadata.FileMatch
+	for _, s := range slots {
+		if s.ok {
+			matches = append(matches, s.match)
+		}
+	}
+	return matches
 }
 
 // LookupByFile identifies the audio file at path via its acoustic fingerprint.

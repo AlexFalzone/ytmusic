@@ -117,18 +117,15 @@ func (c *Client) LookupByMBID(ctx context.Context, mbid, preferAlbum string) (me
 }
 
 // rateLimit enforces MusicBrainz's 1 request/second limit.
+// The mutex is held for the full duration (including sleep) so that concurrent
+// callers queue up and each waits a full second from the previous request.
 func (c *Client) rateLimit() {
 	c.mu.Lock()
-	elapsed := time.Since(c.lastRequest)
-	c.mu.Unlock()
-
-	if elapsed < time.Second {
+	defer c.mu.Unlock()
+	if elapsed := time.Since(c.lastRequest); elapsed < time.Second {
 		time.Sleep(time.Second - elapsed)
 	}
-
-	c.mu.Lock()
 	c.lastRequest = time.Now()
-	c.mu.Unlock()
 }
 
 // doWithRetry executes the request, retrying on 429/503 with backoff.
@@ -387,4 +384,182 @@ type media struct {
 type track struct {
 	Number   string `json:"number"`   // display number (may be non-numeric, e.g. "A1")
 	Position int    `json:"position"` // numeric position, used when Number is non-numeric
+}
+
+// Release search / lookup types
+
+type releaseListResponse struct {
+	Releases []release `json:"releases"`
+}
+
+type releaseLookupResponse struct {
+	ID           string                `json:"id"`
+	Title        string                `json:"title"`
+	ArtistCredit []artistCredit        `json:"artist-credit"`
+	Media        []releaseLookupMedium `json:"media"`
+}
+
+type releaseLookupMedium struct {
+	Position int                  `json:"position"`
+	Tracks   []releaseLookupTrack `json:"tracks"`
+}
+
+type releaseLookupTrack struct {
+	Number    string           `json:"number"`
+	Position  int              `json:"position"`
+	Title     string           `json:"title"`
+	Recording releaseLookupRec `json:"recording"`
+}
+
+type releaseLookupRec struct {
+	ID string `json:"id"`
+}
+
+// searchRelease queries MusicBrainz for releases matching album + artist.
+func (c *Client) searchRelease(ctx context.Context, album, artist string) ([]release, error) {
+	q := fmt.Sprintf("release:%q", album)
+	if artist != "" {
+		q += fmt.Sprintf(" AND artist:%q", artist)
+	}
+
+	c.rateLimit()
+
+	reqURL := fmt.Sprintf("%s/release?query=%s&fmt=json&limit=5", c.apiURL, url.QueryEscape(q))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create release search request: %w", err)
+	}
+	req.Header.Set("User-Agent", "ytmusic/1.0")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.doWithRetry(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("release search request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("release search returned %d: %s", resp.StatusCode, body)
+	}
+
+	var result releaseListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode release search response: %w", err)
+	}
+	return result.Releases, nil
+}
+
+// lookupRelease fetches the full tracklist for a release by its MusicBrainz ID.
+func (c *Client) lookupRelease(ctx context.Context, releaseID string) (metadata.Tracklist, error) {
+	c.rateLimit()
+
+	reqURL := fmt.Sprintf("%s/release/%s?inc=recordings+artist-credits&fmt=json", c.apiURL, releaseID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return metadata.Tracklist{}, fmt.Errorf("failed to create release lookup request: %w", err)
+	}
+	req.Header.Set("User-Agent", "ytmusic/1.0")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.doWithRetry(ctx, req)
+	if err != nil {
+		return metadata.Tracklist{}, fmt.Errorf("release lookup request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return metadata.Tracklist{}, fmt.Errorf("release lookup returned %d: %s", resp.StatusCode, body)
+	}
+
+	var result releaseLookupResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return metadata.Tracklist{}, fmt.Errorf("failed to decode release lookup response: %w", err)
+	}
+
+	tl := metadata.Tracklist{
+		ID:    result.ID,
+		Title: result.Title,
+	}
+	if len(result.ArtistCredit) > 0 {
+		tl.Artist = result.ArtistCredit[0].Artist.Name
+	}
+
+	for _, m := range result.Media {
+		for _, t := range m.Tracks {
+			trackNum := t.Position
+			if n, err := strconv.Atoi(t.Number); err == nil {
+				trackNum = n
+			}
+			tl.Tracks = append(tl.Tracks, metadata.ReleaseTrack{
+				TrackNumber: trackNum,
+				DiscNumber:  m.Position,
+				Title:       t.Title,
+				MBID:        t.Recording.ID,
+			})
+		}
+	}
+	return tl, nil
+}
+
+// ReleaseIDsForRecording returns all release IDs that contain the given recording MBID.
+// Implements metadata.ReleaseResolver.
+func (c *Client) ReleaseIDsForRecording(ctx context.Context, mbid string) ([]string, error) {
+	c.rateLimit()
+
+	reqURL := fmt.Sprintf("%s/recording/%s?inc=releases&fmt=json", c.apiURL, mbid)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create recording lookup request: %w", err)
+	}
+	req.Header.Set("User-Agent", "ytmusic/1.0")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.doWithRetry(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("recording lookup failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("recording lookup returned %d: %s", resp.StatusCode, body)
+	}
+
+	var rec recording
+	if err := json.NewDecoder(resp.Body).Decode(&rec); err != nil {
+		return nil, fmt.Errorf("failed to decode recording: %w", err)
+	}
+
+	ids := make([]string, 0, len(rec.Releases))
+	for _, rel := range rec.Releases {
+		ids = append(ids, rel.ID)
+	}
+	return ids, nil
+}
+
+// LookupTracklist fetches the complete tracklist for a release by its MusicBrainz ID.
+// Implements metadata.ReleaseResolver.
+func (c *Client) LookupTracklist(ctx context.Context, releaseID string) (metadata.Tracklist, error) {
+	return c.lookupRelease(ctx, releaseID)
+}
+
+// ResolveAlbum implements metadata.AlbumResolver: searches for the best matching
+// release and returns its complete tracklist.
+func (c *Client) ResolveAlbum(ctx context.Context, album, artist string) (metadata.Tracklist, bool, error) {
+	candidates, err := c.searchRelease(ctx, album, artist)
+	if err != nil {
+		return metadata.Tracklist{}, false, fmt.Errorf("release search failed: %w", err)
+	}
+	if len(candidates) == 0 {
+		return metadata.Tracklist{}, false, nil
+	}
+
+	best := pickBestRelease(candidates, album)
+	tl, err := c.lookupRelease(ctx, best.ID)
+	if err != nil {
+		return metadata.Tracklist{}, false, fmt.Errorf("release lookup failed: %w", err)
+	}
+	return tl, true, nil
 }

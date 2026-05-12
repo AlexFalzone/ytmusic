@@ -104,3 +104,62 @@ func TestFingerprinter_LookupByFile_MBLookupFails(t *testing.T) {
 		t.Fatal("expected found=false when MB lookup fails")
 	}
 }
+
+func TestBatchLookupByFiles_CollectsMBIDs(t *testing.T) {
+	fp := fingerprint.NewFingerprinter(
+		&stubFpcalc{result: fingerprint.Result{Duration: 200, Fingerprint: "AQx"}},
+		&stubAcoustID{mbid: "mbid-1", found: true},
+		makeMBIDLookup(metadata.TrackInfo{}, nil),
+	)
+
+	paths := []string{"/a.mp3", "/b.mp3", "/c.mp3"}
+	matches := fp.BatchLookupByFiles(context.Background(), paths)
+
+	if len(matches) != 3 {
+		t.Fatalf("got %d matches, want 3", len(matches))
+	}
+	for _, m := range matches {
+		if m.MBID != "mbid-1" {
+			t.Errorf("MBID = %q, want mbid-1", m.MBID)
+		}
+	}
+}
+
+func TestBatchLookupByFiles_FpcalcFails_Skipped(t *testing.T) {
+	fp := fingerprint.NewFingerprinter(
+		&stubFpcalc{err: errors.New("fpcalc not found")},
+		&stubAcoustID{mbid: "mbid-1", found: true},
+		makeMBIDLookup(metadata.TrackInfo{}, nil),
+	)
+
+	matches := fp.BatchLookupByFiles(context.Background(), []string{"/a.mp3", "/b.mp3"})
+	if len(matches) != 0 {
+		t.Errorf("expected 0 matches when fpcalc fails, got %d", len(matches))
+	}
+}
+
+func TestBatchLookupByFiles_AcoustIDNotFound_Skipped(t *testing.T) {
+	fp := fingerprint.NewFingerprinter(
+		&stubFpcalc{result: fingerprint.Result{Duration: 200, Fingerprint: "AQx"}},
+		&stubAcoustID{found: false},
+		makeMBIDLookup(metadata.TrackInfo{}, nil),
+	)
+
+	matches := fp.BatchLookupByFiles(context.Background(), []string{"/a.mp3"})
+	if len(matches) != 0 {
+		t.Errorf("expected 0 matches when AcoustID finds nothing, got %d", len(matches))
+	}
+}
+
+func TestBatchLookupByFiles_EmptyPaths(t *testing.T) {
+	fp := fingerprint.NewFingerprinter(
+		&stubFpcalc{result: fingerprint.Result{Duration: 200, Fingerprint: "AQx"}},
+		&stubAcoustID{mbid: "mbid-1", found: true},
+		makeMBIDLookup(metadata.TrackInfo{}, nil),
+	)
+
+	matches := fp.BatchLookupByFiles(context.Background(), nil)
+	if len(matches) != 0 {
+		t.Errorf("expected 0 matches for empty paths, got %d", len(matches))
+	}
+}
