@@ -37,7 +37,8 @@ type Provider interface {
 }
 
 // Fingerprinter identifies an audio file by its acoustic fingerprint and returns
-// the best matching TrackInfo. Returns (zero, false, nil) when no match is found.
+// the best matching TrackInfo. preferAlbum hints which release to prefer when a
+// recording appears in multiple albums. Returns (zero, false, nil) when no match is found.
 type Fingerprinter interface {
-	LookupByFile(ctx context.Context, path string) (TrackInfo, bool, error)
+	LookupByFile(ctx context.Context, path, preferAlbum string) (TrackInfo, bool, error)
 }

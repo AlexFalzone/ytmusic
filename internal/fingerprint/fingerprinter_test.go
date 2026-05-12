@@ -9,8 +9,8 @@ import (
 	"ytmusic/internal/metadata"
 )
 
-func makeMBIDLookup(info metadata.TrackInfo, err error) func(context.Context, string) (metadata.TrackInfo, error) {
-	return func(ctx context.Context, mbid string) (metadata.TrackInfo, error) {
+func makeMBIDLookup(info metadata.TrackInfo, err error) func(context.Context, string, string) (metadata.TrackInfo, error) {
+	return func(ctx context.Context, mbid, preferAlbum string) (metadata.TrackInfo, error) {
 		return info, err
 	}
 }
@@ -42,7 +42,7 @@ func TestFingerprinter_LookupByFile_Success(t *testing.T) {
 		makeMBIDLookup(want, nil),
 	)
 
-	got, found, err := fp.LookupByFile(context.Background(), "/fake/path.mp3")
+	got, found, err := fp.LookupByFile(context.Background(), "/fake/path.mp3", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestFingerprinter_LookupByFile_FpcalcFails(t *testing.T) {
 		makeMBIDLookup(metadata.TrackInfo{}, nil),
 	)
 
-	_, found, err := fp.LookupByFile(context.Background(), "/fake/path.mp3")
+	_, found, err := fp.LookupByFile(context.Background(), "/fake/path.mp3", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestFingerprinter_LookupByFile_AcoustIDNotFound(t *testing.T) {
 		makeMBIDLookup(metadata.TrackInfo{}, nil),
 	)
 
-	_, found, err := fp.LookupByFile(context.Background(), "/fake/path.mp3")
+	_, found, err := fp.LookupByFile(context.Background(), "/fake/path.mp3", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestFingerprinter_LookupByFile_MBLookupFails(t *testing.T) {
 		makeMBIDLookup(metadata.TrackInfo{}, errors.New("mb down")),
 	)
 
-	_, found, err := fp.LookupByFile(context.Background(), "/fake/path.mp3")
+	_, found, err := fp.LookupByFile(context.Background(), "/fake/path.mp3", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

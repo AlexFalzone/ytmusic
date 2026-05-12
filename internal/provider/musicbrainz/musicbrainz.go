@@ -77,12 +77,12 @@ func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]meta
 		return nil, fmt.Errorf("failed to decode musicbrainz response: %w", err)
 	}
 
-	return c.parseRecordings(ctx, searchResp.Recordings), nil
+	return c.parseRecordings(ctx, searchResp.Recordings, query.Album), nil
 }
 
 // LookupByMBID fetches a single recording by its MusicBrainz recording ID.
-// This bypasses text search and provides authoritative metadata.
-func (c *Client) LookupByMBID(ctx context.Context, mbid string) (metadata.TrackInfo, error) {
+// preferAlbum, if non-empty, is used to break ties when the recording appears in multiple releases.
+func (c *Client) LookupByMBID(ctx context.Context, mbid, preferAlbum string) (metadata.TrackInfo, error) {
 	c.rateLimit()
 
 	reqURL := fmt.Sprintf("%s/recording/%s?inc=artists+releases+isrcs+artist-credits&fmt=json", c.apiURL, mbid)
@@ -109,7 +109,7 @@ func (c *Client) LookupByMBID(ctx context.Context, mbid string) (metadata.TrackI
 		return metadata.TrackInfo{}, fmt.Errorf("failed to decode musicbrainz recording: %w", err)
 	}
 
-	results := c.parseRecordings(ctx, []recording{rec})
+	results := c.parseRecordings(ctx, []recording{rec}, preferAlbum)
 	if len(results) == 0 {
 		return metadata.TrackInfo{}, fmt.Errorf("no parseable data in musicbrainz recording %s", mbid)
 	}
@@ -177,7 +177,7 @@ func buildQuery(query metadata.SearchQuery) string {
 	return strings.Join(parts, " AND ")
 }
 
-func (c *Client) parseRecordings(ctx context.Context, recordings []recording) []metadata.TrackInfo {
+func (c *Client) parseRecordings(ctx context.Context, recordings []recording, preferAlbum string) []metadata.TrackInfo {
 	var results []metadata.TrackInfo
 	for _, rec := range recordings {
 		info := metadata.TrackInfo{
@@ -191,7 +191,7 @@ func (c *Client) parseRecordings(ctx context.Context, recordings []recording) []
 		}
 
 		if len(rec.Releases) > 0 {
-			rel := pickBestRelease(rec.Releases)
+			rel := pickBestRelease(rec.Releases, preferAlbum)
 			info.Album = rel.Title
 			if len(rel.ArtistCredit) > 0 {
 				info.AlbumArtist = rel.ArtistCredit[0].Artist.Name
@@ -249,10 +249,10 @@ func joinArtistCredits(credits []artistCredit) string {
 
 // pickBestRelease selects the most appropriate release for tagging.
 // Prefers: Official status, Album type, no secondary types (not Compilation).
-// Among equal-scored releases, prefers the one that has track position data (so we
-// don't lose track numbers by picking a release the recording isn't actually on),
-// then the earliest date.
-func pickBestRelease(releases []release) release {
+// Among equal-scored releases, prefers releases whose title matches preferAlbum
+// (to avoid landing on variants like "LP! OFFLINE" when the source is "LP!"),
+// then the one with track position data, then the earliest date.
+func pickBestRelease(releases []release, preferAlbum string) release {
 	best := releases[0]
 	bestScore := releaseScore(best)
 
@@ -262,15 +262,54 @@ func pickBestRelease(releases []release) release {
 		bestHasTrack := len(best.Media) > 0 && len(best.Media[0].Track) > 0
 
 		betterScore := s > bestScore
-		sameScoreWithTrack := s == bestScore && relHasTrack && !bestHasTrack
-		sameScoreEarlierDate := s == bestScore && relHasTrack == bestHasTrack && rel.Date != "" && (best.Date == "" || rel.Date < best.Date)
+		sameScore := s == bestScore
 
-		if betterScore || sameScoreWithTrack || sameScoreEarlierDate {
+		relAlbumSim := releaseAlbumSim(rel.Title, preferAlbum)
+		bestAlbumSim := releaseAlbumSim(best.Title, preferAlbum)
+
+		sameScoreBetterAlbum := sameScore && relAlbumSim > bestAlbumSim
+		sameScoreSameAlbumWithTrack := sameScore && relAlbumSim == bestAlbumSim && relHasTrack && !bestHasTrack
+		sameScoreSameAlbumEarlierDate := sameScore && relAlbumSim == bestAlbumSim && relHasTrack == bestHasTrack && rel.Date != "" && (best.Date == "" || rel.Date < best.Date)
+
+		if betterScore || sameScoreBetterAlbum || sameScoreSameAlbumWithTrack || sameScoreSameAlbumEarlierDate {
 			best = rel
 			bestScore = s
 		}
 	}
 	return best
+}
+
+// releaseAlbumSim returns a rough similarity score between a release title and
+// the preferred album name. Used only as a tiebreaker in pickBestRelease.
+func releaseAlbumSim(releaseTitle, preferAlbum string) float64 {
+	if preferAlbum == "" {
+		return 0
+	}
+	a := strings.ToLower(strings.TrimSpace(releaseTitle))
+	b := strings.ToLower(strings.TrimSpace(preferAlbum))
+	if a == b {
+		return 1.0
+	}
+	at := strings.Fields(a)
+	bt := strings.Fields(b)
+	if len(at) == 0 || len(bt) == 0 {
+		return 0
+	}
+	set := make(map[string]bool, len(bt))
+	for _, t := range bt {
+		set[t] = true
+	}
+	matches := 0
+	for _, t := range at {
+		if set[t] {
+			matches++
+		}
+	}
+	maxLen := len(at)
+	if len(bt) > maxLen {
+		maxLen = len(bt)
+	}
+	return float64(matches) / float64(maxLen)
 }
 
 func releaseScore(rel release) int {

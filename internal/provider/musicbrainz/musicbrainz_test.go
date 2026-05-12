@@ -279,9 +279,35 @@ func TestPickBestRelease(t *testing.T) {
 		},
 	}
 
+	albumVariantTests := []struct {
+		name     string
+		releases []release
+		prefer   string
+		wantID   string
+	}{
+		{
+			name: "prefers release matching query album over variant",
+			releases: []release{
+				{ID: "offline", Title: "LP! OFFLINE", Status: "Official", Date: "2022-01-01", ReleaseGroup: releaseGroup{PrimaryType: "Album"}, Media: []media{{Position: 1, Track: []track{{Number: "4", Position: 4}}}}},
+				{ID: "standard", Title: "LP!", Status: "Official", Date: "2021-10-22", ReleaseGroup: releaseGroup{PrimaryType: "Album"}, Media: []media{{Position: 1, Track: []track{{Number: "4", Position: 4}}}}},
+			},
+			prefer: "LP!",
+			wantID: "standard",
+		},
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := pickBestRelease(tt.releases)
+			got := pickBestRelease(tt.releases, "")
+			if got.ID != tt.wantID {
+				t.Errorf("pickBestRelease() picked %q (%s), want %q", got.Title, got.ID, tt.wantID)
+			}
+		})
+	}
+
+	for _, tt := range albumVariantTests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := pickBestRelease(tt.releases, tt.prefer)
 			if got.ID != tt.wantID {
 				t.Errorf("pickBestRelease() picked %q (%s), want %q", got.Title, got.ID, tt.wantID)
 			}
@@ -358,7 +384,7 @@ func TestLookupByMBID_Found(t *testing.T) {
 	defer srv.Close()
 
 	client := NewWithURL(srv.URL, "https://coverartarchive.org/release")
-	info, err := client.LookupByMBID(context.Background(), "mbid-abc")
+	info, err := client.LookupByMBID(context.Background(), "mbid-abc", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

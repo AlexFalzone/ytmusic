@@ -155,7 +155,9 @@ func buildFingerprinter(cfg config.Config) metadata.Fingerprinter {
 	}
 	mbClient := musicbrainz.New()
 	acoustid := fingerprint.NewAcoustIDClient(cfg.AcoustIDAPIKey, "")
-	return fingerprint.New(acoustid, mbClient.LookupByMBID)
+	return fingerprint.New(acoustid, func(ctx context.Context, mbid, preferAlbum string) (metadata.TrackInfo, error) {
+		return mbClient.LookupByMBID(ctx, mbid, preferAlbum)
+	})
 }
 
 // ResolveLyrics fetches lyrics from LRCLib for each audio file in dir.

@@ -389,7 +389,7 @@ type stubFingerprinter struct {
 	found bool
 }
 
-func (s *stubFingerprinter) LookupByFile(_ context.Context, _ string) (TrackInfo, bool, error) {
+func (s *stubFingerprinter) LookupByFile(_ context.Context, _, _ string) (TrackInfo, bool, error) {
 	return s.info, s.found, nil
 }
 

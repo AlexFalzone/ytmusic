@@ -109,7 +109,7 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 
 	// Try acoustic fingerprinting first for a definitive identification.
 	if r.fingerprinter != nil {
-		if info, found, err := r.fingerprinter.LookupByFile(ctx, path); err == nil && found {
+		if info, found, err := r.fingerprinter.LookupByFile(ctx, path, query.Album); err == nil && found {
 			r.logger.Debug("  Fingerprint match: %q by %q", info.Title, info.Artist)
 			info = r.fillGaps(ctx, query, info, -1)
 			if err := WriteTags(path, info); err != nil {
@@ -179,6 +179,7 @@ func (r *Resolver) findPrimaryMatch(ctx context.Context, query SearchQuery) (Tra
 }
 
 // pickBest scores all results and returns the one with the highest confidence.
+// Ties are broken by album similarity to the query album.
 func pickBest(query SearchQuery, results []TrackInfo) TrackInfo {
 	best := results[0]
 	best.Confidence = score(query, best)
@@ -186,6 +187,14 @@ func pickBest(query SearchQuery, results []TrackInfo) TrackInfo {
 		r.Confidence = score(query, r)
 		if r.Confidence > best.Confidence {
 			best = r
+			continue
+		}
+		if r.Confidence == best.Confidence && query.Album != "" && r.Album != "" && best.Album != "" {
+			rAlbumSim := similarity(normalize(query.Album), normalize(r.Album))
+			bestAlbumSim := similarity(normalize(query.Album), normalize(best.Album))
+			if rAlbumSim > bestAlbumSim {
+				best = r
+			}
 		}
 	}
 	return best
