@@ -62,8 +62,13 @@ Look at `config.example.yaml` or just run `./ytmusic --init-config`
 | Deezer      | No       | None        |
 | iTunes      | No       | None        |
 
-Providers are tried in order. The first match above the confidence threshold wins. Missing fields (genre, track number,
-artwork, etc.) are filled by subsequent providers.
+Metadata resolution runs in three phases:
+
+1. **Batch fingerprint** (requires `fpcalc` + AcoustID API key): all files in an album group are fingerprinted in parallel. If a single MusicBrainz release accounts for ≥ 50% of the matched recordings, its tracklist is used to assign track and disc numbers.
+2. **Album-first lookup** (MusicBrainz): for files not resolved by phase 1, the album name is searched once and the full tracklist is matched by title similarity.
+3. **Per-file text search**: each file is searched individually across all configured providers in order. The first result above the confidence threshold wins; remaining providers fill missing fields (genre, artwork, ISRC, etc.).
+
+Track and disc numbers written by phases 1 and 2 are never overwritten by phase 3.
 
 ## Docker
 
