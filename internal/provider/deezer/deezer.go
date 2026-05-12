@@ -98,6 +98,8 @@ func parseResults(items []trackItem) []metadata.TrackInfo {
 			Artist:      item.Artist.Name,
 			Album:       item.Album.Title,
 			AlbumArtist: item.Artist.Name,
+			TrackNumber: item.TrackPosition,
+			DiscNumber:  item.DiskNumber,
 			ISRC:        item.ISRC,
 			ArtworkURL:  artworkURL,
 			Duration:    time.Duration(item.Duration) * time.Second,
@@ -121,14 +123,16 @@ type apiError struct {
 }
 
 type trackItem struct {
-	ID           int       `json:"id"`
-	Title        string    `json:"title"`
-	TitleShort   string    `json:"title_short"`
-	TitleVersion string    `json:"title_version"`
-	ISRC         string    `json:"isrc"`
-	Duration     int       `json:"duration"`
-	Artist       artist    `json:"artist"`
-	Album        albumInfo `json:"album"`
+	ID             int       `json:"id"`
+	Title          string    `json:"title"`
+	TitleShort     string    `json:"title_short"`
+	TitleVersion   string    `json:"title_version"`
+	ISRC           string    `json:"isrc"`
+	Duration       int       `json:"duration"`
+	TrackPosition  int       `json:"track_position"`
+	DiskNumber     int       `json:"disk_number"`
+	Artist         artist    `json:"artist"`
+	Album          albumInfo `json:"album"`
 }
 
 type artist struct {

@@ -19,12 +19,14 @@ func TestSearch(t *testing.T) {
 		json.NewEncoder(w).Encode(searchResponse{
 			Data: []trackItem{
 				{
-					ID:         1,
-					Title:      "Santeria",
-					TitleShort: "Santeria",
-					ISRC:       "ITXXX1700001",
-					Duration:   240,
-					Artist:     artist{ID: 100, Name: "Marracash"},
+					ID:            1,
+					Title:         "Santeria",
+					TitleShort:    "Santeria",
+					ISRC:          "ITXXX1700001",
+					Duration:      240,
+					TrackPosition: 3,
+					DiskNumber:    1,
+					Artist:        artist{ID: 100, Name: "Marracash"},
 					Album: albumInfo{
 						ID:       200,
 						Title:    "Santeria",
@@ -71,6 +73,12 @@ func TestSearch(t *testing.T) {
 	}
 	if r.Duration.Seconds() != 240 {
 		t.Errorf("Duration = %v, want 4m0s", r.Duration)
+	}
+	if r.TrackNumber != 3 {
+		t.Errorf("TrackNumber = %d, want 3", r.TrackNumber)
+	}
+	if r.DiscNumber != 1 {
+		t.Errorf("DiscNumber = %d, want 1", r.DiscNumber)
 	}
 }
 
