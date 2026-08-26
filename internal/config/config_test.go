@@ -3,7 +3,9 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidate(t *testing.T) {
@@ -218,5 +220,137 @@ func TestExpandHome(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("ExpandHome(%q) = %q, want %q", tt.input, got, tt.want)
 		}
+	}
+}
+
+func validAuthConfig() Config {
+	return Config{
+		ParallelJobs:        4,
+		AudioFormat:         "mp3",
+		OutputDir:           "/tmp/music",
+		ConfidenceThreshold: 0.7,
+		Auth: AuthConfig{
+			Enabled:      true,
+			Username:     "alex",
+			PasswordHash: "$2a$12$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123",
+			SessionTTL:   "720h",
+		},
+	}
+}
+
+func TestValidateAuth(t *testing.T) {
+	tests := []struct {
+		name       string
+		modify     func(*Config)
+		wantErr    bool
+		errMustSay string
+	}{
+		{
+			name:   "valid auth config",
+			modify: func(c *Config) {},
+		},
+		{
+			name:       "enabled without password hash",
+			modify:     func(c *Config) { c.Auth.PasswordHash = "" },
+			wantErr:    true,
+			errMustSay: "-hash-password",
+		},
+		{
+			name:    "enabled without username",
+			modify:  func(c *Config) { c.Auth.Username = "" },
+			wantErr: true,
+		},
+		{
+			name:       "plaintext password instead of bcrypt hash",
+			modify:     func(c *Config) { c.Auth.PasswordHash = "hunter2" },
+			wantErr:    true,
+			errMustSay: "bcrypt",
+		},
+		{
+			name: "disabled without credentials",
+			modify: func(c *Config) {
+				c.Auth = AuthConfig{Enabled: false}
+			},
+		},
+		{
+			name:    "unparsable session ttl",
+			modify:  func(c *Config) { c.Auth.SessionTTL = "banana" },
+			wantErr: true,
+		},
+		{
+			name:    "zero session ttl",
+			modify:  func(c *Config) { c.Auth.SessionTTL = "0s" },
+			wantErr: true,
+		},
+		{
+			name:   "empty session ttl falls back to default",
+			modify: func(c *Config) { c.Auth.SessionTTL = "" },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validAuthConfig()
+			tt.modify(&cfg)
+
+			err := cfg.ValidateWeb()
+			if tt.wantErr && err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.errMustSay != "" && !strings.Contains(err.Error(), tt.errMustSay) {
+				t.Errorf("error message must mention %q, got: %v", tt.errMustSay, err)
+			}
+		})
+	}
+}
+
+func TestAuthTTL(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want time.Duration
+	}{
+		{"", defaultSessionTTL},
+		{"24h", 24 * time.Hour},
+		{"30m", 30 * time.Minute},
+		{"nonsense", defaultSessionTTL},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.raw, func(t *testing.T) {
+			got := AuthConfig{SessionTTL: tt.raw}.TTL()
+			if got != tt.want {
+				t.Errorf("TTL() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDefaultConfigEnablesAuth(t *testing.T) {
+	if !DefaultConfig().Auth.Enabled {
+		t.Error("auth must be enabled by default: an unauthenticated server must be a deliberate choice")
+	}
+}
+
+// The CLI has no web server: auth credentials must never gate it.
+func TestCLIValidateIgnoresAuth(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.PlaylistURL = "https://youtube.com/playlist?list=abc"
+	cfg.OutputDir = "/tmp/music"
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("CLI validation must not require auth credentials, got: %v", err)
+	}
+}
+
+// The web server must refuse to start unauthenticated by accident.
+func TestValidateWebRequiresAuth(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.OutputDir = "/tmp/music"
+
+	if err := cfg.ValidateWeb(); err == nil {
+		t.Fatal("web validation must reject a config with auth enabled and no credentials")
 	}
 }

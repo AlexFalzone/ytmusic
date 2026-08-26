@@ -33,7 +33,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := cfg.ValidateBase(); err != nil {
+	if err := cfg.ValidateWeb(); err != nil {
 		fmt.Fprintf(os.Stderr, "Config error: %v\n", err)
 		os.Exit(1)
 	}
@@ -48,6 +48,10 @@ func main() {
 		}
 	}
 	defer l.Close()
+
+	if !cfg.Auth.Enabled {
+		l.Warn("authentication is DISABLED: anyone who can reach this server can control it")
+	}
 
 	// Context that cancels on shutdown signal — used by jobs to stop gracefully
 	ctx, cancel := context.WithCancel(context.Background())

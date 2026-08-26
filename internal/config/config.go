@@ -5,27 +5,93 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
+const defaultSessionTTL = 720 * time.Hour
+
+// AuthConfig holds the web server credentials. Single user by design:
+// no roles, no registration, no user store.
+type AuthConfig struct {
+	Enabled      bool   `yaml:"enabled"`
+	Username     string `yaml:"username"`
+	PasswordHash string `yaml:"password_hash"` // bcrypt, see: ytmusic-web -hash-password
+	SessionTTL   string `yaml:"session_ttl"`   // time.ParseDuration format
+}
+
+// TTL returns the session lifetime. Validation rejects unparsable values at
+// startup, so the fallback here only guards callers that skipped validation.
+func (a AuthConfig) TTL() time.Duration {
+	if a.SessionTTL == "" {
+		return defaultSessionTTL
+	}
+	d, err := time.ParseDuration(a.SessionTTL)
+	if err != nil || d <= 0 {
+		return defaultSessionTTL
+	}
+	return d
+}
+
+// bcryptPrefixes are the hash variants bcrypt.GenerateFromPassword may produce.
+var bcryptPrefixes = []string{"$2a$", "$2b$", "$2y$"}
+
+func (a AuthConfig) validate() error {
+	if !a.Enabled {
+		return nil
+	}
+
+	if a.Username == "" {
+		return fmt.Errorf("auth.username is required when auth is enabled")
+	}
+	if a.PasswordHash == "" {
+		return fmt.Errorf("auth.password_hash is required when auth is enabled; generate one with: ytmusic-web -hash-password")
+	}
+
+	isHash := false
+	for _, prefix := range bcryptPrefixes {
+		if strings.HasPrefix(a.PasswordHash, prefix) {
+			isHash = true
+			break
+		}
+	}
+	if !isHash {
+		return fmt.Errorf("auth.password_hash must be a bcrypt hash, not a plaintext password; generate one with: ytmusic-web -hash-password")
+	}
+
+	if a.SessionTTL != "" {
+		d, err := time.ParseDuration(a.SessionTTL)
+		if err != nil {
+			return fmt.Errorf("invalid auth.session_ttl %q: %w", a.SessionTTL, err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("auth.session_ttl must be positive, got %q", a.SessionTTL)
+		}
+	}
+
+	return nil
+}
+
 // Config contains the program configuration
 type Config struct {
-	PlaylistURL         string   `yaml:"playlist_url"`
-	Verbose             bool     `yaml:"verbose"`
-	DryRun              bool     `yaml:"dry_run"`
-	ParallelJobs        int      `yaml:"parallel_jobs"`
-	CookiesBrowser      string   `yaml:"cookies_browser"`
-	AudioFormat         string   `yaml:"audio_format"`
-	MetadataProviders   []string `yaml:"metadata_providers"`
-	SpotifyClientID     string   `yaml:"spotify_client_id"`
-	SpotifyClientSecret string   `yaml:"spotify_client_secret"`
-	AcoustIDAPIKey      string   `yaml:"acoustid_api_key"`
-	ConfidenceThreshold float64  `yaml:"confidence_threshold"`
-	SkipLyrics          bool     `yaml:"skip_lyrics"`
-	LyricsOnly          string   `yaml:"-"`
-	ImportOnly          string   `yaml:"-"`
-	OutputDir           string   `yaml:"output_dir"`
+	PlaylistURL         string     `yaml:"playlist_url"`
+	Verbose             bool       `yaml:"verbose"`
+	DryRun              bool       `yaml:"dry_run"`
+	ParallelJobs        int        `yaml:"parallel_jobs"`
+	CookiesBrowser      string     `yaml:"cookies_browser"`
+	AudioFormat         string     `yaml:"audio_format"`
+	MetadataProviders   []string   `yaml:"metadata_providers"`
+	SpotifyClientID     string     `yaml:"spotify_client_id"`
+	SpotifyClientSecret string     `yaml:"spotify_client_secret"`
+	AcoustIDAPIKey      string     `yaml:"acoustid_api_key"`
+	ConfidenceThreshold float64    `yaml:"confidence_threshold"`
+	SkipLyrics          bool       `yaml:"skip_lyrics"`
+	Auth                AuthConfig `yaml:"auth"`
+	BehindProxy         bool       `yaml:"behind_proxy"`
+	LyricsOnly          string     `yaml:"-"`
+	ImportOnly          string     `yaml:"-"`
+	OutputDir           string     `yaml:"output_dir"`
 }
 
 // DefaultConfig returns the default configuration
@@ -38,6 +104,10 @@ func DefaultConfig() Config {
 		AudioFormat:         "mp3",
 		ConfidenceThreshold: 0.7,
 		OutputDir:           filepath.Join(homeDir(), "Music"),
+		Auth: AuthConfig{
+			Enabled:    true,
+			SessionTTL: defaultSessionTTL.String(),
+		},
 	}
 }
 
@@ -186,6 +256,16 @@ func (c *Config) ValidateBase() error {
 	}
 
 	return nil
+}
+
+// ValidateWeb checks everything the web server needs, including credentials.
+// Kept separate from ValidateBase because the CLI has no web server and must
+// never be gated by web authentication settings.
+func (c *Config) ValidateWeb() error {
+	if err := c.ValidateBase(); err != nil {
+		return err
+	}
+	return c.Auth.validate()
 }
 
 // Validate checks the full configuration including playlist URL.
