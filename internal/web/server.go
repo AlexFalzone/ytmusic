@@ -16,6 +16,7 @@ type Server struct {
 	config   config.Config
 	logger   *logger.Logger
 	sessions *sessionStore
+	logins   *loginLimiter
 }
 
 func NewServer(ctx context.Context, jobMgr *JobManager, cfg config.Config, log *logger.Logger) *Server {
@@ -25,6 +26,7 @@ func NewServer(ctx context.Context, jobMgr *JobManager, cfg config.Config, log *
 		config:   cfg,
 		logger:   log,
 		sessions: newSessionStore(cfg.Auth.TTL()),
+		logins:   newLoginLimiter(),
 	}
 }
 

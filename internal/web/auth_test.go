@@ -455,3 +455,211 @@ func TestSessionCookieSecureFlag(t *testing.T) {
 		})
 	}
 }
+
+// --- login / logout / me ---
+
+func loginRequest(body string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "192.0.2.10:5555"
+	return req
+}
+
+func TestLoginSucceedsWithCorrectCredentials(t *testing.T) {
+	s := newTestServer(t, nil)
+
+	rec := httptest.NewRecorder()
+	s.handleLogin(rec, loginRequest(`{"username":"alex","password":"hunter2"}`))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200. body: %s", rec.Code, rec.Body.String())
+	}
+	cookie := rec.Header().Get("Set-Cookie")
+	if !strings.Contains(cookie, sessionCookieName) {
+		t.Fatalf("expected a session cookie, got: %q", cookie)
+	}
+}
+
+func TestLoginRejectsBadCredentialsIdentically(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{"wrong password", `{"username":"alex","password":"wrong"}`},
+		{"wrong username", `{"username":"eve","password":"hunter2"}`},
+		{"both wrong", `{"username":"eve","password":"wrong"}`},
+		{"empty credentials", `{"username":"","password":""}`},
+	}
+
+	var messages []string
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestServer(t, nil)
+			rec := httptest.NewRecorder()
+			s.handleLogin(rec, loginRequest(tt.body))
+
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("got %d, want 401", rec.Code)
+			}
+			if rec.Header().Get("Set-Cookie") != "" {
+				t.Error("a failed login must not set a session cookie")
+			}
+			messages = append(messages, rec.Body.String())
+		})
+	}
+
+	// A different message for a wrong username would reveal which half was wrong.
+	for i := 1; i < len(messages); i++ {
+		if messages[i] != messages[0] {
+			t.Errorf("error messages differ between cases: %q vs %q", messages[0], messages[i])
+		}
+	}
+}
+
+func TestLoginRequiresJSONContentType(t *testing.T) {
+	s := newTestServer(t, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"alex","password":"hunter2"}`))
+	req.Header.Set("Content-Type", "text/plain")
+	req.RemoteAddr = "192.0.2.10:5555"
+
+	rec := httptest.NewRecorder()
+	s.handleLogin(rec, req)
+
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Errorf("got %d, want 415", rec.Code)
+	}
+	if rec.Header().Get("Set-Cookie") != "" {
+		t.Error("must not authenticate a request with the wrong content type")
+	}
+}
+
+func TestLoginRejectsMalformedBody(t *testing.T) {
+	s := newTestServer(t, nil)
+
+	rec := httptest.NewRecorder()
+	s.handleLogin(rec, loginRequest(`not json`))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("got %d, want 400", rec.Code)
+	}
+}
+
+func TestLoginLocksOutAfterRepeatedFailures(t *testing.T) {
+	s := newTestServer(t, nil)
+
+	for i := 0; i < maxLoginAttempts; i++ {
+		rec := httptest.NewRecorder()
+		s.handleLogin(rec, loginRequest(`{"username":"alex","password":"wrong"}`))
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: got %d, want 401", i+1, rec.Code)
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	s.handleLogin(rec, loginRequest(`{"username":"alex","password":"wrong"}`))
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("attempt %d: got %d, want 429", maxLoginAttempts+1, rec.Code)
+	}
+
+	// The lockout must hold even for the right password, or it is no lockout.
+	rec = httptest.NewRecorder()
+	s.handleLogin(rec, loginRequest(`{"username":"alex","password":"hunter2"}`))
+	if rec.Code != http.StatusTooManyRequests {
+		t.Errorf("correct credentials during lockout: got %d, want 429", rec.Code)
+	}
+}
+
+func TestLoginSucceedsAfterLockoutExpires(t *testing.T) {
+	s := newTestServer(t, nil)
+	clock := newTestClock()
+	s.logins.now = clock.now
+
+	for i := 0; i <= maxLoginAttempts; i++ {
+		rec := httptest.NewRecorder()
+		s.handleLogin(rec, loginRequest(`{"username":"alex","password":"wrong"}`))
+		_ = rec
+	}
+
+	clock.advance(loginLockout + time.Minute)
+
+	rec := httptest.NewRecorder()
+	s.handleLogin(rec, loginRequest(`{"username":"alex","password":"hunter2"}`))
+	if rec.Code != http.StatusOK {
+		t.Errorf("after the lockout expired: got %d, want 200", rec.Code)
+	}
+}
+
+func TestLoginResetsCounterOnSuccess(t *testing.T) {
+	s := newTestServer(t, nil)
+
+	for i := 0; i < maxLoginAttempts-1; i++ {
+		rec := httptest.NewRecorder()
+		s.handleLogin(rec, loginRequest(`{"username":"alex","password":"wrong"}`))
+		_ = rec
+	}
+
+	rec := httptest.NewRecorder()
+	s.handleLogin(rec, loginRequest(`{"username":"alex","password":"hunter2"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200", rec.Code)
+	}
+
+	// A successful login clears the record, so failures start counting again.
+	for i := 0; i < maxLoginAttempts; i++ {
+		rec := httptest.NewRecorder()
+		s.handleLogin(rec, loginRequest(`{"username":"alex","password":"wrong"}`))
+		if rec.Code == http.StatusTooManyRequests {
+			t.Fatalf("attempt %d locked out: the counter was not reset on success", i+1)
+		}
+	}
+}
+
+func TestLogoutRevokesSessionServerSide(t *testing.T) {
+	s := newTestServer(t, nil)
+
+	token, _ := s.sessions.create()
+	req := httptest.NewRequest(http.MethodPost, "/api/logout", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+
+	rec := httptest.NewRecorder()
+	s.handleLogout(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200", rec.Code)
+	}
+	// Clearing only the cookie would leave a copied token usable.
+	if s.sessions.validate(token) {
+		t.Error("logout must revoke the session server-side, not just clear the cookie")
+	}
+}
+
+func TestMeReturnsUsernameForValidSession(t *testing.T) {
+	s := newTestServer(t, nil)
+
+	token, _ := s.sessions.create()
+	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+
+	rec := httptest.NewRecorder()
+	s.requireAuth(http.HandlerFunc(s.handleMe)).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "alex") {
+		t.Errorf("body must contain the username, got: %s", rec.Body.String())
+	}
+}
+
+func TestMeRejectsMissingSession(t *testing.T) {
+	s := newTestServer(t, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	rec := httptest.NewRecorder()
+	s.requireAuth(http.HandlerFunc(s.handleMe)).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("got %d, want 401", rec.Code)
+	}
+}
