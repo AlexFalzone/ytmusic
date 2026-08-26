@@ -60,7 +60,7 @@ func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 
 	if stats.Failed > 0 {
 		msg := fmt.Sprintf("%d of %d videos failed to download (private, unavailable, or geo-restricted)", stats.Failed, stats.Total)
-		log.Warn(msg)
+		log.Warn("%s", msg)
 		if hooks.OnWarning != nil {
 			hooks.OnWarning(msg)
 		}
@@ -83,7 +83,7 @@ func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 		}
 		if err := imp.Import(ctx, mergedDir); err != nil {
 			msg := fmt.Sprintf("metadata resolution failed: %v", err)
-			log.Warn(msg)
+			log.Warn("%s", msg)
 			if hooks.OnWarning != nil {
 				hooks.OnWarning(msg)
 			}

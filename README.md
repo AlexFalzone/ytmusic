@@ -15,7 +15,7 @@ from multiple providers.
 
 ## Prerequisites
 
-- Go 1.23+
+- Go 1.27+
 - yt-dlp
 - FFmpeg
 
