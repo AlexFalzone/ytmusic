@@ -34,6 +34,11 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !hasJSONContentType(r) {
+		http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
+		return
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB
 	var req DownloadRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -126,15 +131,14 @@ func (s *Server) handleJobAction(w http.ResponseWriter, r *http.Request) {
 			j.Status = StatusCancelled
 		})
 
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
+		writeJSON(w, map[string]string{"status": "cancelled"})
 		return
 	}
 
 	http.Error(w, "Invalid request", http.StatusBadRequest)
 }
 
-func (s *Server) processJob(job *Job) {
+func (s *Server) processJob(job Job) {
 	jobLog := s.logger.WithPrefix(job.ID)
 
 	defer func() {
@@ -208,7 +212,7 @@ func (s *Server) processJob(job *Job) {
 	}
 }
 
-func (s *Server) jobToResponse(job *Job) *JobResponse {
+func (s *Server) jobToResponse(job Job) *JobResponse {
 	resp := &JobResponse{
 		ID:        job.ID,
 		URL:       job.URL,
