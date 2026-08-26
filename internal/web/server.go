@@ -11,18 +11,20 @@ import (
 )
 
 type Server struct {
-	ctx    context.Context
-	jobMgr *JobManager
-	config config.Config
-	logger *logger.Logger
+	ctx      context.Context
+	jobMgr   *JobManager
+	config   config.Config
+	logger   *logger.Logger
+	sessions *sessionStore
 }
 
 func NewServer(ctx context.Context, jobMgr *JobManager, cfg config.Config, log *logger.Logger) *Server {
 	return &Server{
-		ctx:    ctx,
-		jobMgr: jobMgr,
-		config: cfg,
-		logger: log,
+		ctx:      ctx,
+		jobMgr:   jobMgr,
+		config:   cfg,
+		logger:   log,
+		sessions: newSessionStore(cfg.Auth.TTL()),
 	}
 }
 

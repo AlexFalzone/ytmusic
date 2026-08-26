@@ -2,10 +2,17 @@ package web
 
 import (
 	"context"
+	"crypto/tls"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"ytmusic/internal/config"
+	"ytmusic/internal/logger"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -252,5 +259,199 @@ func TestHashPasswordUsesProductionCost(t *testing.T) {
 func TestHashPasswordRejectsEmpty(t *testing.T) {
 	if _, err := HashPassword(""); err == nil {
 		t.Error("an empty password must be rejected, not hashed")
+	}
+}
+
+// --- middleware ---
+
+func newTestServer(t *testing.T, modify func(*config.Config)) *Server {
+	t.Helper()
+
+	hash, err := hashPassword("hunter2", bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hashPassword: %v", err)
+	}
+
+	cfg := config.Config{
+		Auth: config.AuthConfig{
+			Enabled:      true,
+			Username:     "alex",
+			PasswordHash: hash,
+			SessionTTL:   "1h",
+		},
+	}
+	if modify != nil {
+		modify(&cfg)
+	}
+
+	return NewServer(context.Background(), NewJobManager(), cfg, logger.New(false))
+}
+
+func okHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "reached")
+	})
+}
+
+func TestRequireAuthDisabledLetsEverythingThrough(t *testing.T) {
+	s := newTestServer(t, func(c *config.Config) { c.Auth.Enabled = false })
+
+	for _, path := range []string{"/", "/api/jobs", "/ws"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		s.requireAuth(okHandler()).ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s: got %d, want 200 when auth is disabled", path, rec.Code)
+		}
+	}
+}
+
+func TestRequireAuthRejectsAPIWithoutSession(t *testing.T) {
+	s := newTestServer(t, nil)
+
+	for _, path := range []string{"/api/jobs", "/api/jobs/abc", "/api/download", "/ws"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		s.requireAuth(okHandler()).ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s: got %d, want 401", path, rec.Code)
+		}
+		if rec.Body.String() == "reached" {
+			t.Errorf("%s: handler must not run without a session", path)
+		}
+	}
+}
+
+func TestRequireAuthRedirectsBrowserNavigation(t *testing.T) {
+	s := newTestServer(t, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	s.requireAuth(okHandler()).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("got %d, want 302", rec.Code)
+	}
+	if got := rec.Header().Get("Location"); got != "/login.html" {
+		t.Errorf("Location = %q, want /login.html", got)
+	}
+}
+
+func TestRequireAuthAllowsPublicPaths(t *testing.T) {
+	s := newTestServer(t, nil)
+
+	for _, path := range []string{"/login.html", "/login.js", "/style.css", "/api/login", "/api/health"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		s.requireAuth(okHandler()).ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s: got %d, want 200 (public path)", path, rec.Code)
+		}
+	}
+}
+
+func TestRequireAuthAcceptsValidSession(t *testing.T) {
+	s := newTestServer(t, nil)
+
+	token, err := s.sessions.create()
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/jobs", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+	rec := httptest.NewRecorder()
+	s.requireAuth(okHandler()).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("got %d, want 200 with a valid session", rec.Code)
+	}
+}
+
+func TestRequireAuthRejectsForgedSession(t *testing.T) {
+	s := newTestServer(t, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/jobs", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "forged"})
+	rec := httptest.NewRecorder()
+	s.requireAuth(okHandler()).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("got %d, want 401 for a forged token", rec.Code)
+	}
+}
+
+// --- cookie flags ---
+
+func setCookieHeader(t *testing.T, s *Server, r *http.Request) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	s.setSessionCookie(rec, r, "token-value")
+	return rec.Header().Get("Set-Cookie")
+}
+
+func TestSessionCookieAlwaysHardened(t *testing.T) {
+	s := newTestServer(t, nil)
+	header := setCookieHeader(t, s, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	for _, want := range []string{"HttpOnly", "SameSite=Lax", "Path=/"} {
+		if !strings.Contains(header, want) {
+			t.Errorf("cookie must contain %q, got: %s", want, header)
+		}
+	}
+}
+
+func TestSessionCookieSecureFlag(t *testing.T) {
+	tests := []struct {
+		name        string
+		behindProxy bool
+		tls         bool
+		forwarded   string
+		wantSecure  bool
+	}{
+		{name: "plain http", wantSecure: false},
+		{name: "direct https", tls: true, wantSecure: true},
+		{
+			name:       "forwarded https but proxy not declared",
+			forwarded:  "https",
+			wantSecure: false,
+		},
+		{
+			name:        "forwarded https with proxy declared",
+			behindProxy: true,
+			forwarded:   "https",
+			wantSecure:  true,
+		},
+		{
+			name:        "forwarded http with proxy declared",
+			behindProxy: true,
+			forwarded:   "http",
+			wantSecure:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestServer(t, func(c *config.Config) { c.BehindProxy = tt.behindProxy })
+
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tt.tls {
+				req.TLS = &tls.ConnectionState{}
+			}
+			if tt.forwarded != "" {
+				req.Header.Set("X-Forwarded-Proto", tt.forwarded)
+			}
+
+			header := setCookieHeader(t, s, req)
+			gotSecure := strings.Contains(header, "Secure")
+
+			if gotSecure != tt.wantSecure {
+				t.Errorf("Secure = %v, want %v (header: %s)", gotSecure, tt.wantSecure, header)
+			}
+		})
 	}
 }
