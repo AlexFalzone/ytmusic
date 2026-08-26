@@ -37,11 +37,15 @@ type Job struct {
 	Cancel      context.CancelFunc
 }
 
-// JobManager manages download jobs
+// JobManager manages download jobs.
+//
+// Every accessor returns a copy of the Job rather than the pointer it keeps:
+// handing out pointers let callers read fields while a job goroutine was
+// writing them, which is a data race even though each write is itself locked.
 type JobManager struct {
 	jobs      map[string]*Job
 	mu        sync.RWMutex
-	listeners map[string][]chan *Job
+	listeners map[string][]chan Job
 }
 
 const jobRetention = 1 * time.Hour
@@ -50,7 +54,7 @@ const jobRetention = 1 * time.Hour
 func NewJobManager() *JobManager {
 	return &JobManager{
 		jobs:      make(map[string]*Job),
-		listeners: make(map[string][]chan *Job),
+		listeners: make(map[string][]chan Job),
 	}
 }
 
@@ -84,8 +88,8 @@ func (jm *JobManager) cleanup() {
 	}
 }
 
-// CreateJob creates a new job
-func (jm *JobManager) CreateJob(url string, cfg config.Config) *Job {
+// CreateJob creates a new job and returns a snapshot of it.
+func (jm *JobManager) CreateJob(url string, cfg config.Config) Job {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
@@ -98,29 +102,29 @@ func (jm *JobManager) CreateJob(url string, cfg config.Config) *Job {
 	}
 
 	jm.jobs[job.ID] = job
-	return job
+	return *job
 }
 
-// GetJob retrieves a job by ID
-func (jm *JobManager) GetJob(id string) (*Job, error) {
+// GetJob retrieves a snapshot of a job by ID.
+func (jm *JobManager) GetJob(id string) (Job, error) {
 	jm.mu.RLock()
 	defer jm.mu.RUnlock()
 
 	job, ok := jm.jobs[id]
 	if !ok {
-		return nil, fmt.Errorf("job not found: %s", id)
+		return Job{}, fmt.Errorf("job not found: %s", id)
 	}
-	return job, nil
+	return *job, nil
 }
 
-// ListJobs returns the most recent jobs up to limit, sorted newest first.
-func (jm *JobManager) ListJobs(limit int) []*Job {
+// ListJobs returns snapshots of the most recent jobs, newest first.
+func (jm *JobManager) ListJobs(limit int) []Job {
 	jm.mu.RLock()
 	defer jm.mu.RUnlock()
 
-	jobs := make([]*Job, 0, len(jm.jobs))
+	jobs := make([]Job, 0, len(jm.jobs))
 	for _, job := range jm.jobs {
-		jobs = append(jobs, job)
+		jobs = append(jobs, *job)
 	}
 
 	sort.Slice(jobs, func(i, j int) bool {
@@ -167,17 +171,17 @@ func (jm *JobManager) UpdateJob(id string, fn func(*Job)) error {
 }
 
 // Subscribe subscribes to job updates
-func (jm *JobManager) Subscribe(jobID string) <-chan *Job {
+func (jm *JobManager) Subscribe(jobID string) <-chan Job {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
-	ch := make(chan *Job, 10)
+	ch := make(chan Job, 10)
 	jm.listeners[jobID] = append(jm.listeners[jobID], ch)
 	return ch
 }
 
 // Unsubscribe removes a listener
-func (jm *JobManager) Unsubscribe(jobID string, ch <-chan *Job) {
+func (jm *JobManager) Unsubscribe(jobID string, ch <-chan Job) {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
@@ -191,11 +195,11 @@ func (jm *JobManager) Unsubscribe(jobID string, ch <-chan *Job) {
 	}
 }
 
-// notifyListeners sends updates to all listeners
+// notifyListeners sends a snapshot to all listeners; caller holds jm.mu.
 func (jm *JobManager) notifyListeners(jobID string, job *Job) {
 	for _, ch := range jm.listeners[jobID] {
 		select {
-		case ch <- job:
+		case ch <- *job:
 		default:
 		}
 	}
