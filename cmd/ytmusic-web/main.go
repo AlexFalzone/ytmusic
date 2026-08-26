@@ -19,13 +19,25 @@ import (
 
 func main() {
 	var (
-		port       int
-		configPath string
+		port         int
+		configPath   string
+		hashPassword bool
 	)
 
 	flag.IntVar(&port, "port", 8080, "HTTP server port")
 	flag.StringVar(&configPath, "config", "", "Config file path")
+	flag.BoolVar(&hashPassword, "hash-password", false, "Generate a bcrypt hash for auth.password_hash and exit")
 	flag.Parse()
+
+	// Runs before the config is loaded: it must work precisely when the config
+	// is still invalid because the hash is missing.
+	if hashPassword {
+		if err := runHashPassword(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	cfg, err := config.LoadConfigFile(configPath)
 	if err != nil {
