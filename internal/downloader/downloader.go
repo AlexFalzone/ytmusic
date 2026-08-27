@@ -190,6 +190,20 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadSt
 		go func(idx int, u string) {
 			defer wg.Done()
 
+			// This goroutine is not on a handler stack, so net/http would not
+			// catch a panic here: one would take down the whole process and
+			// every other job with it. A worker that panicked did not finish
+			// its work, so count it as failed rather than inflate the success
+			// count.
+			defer func() {
+				if r := recover(); r != nil {
+					d.Logger.Error("panic while downloading %s: %v", u, r)
+					failedMu.Lock()
+					failed = append(failed, u)
+					failedMu.Unlock()
+				}
+			}()
+
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 

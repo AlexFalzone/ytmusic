@@ -239,6 +239,14 @@ func ResolveLyrics(ctx context.Context, dir string, log *logger.Logger) {
 			defer wg.Done()
 			defer func() { <-sem }()
 
+			// Off any handler stack: an unhandled panic here would take down
+			// the whole process, mid-download, for a lyrics lookup.
+			defer func() {
+				if r := recover(); r != nil {
+					log.Error("panic while fetching lyrics for %q: %v", title, r)
+				}
+			}()
+
 			result, err := client.Fetch(ctx, artist, title, album)
 			if err != nil {
 				log.Debug("lyrics fetch failed for %q: %v", title, err)

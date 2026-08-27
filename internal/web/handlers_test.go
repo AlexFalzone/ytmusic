@@ -5,10 +5,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"ytmusic/internal/config"
+	"ytmusic/internal/logger"
+	"ytmusic/internal/pipeline"
 )
 
 // sessionCookie returns a cookie for a freshly created session.
@@ -228,6 +231,9 @@ func TestDownloadHostAllowlist(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := newTestServer(t, func(c *config.Config) { c.AllowedHosts = tt.allowed })
+			s.runPipeline = func(context.Context, config.Config, *logger.Logger, string, pipeline.Hooks) error {
+				return nil
+			}
 
 			body := `{"url":"` + tt.url + `"}`
 			req := httptest.NewRequest(http.MethodPost, "/api/download", strings.NewReader(body))
@@ -241,15 +247,7 @@ func TestDownloadHostAllowlist(t *testing.T) {
 				t.Errorf("got %d, want %d (body: %s)", rec.Code, tt.wantCode, rec.Body.String())
 			}
 
-			// Cancel any job an accepted request started, so the test does not
-			// leave yt-dlp running in the background.
-			if rec.Code == http.StatusOK {
-				for _, j := range s.jobMgr.ListJobs(0) {
-					if j.Cancel != nil {
-						j.Cancel()
-					}
-				}
-			}
+			s.Wait()
 		})
 	}
 }
@@ -364,5 +362,109 @@ func TestJobCancelledByShutdownEndsAsCancelled(t *testing.T) {
 	}
 	if final.Status != StatusCancelled {
 		t.Errorf("status = %q, want %q", final.Status, StatusCancelled)
+	}
+}
+
+// startJob launches a job the way handleDownload does.
+func startJob(t *testing.T, s *Server, url string) Job {
+	t.Helper()
+
+	cfg := s.config
+	cfg.PlaylistURL = url
+	job, err := s.jobMgr.CreateJob(s.ctx, url, cfg)
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+
+	s.wg.Add(1)
+	go s.processJob(job)
+	return job
+}
+
+func TestJobsBeyondTheCapWaitTheirTurn(t *testing.T) {
+	s := newTestServer(t, func(c *config.Config) { c.MaxConcurrentJobs = 1 })
+
+	release := make(chan struct{})
+	started := make(chan string, 2)
+	s.runPipeline = func(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir string, hooks pipeline.Hooks) error {
+		started <- cfg.PlaylistURL
+		<-release
+		return nil
+	}
+
+	startJob(t, s, "https://youtube.com/first")
+	second := startJob(t, s, "https://youtube.com/second")
+
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no job started at all")
+	}
+
+	select {
+	case url := <-started:
+		t.Fatalf("a second job started with the cap at 1: %s", url)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	queued, err := s.jobMgr.GetJob(second.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if queued.Status != StatusPending && queued.Status != StatusRunning {
+		t.Errorf("queued job status = %q, want pending", queued.Status)
+	}
+
+	close(release)
+
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the queued job never started once capacity freed")
+	}
+
+	s.Wait()
+}
+
+// A job cancelled while still queued must never run at all.
+func TestJobCancelledWhileQueuedNeverStarts(t *testing.T) {
+	s := newTestServer(t, func(c *config.Config) { c.MaxConcurrentJobs = 1 })
+
+	release := make(chan struct{})
+	defer close(release)
+
+	var ran atomic.Int32
+	blocking := make(chan struct{})
+	s.runPipeline = func(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir string, hooks pipeline.Hooks) error {
+		ran.Add(1)
+		close(blocking)
+		<-release
+		return nil
+	}
+
+	startJob(t, s, "https://youtube.com/first")
+	<-blocking // the first job holds the only slot
+
+	queued := startJob(t, s, "https://youtube.com/queued")
+	queued.Cancel()
+
+	deadline := time.After(5 * time.Second)
+	for {
+		job, err := s.jobMgr.GetJob(queued.ID)
+		if err != nil {
+			t.Fatalf("GetJob: %v", err)
+		}
+		if job.Status == StatusCancelled {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("queued job status = %q, want cancelled", job.Status)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	if got := ran.Load(); got != 1 {
+		t.Errorf("pipeline ran %d times, want 1: a cancelled job must never start", got)
 	}
 }

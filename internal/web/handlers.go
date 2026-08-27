@@ -205,6 +205,20 @@ func (s *Server) processJob(job Job) {
 	// parent from accumulating cancel functions for finished work.
 	defer job.Cancel()
 
+	// Wait for a free slot. Watching the job context too means a job cancelled
+	// while queued stops here instead of waiting for a slot only to discover it
+	// was cancelled.
+	select {
+	case s.jobSem <- struct{}{}:
+		defer func() { <-s.jobSem }()
+	case <-job.ctx.Done():
+		jobLog.Info("cancelled while queued")
+		s.jobMgr.UpdateJob(job.ID, func(j *Job) {
+			j.Status = StatusCancelled
+		})
+		return
+	}
+
 	s.jobMgr.UpdateJob(job.ID, func(j *Job) {
 		j.Status = StatusRunning
 	})
@@ -239,7 +253,7 @@ func (s *Server) processJob(job Job) {
 		},
 	}
 
-	if err := pipeline.Run(job.ctx, job.Config, jobLog, tempDir, hooks); err != nil {
+	if err := s.runPipeline(job.ctx, job.Config, jobLog, tempDir, hooks); err != nil {
 		// A stopped job is not a broken one. The status is the same either way;
 		// only the log distinguishes a user's cancel from a server shutdown.
 		if errors.Is(err, context.Canceled) {

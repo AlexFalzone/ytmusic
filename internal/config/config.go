@@ -90,6 +90,7 @@ type Config struct {
 	Auth                AuthConfig `yaml:"auth"`
 	BehindProxy         bool       `yaml:"behind_proxy"`
 	AllowedHosts        []string   `yaml:"allowed_hosts"`
+	MaxConcurrentJobs   int        `yaml:"max_concurrent_jobs"`
 	LyricsOnly          string     `yaml:"-"`
 	ImportOnly          string     `yaml:"-"`
 	OutputDir           string     `yaml:"output_dir"`
@@ -105,6 +106,7 @@ func DefaultConfig() Config {
 		AudioFormat:         "mp3",
 		ConfidenceThreshold: 0.7,
 		OutputDir:           filepath.Join(homeDir(), "Music"),
+		MaxConcurrentJobs:   1,
 		Auth: AuthConfig{
 			Enabled:    true,
 			SessionTTL: defaultSessionTTL.String(),
@@ -218,6 +220,10 @@ func (c *Config) ValidateBase() error {
 	}
 	if c.ParallelJobs > 10 {
 		return fmt.Errorf("parallel jobs cannot exceed 10 (to avoid rate limiting), got %d", c.ParallelJobs)
+	}
+
+	if c.MaxConcurrentJobs < 1 {
+		return fmt.Errorf("max_concurrent_jobs must be at least 1, got %d", c.MaxConcurrentJobs)
 	}
 
 	validFormats := []string{"mp3", "m4a", "opus", "flac", "wav", "aac"}

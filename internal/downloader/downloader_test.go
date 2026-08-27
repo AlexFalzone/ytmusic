@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"ytmusic/internal/config"
 	"ytmusic/internal/logger"
@@ -154,5 +156,38 @@ func TestCancellationWrapsContextCanceled(t *testing.T) {
 				t.Errorf("error must wrap context.Canceled for errors.Is, got: %v", err)
 			}
 		})
+	}
+}
+
+// The download workers run in their own goroutines, off any handler stack: an
+// unhandled panic there takes down the whole process. The progress hook is
+// supplied by the caller and runs inside the worker, so it is where a panic
+// realistically comes from.
+func TestDownloadAllSurvivesPanicInProgressHook(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.ParallelJobs = 2
+	d := New(cfg, logger.New(false), t.TempDir())
+
+	var calls atomic.Int32
+	d.OnProgress = func() {
+		if calls.Add(1) == 1 {
+			panic("boom")
+		}
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = d.DownloadAll(context.Background(), []string{"not-a-url-1", "not-a-url-2", "not-a-url-3"})
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(60 * time.Second):
+		t.Fatal("DownloadAll never returned after a worker panicked")
+	}
+
+	if got := calls.Load(); got != 3 {
+		t.Errorf("progress hook ran %d times, want 3: a panic in one worker must not stop the others", got)
 	}
 }

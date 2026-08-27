@@ -10,6 +10,7 @@ import (
 
 	"ytmusic/internal/config"
 	"ytmusic/internal/logger"
+	"ytmusic/internal/pipeline"
 )
 
 type Server struct {
@@ -20,6 +21,15 @@ type Server struct {
 	sessions *sessionStore
 	logins   *loginLimiter
 	wg       sync.WaitGroup // in-flight job goroutines
+
+	// jobSem caps how many jobs run at once. Each job already runs
+	// parallel_jobs downloads, so two concurrent jobs multiply the load on
+	// YouTube; the ones beyond the cap wait rather than being refused.
+	jobSem chan struct{}
+
+	// runPipeline is the work a job does, injectable so tests can drive job
+	// scheduling without shelling out to yt-dlp.
+	runPipeline func(context.Context, config.Config, *logger.Logger, string, pipeline.Hooks) error
 }
 
 // Wait blocks until every job goroutine has finished. Called on shutdown so a
@@ -36,6 +46,11 @@ func NewServer(ctx context.Context, jobMgr *JobManager, cfg config.Config, log *
 		logger:   log,
 		sessions: newSessionStore(cfg.Auth.TTL()),
 		logins:   newLoginLimiter(),
+		// Validation rejects anything below 1 at startup; this guard keeps a
+		// zero-value config from producing an unbuffered channel that would
+		// deadlock every job.
+		jobSem:      make(chan struct{}, max(cfg.MaxConcurrentJobs, 1)),
+		runPipeline: pipeline.Run,
 	}
 }
 

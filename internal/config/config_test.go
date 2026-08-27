@@ -13,6 +13,7 @@ func TestValidate(t *testing.T) {
 		return Config{
 			PlaylistURL:         "https://youtube.com/playlist?list=abc",
 			ParallelJobs:        4,
+			MaxConcurrentJobs:   1,
 			AudioFormat:         "mp3",
 			OutputDir:           "/tmp/music",
 			MetadataProviders:   []string{"spotify"},
@@ -226,6 +227,7 @@ func TestExpandHome(t *testing.T) {
 func validAuthConfig() Config {
 	return Config{
 		ParallelJobs:        4,
+		MaxConcurrentJobs:   1,
 		AudioFormat:         "mp3",
 		OutputDir:           "/tmp/music",
 		ConfidenceThreshold: 0.7,
@@ -352,5 +354,42 @@ func TestValidateWebRequiresAuth(t *testing.T) {
 
 	if err := cfg.ValidateWeb(); err == nil {
 		t.Fatal("web validation must reject a config with auth enabled and no credentials")
+	}
+}
+
+func TestValidateMaxConcurrentJobs(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   int
+		wantErr bool
+	}{
+		{"one", 1, false},
+		{"three", 3, false},
+		{"zero", 0, true},
+		{"negative", -1, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.OutputDir = "/tmp/music"
+			cfg.MaxConcurrentJobs = tt.value
+
+			err := cfg.ValidateBase()
+			if tt.wantErr && err == nil {
+				t.Error("expected an error")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestDefaultMaxConcurrentJobsIsOne(t *testing.T) {
+	// One job at a time keeps yt-dlp's parallelism (parallel_jobs) as the only
+	// source of concurrency against YouTube; two jobs would multiply it.
+	if got := DefaultConfig().MaxConcurrentJobs; got != 1 {
+		t.Errorf("MaxConcurrentJobs default = %d, want 1", got)
 	}
 }

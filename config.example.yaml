@@ -76,6 +76,12 @@ auth:
 # headers without a proxy would let any client forge them.
 behind_proxy: false
 
+# How many download jobs may run at the same time. Jobs beyond this wait in the
+# queue rather than being refused.
+# Each job already runs parallel_jobs downloads at once, so raising this
+# multiplies the load on YouTube and makes rate limiting more likely.
+max_concurrent_jobs: 1
+
 # Restrict which sites can be handed to yt-dlp. Empty means no restriction.
 # yt-dlp supports well over a thousand sites, so an open instance is a
 # general-purpose downloader for anyone who can reach it.
