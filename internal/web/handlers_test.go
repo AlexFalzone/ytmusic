@@ -181,7 +181,7 @@ func TestAuthenticatedResponsesAreNotPubliclyCacheable(t *testing.T) {
 // hands out data, not pointers into its own mutable state.
 func TestJobReadsDoNotRaceWithUpdates(t *testing.T) {
 	s := newTestServer(t, nil)
-	job, err := s.jobMgr.CreateJob("https://example.com/playlist", s.config)
+	job, err := s.jobMgr.CreateJob(context.Background(), "https://example.com/playlist", s.config)
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}

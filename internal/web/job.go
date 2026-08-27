@@ -35,6 +35,10 @@ type Job struct {
 	StartedAt   *time.Time
 	CompletedAt *time.Time
 	Cancel      context.CancelFunc
+
+	// ctx is the job's own cancellation scope, created with the job so there is
+	// never a moment when a cancel request has nothing to act on.
+	ctx context.Context
 }
 
 // JobManager manages download jobs.
@@ -93,12 +97,15 @@ func (jm *JobManager) cleanup() {
 	}
 }
 
-// CreateJob creates a new job and returns a snapshot of it.
-func (jm *JobManager) CreateJob(url string, cfg config.Config) (Job, error) {
+// CreateJob creates a new job, derives its cancellation scope from parent, and
+// returns a snapshot of it.
+func (jm *JobManager) CreateJob(parent context.Context, url string, cfg config.Config) (Job, error) {
 	id, err := generateJobID()
 	if err != nil {
 		return Job{}, err
 	}
+
+	ctx, cancel := context.WithCancel(parent)
 
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
@@ -109,6 +116,8 @@ func (jm *JobManager) CreateJob(url string, cfg config.Config) (Job, error) {
 		Config:    cfg,
 		Status:    StatusPending,
 		CreatedAt: time.Now(),
+		Cancel:    cancel,
+		ctx:       ctx,
 	}
 
 	jm.jobs[job.ID] = job

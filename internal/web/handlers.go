@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -60,7 +59,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	jobConfig := s.config
 	jobConfig.PlaylistURL = req.URL
 
-	job, err := s.jobMgr.CreateJob(req.URL, jobConfig)
+	job, err := s.jobMgr.CreateJob(s.ctx, req.URL, jobConfig)
 	if err != nil {
 		s.logger.Error("failed to create job: %v", err)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
@@ -200,11 +199,11 @@ func (s *Server) processJob(job Job) {
 		}
 	}()
 
-	ctx, cancel := context.WithCancel(s.ctx)
-	defer cancel()
+	// The job's context was created with the job; releasing it here keeps the
+	// parent from accumulating cancel functions for finished work.
+	defer job.Cancel()
 
 	s.jobMgr.UpdateJob(job.ID, func(j *Job) {
-		j.Cancel = cancel
 		j.Status = StatusRunning
 	})
 
@@ -238,7 +237,7 @@ func (s *Server) processJob(job Job) {
 		},
 	}
 
-	if err := pipeline.Run(ctx, job.Config, jobLog, tempDir, hooks); err != nil {
+	if err := pipeline.Run(job.ctx, job.Config, jobLog, tempDir, hooks); err != nil {
 		jobLog.Error("job failed: %v", err)
 		s.jobMgr.UpdateJob(job.ID, func(j *Job) {
 			j.Status = StatusFailed

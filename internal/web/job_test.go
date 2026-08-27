@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -14,7 +15,7 @@ func TestCleanup(t *testing.T) {
 	cfg := config.DefaultConfig()
 
 	// Create an old completed job (2 hours ago)
-	old, err := jm.CreateJob("https://example.com/old", cfg)
+	old, err := jm.CreateJob(context.Background(), "https://example.com/old", cfg)
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
@@ -28,7 +29,7 @@ func TestCleanup(t *testing.T) {
 	jm.mu.Unlock()
 
 	// Create a recent completed job (5 minutes ago)
-	recent, err := jm.CreateJob("https://example.com/recent", cfg)
+	recent, err := jm.CreateJob(context.Background(), "https://example.com/recent", cfg)
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
@@ -37,7 +38,7 @@ func TestCleanup(t *testing.T) {
 	})
 
 	// Create a running job (should never be cleaned)
-	running, err := jm.CreateJob("https://example.com/running", cfg)
+	running, err := jm.CreateJob(context.Background(), "https://example.com/running", cfg)
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
@@ -64,7 +65,7 @@ func TestCreateJobUniqueIDs(t *testing.T) {
 
 	ids := make(map[string]bool)
 	for i := 0; i < 100; i++ {
-		job, err := jm.CreateJob("https://example.com", cfg)
+		job, err := jm.CreateJob(context.Background(), "https://example.com", cfg)
 		if err != nil {
 			t.Fatalf("CreateJob: %v", err)
 		}
@@ -79,7 +80,7 @@ func TestJobIDFormat(t *testing.T) {
 	jm := NewJobManager()
 	cfg := config.DefaultConfig()
 
-	job, err := jm.CreateJob("https://example.com", cfg)
+	job, err := jm.CreateJob(context.Background(), "https://example.com", cfg)
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
@@ -91,7 +92,7 @@ func TestJobIDFormat(t *testing.T) {
 func TestUpdateJobTimestamps(t *testing.T) {
 	jm := NewJobManager()
 	cfg := config.DefaultConfig()
-	job, err := jm.CreateJob("https://example.com", cfg)
+	job, err := jm.CreateJob(context.Background(), "https://example.com", cfg)
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
@@ -126,7 +127,7 @@ func TestUpdateJobNotFound(t *testing.T) {
 func TestSubscribeReceivesUpdates(t *testing.T) {
 	jm := NewJobManager()
 	cfg := config.DefaultConfig()
-	job, err := jm.CreateJob("https://example.com", cfg)
+	job, err := jm.CreateJob(context.Background(), "https://example.com", cfg)
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
@@ -156,7 +157,7 @@ func TestCreateJobReturnsErrorWhenRandomFails(t *testing.T) {
 	defer func() { randRead = original }()
 
 	jm := NewJobManager()
-	if _, err := jm.CreateJob("https://example.com", config.DefaultConfig()); err == nil {
+	if _, err := jm.CreateJob(context.Background(), "https://example.com", config.DefaultConfig()); err == nil {
 		t.Error("CreateJob must return an error when the random source fails")
 	}
 }
@@ -166,7 +167,7 @@ func TestCreateJobReturnsErrorWhenRandomFails(t *testing.T) {
 func TestCleanupClosesListenerChannels(t *testing.T) {
 	jm := NewJobManager()
 
-	job, err := jm.CreateJob("https://example.com", config.DefaultConfig())
+	job, err := jm.CreateJob(context.Background(), "https://example.com", config.DefaultConfig())
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
@@ -190,5 +191,56 @@ func TestCleanupClosesListenerChannels(t *testing.T) {
 		case <-time.After(2 * time.Second):
 			t.Fatal("listener channel was never closed after cleanup")
 		}
+	}
+}
+
+// A job owns its context from birth: cancelling can never arrive before the
+// cancel function exists, because there is no moment when it does not.
+func TestCreateJobArmsCancelImmediately(t *testing.T) {
+	jm := NewJobManager()
+
+	job, err := jm.CreateJob(context.Background(), "https://example.com", config.DefaultConfig())
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+
+	if job.Cancel == nil {
+		t.Fatal("a freshly created job has no cancel function")
+	}
+	if job.ctx == nil {
+		t.Fatal("a freshly created job has no context")
+	}
+
+	select {
+	case <-job.ctx.Done():
+		t.Fatal("a fresh job context is already cancelled")
+	default:
+	}
+
+	job.Cancel()
+
+	select {
+	case <-job.ctx.Done():
+	case <-time.After(time.Second):
+		t.Error("Cancel did not cancel the job context")
+	}
+}
+
+// Cancelling the parent must reach every job, so shutdown stops them all.
+func TestJobContextDerivesFromParent(t *testing.T) {
+	parent, cancelParent := context.WithCancel(context.Background())
+	jm := NewJobManager()
+
+	job, err := jm.CreateJob(parent, "https://example.com", config.DefaultConfig())
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+
+	cancelParent()
+
+	select {
+	case <-job.ctx.Done():
+	case <-time.After(time.Second):
+		t.Error("cancelling the parent did not reach the job")
 	}
 }
