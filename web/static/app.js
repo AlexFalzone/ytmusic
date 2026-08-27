@@ -1,6 +1,29 @@
 let currentJobId = null;
 let ws = null;
 
+// A 401 means the session is gone. Go back to the login page instead of
+// surfacing an error for every request, including the 10s history refresh.
+async function apiFetch(url, options) {
+    const response = await fetch(url, options);
+    if (response.status === 401) {
+        window.location.href = '/login.html';
+        throw new Error('Not authenticated');
+    }
+    return response;
+}
+
+async function logout() {
+    try {
+        await fetch('/api/logout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        });
+    } catch (error) {
+        // Send the user to the login page either way.
+    }
+    window.location.href = '/login.html';
+}
+
 // Load job history on page load
 document.addEventListener('DOMContentLoaded', () => {
     loadJobHistory();
@@ -23,7 +46,7 @@ async function startDownload() {
     errorMsg.classList.add('hidden');
 
     try {
-        const response = await fetch('/api/download', {
+        const response = await apiFetch('/api/download', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -118,8 +141,9 @@ async function cancelJob() {
     if (!currentJobId) return;
 
     try {
-        const response = await fetch(`/api/jobs/${currentJobId}/cancel`, {
+        const response = await apiFetch(`/api/jobs/${currentJobId}/cancel`, {
             method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
         });
 
         if (!response.ok) {
@@ -132,7 +156,7 @@ async function cancelJob() {
 
 async function loadJobHistory() {
     try {
-        const response = await fetch('/api/jobs');
+        const response = await apiFetch('/api/jobs');
         if (!response.ok) {
             throw new Error('Failed to load jobs');
         }
