@@ -1,10 +1,12 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"ytmusic/internal/config"
 )
@@ -179,7 +181,10 @@ func TestAuthenticatedResponsesAreNotPubliclyCacheable(t *testing.T) {
 // hands out data, not pointers into its own mutable state.
 func TestJobReadsDoNotRaceWithUpdates(t *testing.T) {
 	s := newTestServer(t, nil)
-	job := s.jobMgr.CreateJob("https://example.com/playlist", s.config)
+	job, err := s.jobMgr.CreateJob("https://example.com/playlist", s.config)
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
 
 	done := make(chan struct{})
 	go func() {
@@ -246,5 +251,69 @@ func TestDownloadHostAllowlist(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+type panickingReader struct{}
+
+func (panickingReader) ReadMessage() (int, []byte, error) { panic("boom") }
+
+// The read pump runs in its own goroutine, off any handler stack: an unhandled
+// panic there takes down the whole server, every running job with it.
+func TestReadPumpSurvivesPanic(t *testing.T) {
+	s := newTestServer(t, nil)
+
+	done := make(chan struct{})
+	go s.readPump(panickingReader{}, done)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("read pump never signalled completion after a panic")
+	}
+}
+
+// Shutdown must not cut a running job off mid-flight: Wait returns only once
+// the job goroutine has finished.
+func TestWaitBlocksUntilJobGoroutineFinishes(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	s := newTestServer(t, nil)
+	s.ctx = ctx
+
+	// A cancelled context makes the pipeline fail immediately, without
+	// reaching the network.
+	cancel()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/download",
+		strings.NewReader(`{"url":"https://youtube.com/playlist?list=x"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(sessionCookie(t, s))
+
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("download request: got %d, want 200", rec.Code)
+	}
+
+	waited := make(chan struct{})
+	go func() {
+		s.Wait()
+		close(waited)
+	}()
+
+	select {
+	case <-waited:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Wait did not return: a job goroutine is unaccounted for")
+	}
+
+	jobs := s.jobMgr.ListJobs(0)
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(jobs))
+	}
+	switch jobs[0].Status {
+	case StatusCompleted, StatusFailed, StatusCancelled:
+	default:
+		t.Errorf("Wait returned while the job was still %q", jobs[0].Status)
 	}
 }

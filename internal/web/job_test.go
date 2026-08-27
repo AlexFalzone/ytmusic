@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -13,7 +14,10 @@ func TestCleanup(t *testing.T) {
 	cfg := config.DefaultConfig()
 
 	// Create an old completed job (2 hours ago)
-	old := jm.CreateJob("https://example.com/old", cfg)
+	old, err := jm.CreateJob("https://example.com/old", cfg)
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
 	jm.UpdateJob(old.ID, func(j *Job) {
 		j.Status = StatusCompleted
 	})
@@ -24,13 +28,19 @@ func TestCleanup(t *testing.T) {
 	jm.mu.Unlock()
 
 	// Create a recent completed job (5 minutes ago)
-	recent := jm.CreateJob("https://example.com/recent", cfg)
+	recent, err := jm.CreateJob("https://example.com/recent", cfg)
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
 	jm.UpdateJob(recent.ID, func(j *Job) {
 		j.Status = StatusCompleted
 	})
 
 	// Create a running job (should never be cleaned)
-	running := jm.CreateJob("https://example.com/running", cfg)
+	running, err := jm.CreateJob("https://example.com/running", cfg)
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
 	jm.UpdateJob(running.ID, func(j *Job) {
 		j.Status = StatusRunning
 	})
@@ -54,7 +64,10 @@ func TestCreateJobUniqueIDs(t *testing.T) {
 
 	ids := make(map[string]bool)
 	for i := 0; i < 100; i++ {
-		job := jm.CreateJob("https://example.com", cfg)
+		job, err := jm.CreateJob("https://example.com", cfg)
+		if err != nil {
+			t.Fatalf("CreateJob: %v", err)
+		}
 		if ids[job.ID] {
 			t.Fatalf("duplicate job ID: %s", job.ID)
 		}
@@ -66,7 +79,10 @@ func TestJobIDFormat(t *testing.T) {
 	jm := NewJobManager()
 	cfg := config.DefaultConfig()
 
-	job := jm.CreateJob("https://example.com", cfg)
+	job, err := jm.CreateJob("https://example.com", cfg)
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
 	if !strings.HasPrefix(job.ID, "job_") {
 		t.Errorf("job ID should start with 'job_', got %q", job.ID)
 	}
@@ -75,7 +91,10 @@ func TestJobIDFormat(t *testing.T) {
 func TestUpdateJobTimestamps(t *testing.T) {
 	jm := NewJobManager()
 	cfg := config.DefaultConfig()
-	job := jm.CreateJob("https://example.com", cfg)
+	job, err := jm.CreateJob("https://example.com", cfg)
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
 
 	// Pending → Running should set StartedAt
 	jm.UpdateJob(job.ID, func(j *Job) {
@@ -107,7 +126,10 @@ func TestUpdateJobNotFound(t *testing.T) {
 func TestSubscribeReceivesUpdates(t *testing.T) {
 	jm := NewJobManager()
 	cfg := config.DefaultConfig()
-	job := jm.CreateJob("https://example.com", cfg)
+	job, err := jm.CreateJob("https://example.com", cfg)
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
 
 	ch := jm.Subscribe(job.ID)
 
@@ -125,4 +147,48 @@ func TestSubscribeReceivesUpdates(t *testing.T) {
 	}
 
 	jm.Unsubscribe(job.ID, ch)
+}
+
+// A failing entropy source must surface as an error, not take down the request.
+func TestCreateJobReturnsErrorWhenRandomFails(t *testing.T) {
+	original := randRead
+	randRead = func([]byte) (int, error) { return 0, errors.New("entropy exhausted") }
+	defer func() { randRead = original }()
+
+	jm := NewJobManager()
+	if _, err := jm.CreateJob("https://example.com", config.DefaultConfig()); err == nil {
+		t.Error("CreateJob must return an error when the random source fails")
+	}
+}
+
+// A listener whose job is cleaned up must be released: without closing the
+// channel the WebSocket handler blocks on it forever and the goroutine leaks.
+func TestCleanupClosesListenerChannels(t *testing.T) {
+	jm := NewJobManager()
+
+	job, err := jm.CreateJob("https://example.com", config.DefaultConfig())
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+
+	updates := jm.Subscribe(job.ID)
+
+	completed := time.Now().Add(-2 * jobRetention)
+	jm.mu.Lock()
+	jm.jobs[job.ID].CompletedAt = &completed
+	jm.mu.Unlock()
+
+	jm.cleanup()
+
+	// Drain any buffered updates, then the channel must report closure.
+	for {
+		select {
+		case _, ok := <-updates:
+			if !ok {
+				return
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("listener channel was never closed after cleanup")
+		}
+	}
 }

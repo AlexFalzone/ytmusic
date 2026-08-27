@@ -71,6 +71,7 @@ func main() {
 	jobMgr := web.NewJobManager()
 	jobMgr.StartCleanup(ctx)
 	server := web.NewServer(ctx, jobMgr, cfg, l)
+	server.StartSessionGC(ctx)
 
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),
@@ -94,6 +95,18 @@ func main() {
 
 	l.Info("Shutting down server...")
 	cancel()
+
+	// Let in-flight jobs wind down, but never hang the shutdown on one.
+	waited := make(chan struct{})
+	go func() {
+		server.Wait()
+		close(waited)
+	}()
+	select {
+	case <-waited:
+	case <-time.After(15 * time.Second):
+		l.Warn("timed out waiting for in-flight jobs to stop")
+	}
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()

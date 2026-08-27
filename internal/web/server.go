@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"ytmusic/internal/config"
@@ -18,6 +19,13 @@ type Server struct {
 	logger   *logger.Logger
 	sessions *sessionStore
 	logins   *loginLimiter
+	wg       sync.WaitGroup // in-flight job goroutines
+}
+
+// Wait blocks until every job goroutine has finished. Called on shutdown so a
+// download is not cut off halfway, leaving a half-written library behind.
+func (s *Server) Wait() {
+	s.wg.Wait()
 }
 
 func NewServer(ctx context.Context, jobMgr *JobManager, cfg config.Config, log *logger.Logger) *Server {

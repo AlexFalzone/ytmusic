@@ -82,6 +82,11 @@ func (jm *JobManager) cleanup() {
 	cutoff := time.Now().Add(-jobRetention)
 	for id, job := range jm.jobs {
 		if job.CompletedAt != nil && job.CompletedAt.Before(cutoff) {
+			// Close before dropping the slice: a listener left on an open
+			// channel that nobody will ever write to blocks forever.
+			for _, ch := range jm.listeners[id] {
+				close(ch)
+			}
 			delete(jm.jobs, id)
 			delete(jm.listeners, id)
 		}
@@ -89,12 +94,17 @@ func (jm *JobManager) cleanup() {
 }
 
 // CreateJob creates a new job and returns a snapshot of it.
-func (jm *JobManager) CreateJob(url string, cfg config.Config) Job {
+func (jm *JobManager) CreateJob(url string, cfg config.Config) (Job, error) {
+	id, err := generateJobID()
+	if err != nil {
+		return Job{}, err
+	}
+
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
 	job := &Job{
-		ID:        generateJobID(),
+		ID:        id,
 		URL:       url,
 		Config:    cfg,
 		Status:    StatusPending,
@@ -102,7 +112,7 @@ func (jm *JobManager) CreateJob(url string, cfg config.Config) Job {
 	}
 
 	jm.jobs[job.ID] = job
-	return *job
+	return *job, nil
 }
 
 // GetJob retrieves a snapshot of a job by ID.
@@ -205,10 +215,13 @@ func (jm *JobManager) notifyListeners(jobID string, job *Job) {
 	}
 }
 
-func generateJobID() string {
+// randRead is a seam so tests can simulate a failing entropy source.
+var randRead = rand.Read
+
+func generateJobID() (string, error) {
 	b := make([]byte, 8)
-	if _, err := rand.Read(b); err != nil {
-		panic(fmt.Sprintf("failed to generate job ID: %v", err))
+	if _, err := randRead(b); err != nil {
+		return "", fmt.Errorf("generating job ID: %w", err)
 	}
-	return fmt.Sprintf("job_%x", b)
+	return fmt.Sprintf("job_%x", b), nil
 }

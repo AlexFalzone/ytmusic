@@ -31,6 +31,30 @@ func checkWSOrigin(r *http.Request) bool {
 	return strings.EqualFold(u.Host, r.Host)
 }
 
+// wsReader is the slice of a WebSocket connection the read pump needs.
+type wsReader interface {
+	ReadMessage() (messageType int, p []byte, err error)
+}
+
+// readPump drains client frames (close, ping, pong) and closes done when the
+// client goes away. It recovers from panics because it runs in its own
+// goroutine, off any handler stack: net/http would not catch one here, so a
+// panic would take down the server and every running job with it.
+func (s *Server) readPump(conn wsReader, done chan<- struct{}) {
+	defer close(done)
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Error("websocket read pump panic: %v", r)
+		}
+	}()
+
+	for {
+		if _, _, err := conn.ReadMessage(); err != nil {
+			return
+		}
+	}
+}
+
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -48,17 +72,8 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	updates := s.jobMgr.Subscribe(jobID)
 	defer s.jobMgr.Unsubscribe(jobID, updates)
 
-	// Read pump: processes close/ping/pong from client.
-	// Signals via clientGone when the client disconnects.
 	clientGone := make(chan struct{})
-	go func() {
-		defer close(clientGone)
-		for {
-			if _, _, err := conn.ReadMessage(); err != nil {
-				return
-			}
-		}
-	}()
+	go s.readPump(conn, clientGone)
 
 	// Send initial job state
 	job, err := s.jobMgr.GetJob(jobID)

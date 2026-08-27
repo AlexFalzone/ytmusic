@@ -60,9 +60,15 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	jobConfig := s.config
 	jobConfig.PlaylistURL = req.URL
 
-	job := s.jobMgr.CreateJob(req.URL, jobConfig)
+	job, err := s.jobMgr.CreateJob(req.URL, jobConfig)
+	if err != nil {
+		s.logger.Error("failed to create job: %v", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
 	s.logger.Info("Created job %s for URL: %s", job.ID, req.URL)
 
+	s.wg.Add(1)
 	go s.processJob(job)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -180,6 +186,8 @@ func (s *Server) handleJobAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) processJob(job Job) {
+	defer s.wg.Done()
+
 	jobLog := s.logger.WithPrefix(job.ID)
 
 	defer func() {
