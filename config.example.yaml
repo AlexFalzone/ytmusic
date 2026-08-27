@@ -53,3 +53,32 @@ acoustid_api_key: ""
 
 # Output directory for downloaded and tagged files
 output_dir: "~/Music"
+
+# --- Web interface only (ytmusic-web); ignored by the CLI ---
+
+# Authentication. Single user.
+# The server refuses to start with auth enabled and no password_hash: an
+# unauthenticated instance must be a deliberate choice, never an oversight.
+#
+# Generate the hash with:
+#   ytmusic-web -hash-password
+# then paste it below. The password itself is never stored.
+auth:
+  enabled: true
+  username: ""
+  password_hash: ""
+  # How long a session stays valid while unused. Refreshed on every request.
+  session_ttl: "720h"
+
+# Set to true ONLY when a reverse proxy sits in front of the server.
+# It makes the server trust X-Forwarded-Proto (for the Secure cookie flag) and
+# X-Forwarded-For (to throttle failed logins per real client IP). Trusting those
+# headers without a proxy would let any client forge them.
+behind_proxy: false
+
+# Restrict which sites can be handed to yt-dlp. Empty means no restriction.
+# yt-dlp supports well over a thousand sites, so an open instance is a
+# general-purpose downloader for anyone who can reach it.
+# allowed_hosts:
+#   - youtube.com
+#   - music.youtube.com
