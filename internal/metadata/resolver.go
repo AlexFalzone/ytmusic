@@ -114,7 +114,7 @@ func (r *Resolver) Resolve(ctx context.Context, files []string) error {
 	for i, path := range files {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("metadata resolution cancelled")
+			return fmt.Errorf("resolving metadata: %w", ctx.Err())
 		default:
 		}
 

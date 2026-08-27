@@ -49,7 +49,7 @@ func (d *Downloader) ExtractURLs(ctx context.Context) ([]string, error) {
 
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("extraction cancelled")
+			return nil, fmt.Errorf("extracting URLs: %w", ctx.Err())
 		}
 		return nil, fmt.Errorf("yt-dlp failed to extract URLs: %w\nDetails: %s", err, stderr.String())
 	}
@@ -78,7 +78,7 @@ func (d *Downloader) FetchMetadata(ctx context.Context, urls []string) error {
 	for i, url := range urls {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("metadata fetch cancelled")
+			return fmt.Errorf("fetching metadata: %w", ctx.Err())
 		default:
 		}
 
@@ -144,7 +144,7 @@ func (d *Downloader) DownloadSingle(ctx context.Context, url string) error {
 
 	err := cmd.Run()
 	if ctx.Err() != nil {
-		return fmt.Errorf("download cancelled")
+		return fmt.Errorf("downloading %s: %w", url, ctx.Err())
 	}
 	if err != nil && stderr.Len() > 0 {
 		return fmt.Errorf("yt-dlp error: %w\nDetails: %s", err, stderr.String())
@@ -182,7 +182,7 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadSt
 			wg.Wait()
 			stats.Failed = len(failed)
 			stats.Successful = stats.Total - stats.Failed
-			return stats, fmt.Errorf("downloads cancelled")
+			return stats, fmt.Errorf("downloading playlist: %w", ctx.Err())
 		default:
 		}
 

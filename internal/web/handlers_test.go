@@ -317,3 +317,52 @@ func TestWaitBlocksUntilJobGoroutineFinishes(t *testing.T) {
 		t.Errorf("Wait returned while the job was still %q", jobs[0].Status)
 	}
 }
+
+// A job the user stopped must read as "cancelled". Reporting it as "failed"
+// tells the user something went wrong when nothing did.
+func TestCancelledJobEndsAsCancelled(t *testing.T) {
+	s := newTestServer(t, nil)
+
+	job, err := s.jobMgr.CreateJob(s.ctx, "https://youtube.com/playlist?list=x", s.config)
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+
+	job.Cancel()
+
+	s.wg.Add(1)
+	s.processJob(job)
+
+	final, err := s.jobMgr.GetJob(job.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if final.Status != StatusCancelled {
+		t.Errorf("status = %q, want %q", final.Status, StatusCancelled)
+	}
+}
+
+// The same must hold when the whole server is shutting down.
+func TestJobCancelledByShutdownEndsAsCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	s := newTestServer(t, nil)
+	s.ctx = ctx
+
+	job, err := s.jobMgr.CreateJob(s.ctx, "https://youtube.com/playlist?list=x", s.config)
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+
+	cancel()
+
+	s.wg.Add(1)
+	s.processJob(job)
+
+	final, err := s.jobMgr.GetJob(job.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if final.Status != StatusCancelled {
+		t.Errorf("status = %q, want %q", final.Status, StatusCancelled)
+	}
+}

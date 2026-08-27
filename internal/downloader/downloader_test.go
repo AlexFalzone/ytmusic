@@ -1,6 +1,8 @@
 package downloader
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -119,5 +121,38 @@ func TestMergeFilesEmpty(t *testing.T) {
 	_, err := d.MergeFiles()
 	if err == nil {
 		t.Error("MergeFiles() should fail with no audio files")
+	}
+}
+
+// Cancellation must keep its identity all the way up the stack. Matching on the
+// error text instead would be fragile and is forbidden by the project rules.
+func TestCancellationWrapsContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	cfg := config.DefaultConfig()
+	cfg.PlaylistURL = "https://example.com/playlist"
+	d := New(cfg, logger.New(false), t.TempDir())
+
+	tests := []struct {
+		name string
+		call func() error
+	}{
+		{"ExtractURLs", func() error { _, err := d.ExtractURLs(ctx); return err }},
+		{"FetchMetadata", func() error { return d.FetchMetadata(ctx, []string{"https://example.com/v"}) }},
+		{"DownloadSingle", func() error { return d.DownloadSingle(ctx, "https://example.com/v") }},
+		{"DownloadAll", func() error { _, err := d.DownloadAll(ctx, []string{"https://example.com/v"}); return err }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.call()
+			if err == nil {
+				t.Fatal("expected an error from a cancelled context")
+			}
+			if !errors.Is(err, context.Canceled) {
+				t.Errorf("error must wrap context.Canceled for errors.Is, got: %v", err)
+			}
+		})
 	}
 }

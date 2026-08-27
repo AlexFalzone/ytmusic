@@ -1,7 +1,9 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -238,6 +240,20 @@ func (s *Server) processJob(job Job) {
 	}
 
 	if err := pipeline.Run(job.ctx, job.Config, jobLog, tempDir, hooks); err != nil {
+		// A stopped job is not a broken one. The status is the same either way;
+		// only the log distinguishes a user's cancel from a server shutdown.
+		if errors.Is(err, context.Canceled) {
+			if s.ctx.Err() != nil {
+				jobLog.Info("cancelled by server shutdown")
+			} else {
+				jobLog.Info("cancelled by user")
+			}
+			s.jobMgr.UpdateJob(job.ID, func(j *Job) {
+				j.Status = StatusCancelled
+			})
+			return
+		}
+
 		jobLog.Error("job failed: %v", err)
 		s.jobMgr.UpdateJob(job.ID, func(j *Job) {
 			j.Status = StatusFailed
