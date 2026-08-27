@@ -89,6 +89,7 @@ type Config struct {
 	SkipLyrics          bool       `yaml:"skip_lyrics"`
 	Auth                AuthConfig `yaml:"auth"`
 	BehindProxy         bool       `yaml:"behind_proxy"`
+	AllowedHosts        []string   `yaml:"allowed_hosts"`
 	LyricsOnly          string     `yaml:"-"`
 	ImportOnly          string     `yaml:"-"`
 	OutputDir           string     `yaml:"output_dir"`

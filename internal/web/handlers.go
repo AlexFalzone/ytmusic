@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -51,8 +52,8 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !strings.HasPrefix(req.URL, "http://") && !strings.HasPrefix(req.URL, "https://") {
-		http.Error(w, "URL must start with http:// or https://", http.StatusBadRequest)
+	if err := validateDownloadURL(req.URL, s.config.AllowedHosts); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -66,6 +67,46 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.jobToResponse(job))
+}
+
+// validateDownloadURL checks the URL is an http(s) address whose host is
+// allowed. yt-dlp supports well over a thousand sites, so without an allowlist
+// the server is a general-purpose downloader for anyone who can reach it.
+func validateDownloadURL(raw string, allowedHosts []string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid URL")
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("URL must start with http:// or https://")
+	}
+	if u.Hostname() == "" {
+		return fmt.Errorf("URL has no host")
+	}
+	if !hostAllowed(u.Hostname(), allowedHosts) {
+		return fmt.Errorf("host %q is not in allowed_hosts", u.Hostname())
+	}
+	return nil
+}
+
+// hostAllowed matches on label boundaries, so "youtube.com" accepts
+// "www.youtube.com" but not "notyoutube.com" or "youtube.com.evil.test".
+func hostAllowed(host string, allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	for _, a := range allowed {
+		a = strings.ToLower(strings.TrimSpace(a))
+		if a == "" {
+			continue
+		}
+		if host == a || strings.HasSuffix(host, "."+a) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {

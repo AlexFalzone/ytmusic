@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"ytmusic/internal/config"
 )
 
 // sessionCookie returns a cookie for a freshly created session.
@@ -197,4 +199,52 @@ func TestJobReadsDoNotRaceWithUpdates(t *testing.T) {
 		s.Router().ServeHTTP(rec, req)
 	}
 	<-done
+}
+
+func TestDownloadHostAllowlist(t *testing.T) {
+	tests := []struct {
+		name     string
+		allowed  []string
+		url      string
+		wantCode int
+	}{
+		{name: "empty allowlist accepts anything", url: "https://vimeo.com/x", wantCode: http.StatusOK},
+		{name: "exact host", allowed: []string{"youtube.com"}, url: "https://youtube.com/playlist?list=x", wantCode: http.StatusOK},
+		{name: "subdomain", allowed: []string{"youtube.com"}, url: "https://www.youtube.com/playlist?list=x", wantCode: http.StatusOK},
+		{name: "second entry", allowed: []string{"youtube.com", "vimeo.com"}, url: "https://vimeo.com/x", wantCode: http.StatusOK},
+		{name: "foreign host", allowed: []string{"youtube.com"}, url: "https://evil.test/x", wantCode: http.StatusBadRequest},
+		{name: "lookalike host", allowed: []string{"youtube.com"}, url: "https://notyoutube.com/x", wantCode: http.StatusBadRequest},
+		{name: "suffix trick", allowed: []string{"youtube.com"}, url: "https://youtube.com.evil.test/x", wantCode: http.StatusBadRequest},
+		{name: "unparsable url", allowed: []string{"youtube.com"}, url: "http://%zz", wantCode: http.StatusBadRequest},
+		{name: "no host", allowed: nil, url: "https://", wantCode: http.StatusBadRequest},
+		{name: "non-http scheme", allowed: nil, url: "file:///etc/passwd", wantCode: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := newTestServer(t, func(c *config.Config) { c.AllowedHosts = tt.allowed })
+
+			body := `{"url":"` + tt.url + `"}`
+			req := httptest.NewRequest(http.MethodPost, "/api/download", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.AddCookie(sessionCookie(t, s))
+
+			rec := httptest.NewRecorder()
+			s.Router().ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantCode {
+				t.Errorf("got %d, want %d (body: %s)", rec.Code, tt.wantCode, rec.Body.String())
+			}
+
+			// Cancel any job an accepted request started, so the test does not
+			// leave yt-dlp running in the background.
+			if rec.Code == http.StatusOK {
+				for _, j := range s.jobMgr.ListJobs(0) {
+					if j.Cancel != nil {
+						j.Cancel()
+					}
+				}
+			}
+		})
+	}
 }
