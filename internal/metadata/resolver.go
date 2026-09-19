@@ -152,64 +152,67 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 		return nil
 	}
 
-	query, _ := NormalizeQuery(rawTitle, rawArtist)
+	query, version := NormalizeQuery(rawTitle, rawArtist)
 	query.Album = strings.TrimSpace(rawAlbum)
-	r.logger.Debug("  Normalized: title=%q artist=%q album=%q", query.Title, query.Artist, query.Album)
-
 	if query.Title == "" {
 		return nil
 	}
+
+	src := source{query: query, version: version, duration: r.fileDuration(path)}
+	r.logger.Debug("  Normalized: title=%q artist=%q album=%q version=%q length=%s",
+		query.Title, query.Artist, query.Album, version.Key, src.duration.Round(time.Second))
 
 	// Try acoustic fingerprinting first for a definitive identification.
 	if r.fingerprinter != nil {
 		if info, found, err := r.fingerprinter.LookupByFile(ctx, path, query.Album); err == nil && found {
 			r.logger.Debug("  Fingerprint match: %q by %q", info.Title, info.Artist)
-			info = r.fillGaps(ctx, query, info, -1)
-			info = mergeWithExisting(path, info)
-			if err := WriteTags(path, info); err != nil {
-				return fmt.Errorf("failed to write tags: %w", err)
-			}
-			if info.ArtworkURL != "" {
-				if err := r.downloadAndEmbedArtwork(ctx, path, info.ArtworkURL); err != nil {
-					r.logger.Warn("  Failed to embed artwork: %v", err)
-				}
-			}
-			ensureAlbumArtist(path)
-			return nil
+			info = r.fillGaps(ctx, src, match{info: info, providerIdx: -1})
+			return r.writeResolved(ctx, path, info)
 		}
 	}
 
-	best, matchIdx := r.findPrimaryMatch(ctx, query)
-
-	if best.Confidence < r.threshold {
-		r.logger.Debug("  Confidence %.2f below threshold %.2f, keeping original tags", best.Confidence, r.threshold)
+	m, ok := r.findPrimaryMatch(ctx, src)
+	if !ok {
+		r.logger.Debug("  No candidate above threshold %.2f, keeping original tags", r.threshold)
 		ensureAlbumArtist(path)
 		return nil
 	}
 
-	best = r.fillGaps(ctx, query, best, matchIdx)
-	best = mergeWithExisting(path, best)
+	return r.writeResolved(ctx, path, r.fillGaps(ctx, src, m))
+}
 
-	if err := WriteTags(path, best); err != nil {
+// fileDuration reads the file's own length. Zero means unknown, which disables
+// the duration check instead of failing the file.
+func (r *Resolver) fileDuration(path string) time.Duration {
+	props, err := taglib.ReadProperties(path)
+	if err != nil {
+		r.logger.Debug("  could not read length: %v", err)
+		return 0
+	}
+	return props.Length
+}
+
+// writeResolved writes the resolved metadata, keeping the track and disc
+// numbers the file already had, then embeds the artwork.
+func (r *Resolver) writeResolved(ctx context.Context, path string, info TrackInfo) error {
+	info = mergeWithExisting(path, info)
+	if err := WriteTags(path, info); err != nil {
 		return fmt.Errorf("failed to write tags: %w", err)
 	}
-
-	if best.ArtworkURL != "" {
-		if err := r.downloadAndEmbedArtwork(ctx, path, best.ArtworkURL); err != nil {
+	if info.ArtworkURL != "" {
+		if err := r.downloadAndEmbedArtwork(ctx, path, info.ArtworkURL); err != nil {
 			r.logger.Warn("  Failed to embed artwork: %v", err)
 		}
 	}
-
 	ensureAlbumArtist(path)
 	return nil
 }
 
-// findPrimaryMatch tries providers in order until one returns a match above threshold.
-func (r *Resolver) findPrimaryMatch(ctx context.Context, query SearchQuery) (TrackInfo, int) {
-	var best TrackInfo
-	var matchIdx int
+// findPrimaryMatch asks the providers in order and returns the first candidate
+// above the threshold.
+func (r *Resolver) findPrimaryMatch(ctx context.Context, src source) (match, bool) {
 	for i, p := range r.providers {
-		results, err := p.Search(ctx, query)
+		results, err := p.Search(ctx, src.query)
 		if err != nil {
 			r.logger.Debug("  provider %s failed: %v", p.Name(), err)
 			continue
@@ -219,68 +222,40 @@ func (r *Resolver) findPrimaryMatch(ctx context.Context, query SearchQuery) (Tra
 			continue
 		}
 
-		candidate := pickBest(query, results)
-		r.logger.Debug("  %s: best %q by %q (confidence: %.2f)", p.Name(), candidate.Title, candidate.Artist, candidate.Confidence)
-
-		if candidate.Confidence >= r.threshold {
-			return candidate, i
-		}
-		if candidate.Confidence > best.Confidence {
-			best = candidate
-			matchIdx = i
-		}
-	}
-	return best, matchIdx
-}
-
-// pickBest scores all results and returns the one with the highest confidence.
-// Ties are broken by album similarity to the query album.
-func pickBest(query SearchQuery, results []TrackInfo) TrackInfo {
-	best := results[0]
-	best.Confidence = scoreCandidate(query, best)
-	for _, r := range results[1:] {
-		r.Confidence = scoreCandidate(query, r)
-		if r.Confidence > best.Confidence {
-			best = r
+		best := r.evaluate(src, results)
+		if best == nil {
 			continue
 		}
-		if r.Confidence == best.Confidence && query.Album != "" && r.Album != "" && best.Album != "" {
-			rAlbumSim := similarity(normalize(query.Album), normalize(r.Album))
-			bestAlbumSim := similarity(normalize(query.Album), normalize(best.Album))
-			if rAlbumSim > bestAlbumSim {
-				best = r
-			}
+		r.logger.Debug("  %s: best %q by %q (confidence: %.2f)", p.Name(), best.info.Title, best.info.Artist, best.info.Confidence)
+		if best.info.Confidence >= r.threshold {
+			best.providerIdx = i
+			return *best, true
 		}
 	}
-	return best
+	return match{}, false
 }
 
-// scoreCandidate scores a result on its cleaned title, so "Song (feat. X)"
-// is compared as "Song".
-func scoreCandidate(query SearchQuery, result TrackInfo) float64 {
-	result.Title, _ = cleanTitle(result.Title)
-	return score(query, result)
-}
-
-// fillGaps queries remaining providers to fill missing fields in the primary match.
-func (r *Resolver) fillGaps(ctx context.Context, query SearchQuery, base TrackInfo, fromIdx int) TrackInfo {
+// fillGaps queries the providers after the primary's to fill its missing
+// fields. A filler passes the same constraints as the match it completes.
+func (r *Resolver) fillGaps(ctx context.Context, src source, primary match) TrackInfo {
+	base := primary.info
 	if !hasMissingFields(base) {
 		return base
 	}
 
-	for _, p := range r.providers[fromIdx+1:] {
-		results, err := p.Search(ctx, query)
+	for _, p := range r.providers[primary.providerIdx+1:] {
+		results, err := p.Search(ctx, src.query)
 		if err != nil || len(results) == 0 {
 			continue
 		}
 
-		filler := pickBest(query, results)
-		if filler.Confidence < r.threshold {
+		filler := r.evaluate(src, results)
+		if filler == nil || filler.info.Confidence < r.threshold {
 			continue
 		}
 
-		r.logger.Debug("  gap fill from %s: %q by %q", p.Name(), filler.Title, filler.Artist)
-		base = mergeTrackInfo(base, filler)
+		r.logger.Debug("  gap fill from %s: %q by %q", p.Name(), filler.info.Title, filler.info.Artist)
+		base = mergeTrackInfo(base, filler.info)
 
 		if !hasMissingFields(base) {
 			break
@@ -380,40 +355,6 @@ func (r *Resolver) downloadAndEmbedArtwork(ctx context.Context, filePath, artwor
 	}
 
 	return WriteArtwork(filePath, data)
-}
-
-// score computes a similarity score (0.0-1.0) between the query and a result.
-func score(query SearchQuery, result TrackInfo) float64 {
-	titleScore := similarity(normalize(query.Title), normalize(result.Title))
-	artistScore := similarity(normalize(query.Artist), normalize(result.Artist))
-
-	var s float64
-	if query.Artist == "" {
-		s = titleScore
-	} else {
-		// Weight: 60% title, 40% artist
-		s = titleScore*0.6 + artistScore*0.4
-	}
-
-	// Boost results that match the existing album tag from yt-dlp
-	if query.Album != "" && result.Album != "" {
-		albumScore := similarity(normalize(query.Album), normalize(result.Album))
-		if albumScore > 0.8 {
-			s *= 1.1
-		}
-	}
-
-	// Penalize compilation albums so original releases are preferred
-	if strings.EqualFold(result.AlbumArtist, "Various Artists") {
-		s *= 0.8
-	}
-
-	// Clamp to 1.0
-	if s > 1.0 {
-		s = 1.0
-	}
-
-	return s
 }
 
 const trackMatchThreshold = 0.6

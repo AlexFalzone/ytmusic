@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"ytmusic/internal/logger"
 
@@ -153,16 +154,19 @@ func TestFallbackToSecondProvider(t *testing.T) {
 	r := NewResolver([]Provider{p1, p2}, log, 0.5)
 
 	query := SearchQuery{Title: "My Song", Artist: "My Artist"}
-	best, idx := r.findPrimaryMatch(context.Background(), query)
+	m, ok := r.findPrimaryMatch(context.Background(), source{query: query})
 
 	if !p2.called {
 		t.Error("second provider was not consulted")
 	}
-	if best.Title != "My Song" {
-		t.Errorf("best.Title = %q, want %q", best.Title, "My Song")
+	if !ok {
+		t.Fatal("expected a match")
 	}
-	if idx != 1 {
-		t.Errorf("matchIdx = %d, want 1", idx)
+	if m.info.Title != "My Song" {
+		t.Errorf("Title = %q, want %q", m.info.Title, "My Song")
+	}
+	if m.providerIdx != 1 {
+		t.Errorf("providerIdx = %d, want 1", m.providerIdx)
 	}
 }
 
@@ -198,7 +202,7 @@ func TestGapFilling(t *testing.T) {
 		Year:   2020,
 	}
 
-	filled := r.fillGaps(context.Background(), query, base, 0)
+	filled := r.fillGaps(context.Background(), source{query: query}, match{info: base})
 
 	if filled.Genre != "Rock" {
 		t.Errorf("Genre = %q, want %q", filled.Genre, "Rock")
@@ -238,7 +242,7 @@ func TestGapFilling_CompleteMatch_SkipsSecondProvider(t *testing.T) {
 	r := NewResolver([]Provider{p1, p2}, log, 0.5)
 
 	query := SearchQuery{Title: "My Song", Artist: "My Artist"}
-	filled := r.fillGaps(context.Background(), query, p1.results[0], 0)
+	filled := r.fillGaps(context.Background(), source{query: query}, match{info: p1.results[0]})
 
 	if p2.called {
 		t.Error("second provider should not be consulted when match is complete")
@@ -256,10 +260,8 @@ func TestGapFilling_NoProviderFindsMatch(t *testing.T) {
 	r := NewResolver([]Provider{p1, p2}, log, 0.5)
 
 	query := SearchQuery{Title: "My Song", Artist: "My Artist"}
-	best, _ := r.findPrimaryMatch(context.Background(), query)
-
-	if best.Confidence >= 0.5 {
-		t.Errorf("expected no match above threshold, got confidence %.2f", best.Confidence)
+	if _, ok := r.findPrimaryMatch(context.Background(), source{query: query}); ok {
+		t.Error("expected no match above threshold")
 	}
 }
 
@@ -1074,5 +1076,78 @@ func TestResolveFile_PreservesYtdlpTrackNumber(t *testing.T) {
 	got := firstTag(tags, taglib.TrackNumber)
 	if got != "1" {
 		t.Errorf("TrackNumber = %q, want %q (yt-dlp value must be preserved)", got, "1")
+	}
+}
+
+// A file with no variant must not pay for extra lookups: the first match wins.
+func TestFindPrimaryMatch_StopsAtFirstMatch(t *testing.T) {
+	p1 := &mockProvider{name: "first", results: []TrackInfo{{Title: "Song", Artist: "Artist"}}}
+	p2 := &mockProvider{name: "second", results: []TrackInfo{{Title: "Song", Artist: "Artist"}}}
+	r := NewResolver([]Provider{p1, p2}, logger.New(false), 0.7)
+
+	m, ok := r.findPrimaryMatch(context.Background(), source{query: SearchQuery{Title: "Song", Artist: "Artist"}})
+
+	if !ok || m.providerIdx != 0 {
+		t.Fatalf("match = %+v, ok = %v, want the first provider's", m, ok)
+	}
+	if p2.called {
+		t.Error("second provider consulted after the first matched")
+	}
+}
+
+func TestGapFilling_IgnoresFillerOfAnotherVersion(t *testing.T) {
+	p1 := &mockProvider{name: "primary"}
+	p2 := &mockProvider{name: "filler", results: []TrackInfo{
+		{Title: "Song - Live", Artist: "Artist", Genre: "Rock"},
+	}}
+	r := NewResolver([]Provider{p1, p2}, logger.New(false), 0.5)
+
+	filled := r.fillGaps(context.Background(),
+		source{query: SearchQuery{Title: "Song", Artist: "Artist"}},
+		match{info: TrackInfo{Title: "Song", Artist: "Artist"}})
+
+	if filled.Genre != "" {
+		t.Errorf("Genre = %q: a live recording must not fill the studio one", filled.Genre)
+	}
+}
+
+func TestResolveFile_DoesNotTagOriginalAsLiveVersion(t *testing.T) {
+	path := newTestMP3(t)
+	tagTestFile(t, path, "Song", "Artist")
+
+	resolveOne(t, path, &mockProvider{name: "mock", results: []TrackInfo{
+		{Title: "Song - Live at Wembley", Artist: "Artist", Album: "Live at Wembley"},
+	}})
+
+	if got := readTestTag(t, path, taglib.Album); got != "" {
+		t.Errorf("album = %q, want untouched", got)
+	}
+}
+
+// Both tests below use the file's real length: if it were not read, the first
+// would tag the file and fail.
+func TestResolveFile_ShorterRecordingIsRejected(t *testing.T) {
+	path := newTestMP3Len(t, "5")
+	tagTestFile(t, path, "Song", "Artist")
+
+	resolveOne(t, path, &mockProvider{name: "mock", results: []TrackInfo{
+		{Title: "Song", Artist: "Artist", Album: "Album", Duration: 60 * time.Second},
+	}})
+
+	if got := readTestTag(t, path, taglib.Album); got != "" {
+		t.Errorf("album = %q: a 60s recording cannot be this 5s file", got)
+	}
+}
+
+func TestResolveFile_RecordingOfSameLengthIsAccepted(t *testing.T) {
+	path := newTestMP3Len(t, "5")
+	tagTestFile(t, path, "Song", "Artist")
+
+	resolveOne(t, path, &mockProvider{name: "mock", results: []TrackInfo{
+		{Title: "Song", Artist: "Artist", Album: "Album", Duration: 6 * time.Second},
+	}})
+
+	if got := readTestTag(t, path, taglib.Album); got != "Album" {
+		t.Errorf("album = %q, want %q", got, "Album")
 	}
 }
