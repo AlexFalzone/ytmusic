@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"ytmusic/internal/logger"
 
@@ -408,74 +407,6 @@ func score(query SearchQuery, result TrackInfo) float64 {
 	}
 
 	return s
-}
-
-// similarity returns how similar two strings are (0.0-1.0).
-// Uses both token overlap and compact string comparison to handle cases
-// like "theweeknd" vs "the weeknd".
-func similarity(a, b string) float64 {
-	if a == "" && b == "" {
-		return 1.0
-	}
-	if a == "" || b == "" {
-		return 0.0
-	}
-
-	// Check compact (no-space) equality first: handles "theweeknd" == "the weeknd"
-	compactA := strings.ReplaceAll(a, " ", "")
-	compactB := strings.ReplaceAll(b, " ", "")
-	if compactA == compactB {
-		return 1.0
-	}
-
-	// Token overlap
-	tokensA := tokenize(a)
-	tokensB := tokenize(b)
-
-	if len(tokensA) == 0 || len(tokensB) == 0 {
-		return 0.0
-	}
-
-	setB := make(map[string]bool, len(tokensB))
-	for _, t := range tokensB {
-		setB[t] = true
-	}
-
-	matches := 0
-	for _, t := range tokensA {
-		if setB[t] {
-			matches++
-		}
-	}
-
-	maxLen := len(tokensA)
-	if len(tokensB) > maxLen {
-		maxLen = len(tokensB)
-	}
-	return float64(matches) / float64(maxLen)
-}
-
-// normalize lowercases and strips non-alphanumeric characters for comparison.
-func normalize(s string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(s) {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsSpace(r) {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
-// tokenize splits a string into lowercase tokens.
-func tokenize(s string) []string {
-	fields := strings.Fields(s)
-	var result []string
-	for _, f := range fields {
-		if f != "" {
-			result = append(result, f)
-		}
-	}
-	return result
 }
 
 const trackMatchThreshold = 0.6
