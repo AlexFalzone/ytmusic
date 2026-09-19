@@ -109,19 +109,26 @@ func score(query SearchQuery, result TrackInfo) float64 {
 	return s
 }
 
-// evaluate applies the constraints to every result and returns the best one to
-// survive them, or nil. A result must declare the same version as the file and
-// have a plausible length; only then is it scored.
-func (r *Resolver) evaluate(src source, results []TrackInfo) *match {
-	var best *match
+// evaluate applies the constraints to every result and returns the best exact
+// candidate — same version as the file, plausible length — and the best donor:
+// the original recording, offered only when the file declares a variant. Donors
+// skip the length check, since a variant is expected to differ from the
+// original in length.
+func (r *Resolver) evaluate(src source, results []TrackInfo) (exact, donor *match) {
 	for _, res := range results {
 		base, version := cleanTitle(res.Title)
-		if version.Key != src.version.Key {
+
+		isDonor := false
+		switch {
+		case version.Key == src.version.Key:
+			if !durationFits(src.duration, res.Duration) {
+				r.logger.Debug("  skip %q: %s long, file is %s", res.Title, res.Duration.Round(time.Second), src.duration.Round(time.Second))
+				continue
+			}
+		case !src.version.IsOriginal() && version.IsOriginal():
+			isDonor = true
+		default:
 			r.logger.Debug("  skip %q: version %q, file declares %q", res.Title, version.Key, src.version.Key)
-			continue
-		}
-		if !durationFits(src.duration, res.Duration) {
-			r.logger.Debug("  skip %q: %s long, file is %s", res.Title, res.Duration.Round(time.Second), src.duration.Round(time.Second))
 			continue
 		}
 
@@ -129,10 +136,27 @@ func (r *Resolver) evaluate(src source, results []TrackInfo) *match {
 		cmp.Title = base
 		res.Confidence = score(src.query, cmp)
 
-		m := match{info: res, base: base, delta: durationDelta(src.duration, res.Duration)}
-		if best == nil || better(m, *best, src.query.Album) {
-			best = &m
+		m := match{info: res, base: base, donor: isDonor, delta: durationDelta(src.duration, res.Duration)}
+		if isDonor {
+			if donor == nil || better(m, *donor, src.query.Album) {
+				donor = &m
+			}
+		} else if exact == nil || better(m, *exact, src.query.Album) {
+			exact = &m
 		}
 	}
-	return best
+	return exact, donor
+}
+
+// asVariant turns the original recording's metadata into metadata for the
+// variant the file is: the title keeps the variant, and the fields that
+// identify the original recording are dropped, so the variant is never
+// mistaken for it or collides with it in the library.
+func asVariant(info TrackInfo, base string, v Version) TrackInfo {
+	info.Title = base + " (" + v.Label + ")"
+	info.ISRC = ""
+	info.TrackNumber = 0
+	info.TotalTracks = 0
+	info.DiscNumber = 0
+	return info
 }

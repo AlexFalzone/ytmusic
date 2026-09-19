@@ -72,6 +72,20 @@ Metadata resolution runs in three phases:
 
 Track and disc numbers written by phases 1 and 2 are never overwritten by phase 3.
 
+### Matching rules
+
+Before any candidate is scored, it has to pass two checks:
+
+- **Version.** A title that declares a variant — `(Live)`, `(Sped Up)`, `- Radio Edit`, `(Skrillex Remix)` —
+  only matches the same variant, and a plain title never matches a variant. When no provider carries the
+  variant, the original recording lends its artist, album, artwork, year and genre, and the title keeps the variant:
+  `Blinding Lights (Sped Up)`. Its ISRC and track number are not copied: they identify the original.
+- **Length.** A recording that runs longer than the file by more than 10% (or by more than 3 seconds, for
+  short tracks) is a different cut and is skipped. A longer file is accepted up to twice the recording's length, since music
+  videos often wrap the song in an intro and an outro.
+
+When comparing titles, remaster notes, featuring credits, accents and `&`/`and` are ignored on both sides.
+
 ## Web Interface
 
 `ytmusic-web` serves the browser UI and requires a username and password.

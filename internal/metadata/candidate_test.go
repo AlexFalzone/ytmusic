@@ -39,7 +39,7 @@ func newEvalResolver() *Resolver {
 func TestEvaluateSkipsOtherVersions(t *testing.T) {
 	src := source{query: SearchQuery{Title: "Song", Artist: "Artist"}}
 
-	best := newEvalResolver().evaluate(src, []TrackInfo{
+	best, _ := newEvalResolver().evaluate(src, []TrackInfo{
 		{Title: "Song - Live at Wembley", Artist: "Artist", Album: "Live"},
 		{Title: "Song", Artist: "Artist", Album: "Studio"},
 	})
@@ -55,7 +55,7 @@ func TestEvaluatePicksDeclaredVersion(t *testing.T) {
 		version: Version{Key: "live", Label: "Live"},
 	}
 
-	best := newEvalResolver().evaluate(src, []TrackInfo{
+	best, _ := newEvalResolver().evaluate(src, []TrackInfo{
 		{Title: "Song", Artist: "Artist", Album: "Studio"},
 		{Title: "Song - Live at Wembley", Artist: "Artist", Album: "Live at Wembley"},
 	})
@@ -68,7 +68,7 @@ func TestEvaluatePicksDeclaredVersion(t *testing.T) {
 func TestEvaluateVetoesShorterRecording(t *testing.T) {
 	src := source{query: SearchQuery{Title: "Song", Artist: "Artist"}, duration: 150 * time.Second}
 
-	best := newEvalResolver().evaluate(src, []TrackInfo{
+	best, _ := newEvalResolver().evaluate(src, []TrackInfo{
 		{Title: "Song", Artist: "Artist", Duration: 200 * time.Second},
 	})
 
@@ -80,7 +80,7 @@ func TestEvaluateVetoesShorterRecording(t *testing.T) {
 func TestEvaluateBreaksTiesOnDuration(t *testing.T) {
 	src := source{query: SearchQuery{Title: "Song", Artist: "Artist"}, duration: 200 * time.Second}
 
-	best := newEvalResolver().evaluate(src, []TrackInfo{
+	best, _ := newEvalResolver().evaluate(src, []TrackInfo{
 		{Title: "Song", Artist: "Artist", Album: "A", Duration: 230 * time.Second},
 		{Title: "Song", Artist: "Artist", Album: "B", Duration: 201 * time.Second},
 	})
@@ -93,7 +93,7 @@ func TestEvaluateBreaksTiesOnDuration(t *testing.T) {
 func TestEvaluateScoresCleanedTitle(t *testing.T) {
 	src := source{query: SearchQuery{Title: "Here Comes the Sun", Artist: "The Beatles"}}
 
-	best := newEvalResolver().evaluate(src, []TrackInfo{
+	best, _ := newEvalResolver().evaluate(src, []TrackInfo{
 		{Title: "Here Comes the Sun - Remastered 2019", Artist: "The Beatles"},
 	})
 
@@ -102,5 +102,59 @@ func TestEvaluateScoresCleanedTitle(t *testing.T) {
 	}
 	if best.info.Title != "Here Comes the Sun - Remastered 2019" {
 		t.Errorf("title = %q: the provider's title is kept, cleaning is for comparison only", best.info.Title)
+	}
+}
+
+func TestEvaluateOffersOriginalAsDonor(t *testing.T) {
+	src := source{
+		query:    SearchQuery{Title: "Blinding Lights", Artist: "The Weeknd"},
+		version:  Version{Key: "sped up", Label: "Sped Up"},
+		duration: 160 * time.Second,
+	}
+
+	exact, donor := newEvalResolver().evaluate(src, []TrackInfo{
+		{Title: "Blinding Lights - 2020 Remaster", Artist: "The Weeknd", Duration: 200 * time.Second},
+	})
+
+	if exact != nil {
+		t.Errorf("exact = %+v, want nil: no provider has the sped-up version", exact)
+	}
+	// A variant is expected to differ in length: the donor skips that check.
+	if donor == nil || !donor.donor || donor.base != "Blinding Lights" {
+		t.Fatalf("donor = %+v, want the original with base title %q", donor, "Blinding Lights")
+	}
+}
+
+func TestEvaluateOffersNoDonorForOriginalFile(t *testing.T) {
+	src := source{query: SearchQuery{Title: "Song", Artist: "Artist"}}
+
+	exact, donor := newEvalResolver().evaluate(src, []TrackInfo{
+		{Title: "Song - Live", Artist: "Artist"},
+	})
+
+	if exact != nil || donor != nil {
+		t.Errorf("exact = %+v, donor = %+v, want neither", exact, donor)
+	}
+}
+
+func TestAsVariant(t *testing.T) {
+	original := TrackInfo{
+		Title: "Blinding Lights - 2020 Remaster", Artist: "The Weeknd", Album: "After Hours",
+		Year: 2020, Genre: "Pop", ArtworkURL: "https://example.com/art.jpg",
+		ISRC: "USUG11904206", TrackNumber: 9, TotalTracks: 14, DiscNumber: 1,
+	}
+
+	got := asVariant(original, "Blinding Lights", Version{Key: "sped up", Label: "Sped Up"})
+
+	if got.Title != "Blinding Lights (Sped Up)" {
+		t.Errorf("Title = %q, want %q", got.Title, "Blinding Lights (Sped Up)")
+	}
+	if got.Album != "After Hours" || got.Year != 2020 || got.Genre != "Pop" || got.ArtworkURL == "" {
+		t.Errorf("descriptive fields lost: %+v", got)
+	}
+	// These identify the original recording; on a variant they would make it
+	// pass for the original and collide with it in the library.
+	if got.ISRC != "" || got.TrackNumber != 0 || got.TotalTracks != 0 || got.DiscNumber != 0 {
+		t.Errorf("identity fields kept: ISRC=%q track=%d/%d disc=%d", got.ISRC, got.TrackNumber, got.TotalTracks, got.DiscNumber)
 	}
 }

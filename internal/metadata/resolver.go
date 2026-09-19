@@ -178,7 +178,11 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 		return nil
 	}
 
-	return r.writeResolved(ctx, path, r.fillGaps(ctx, src, m))
+	info := r.fillGaps(ctx, src, m)
+	if m.donor {
+		info = asVariant(info, m.base, src.version)
+	}
+	return r.writeResolved(ctx, path, info)
 }
 
 // fileDuration reads the file's own length. Zero means unknown, which disables
@@ -208,9 +212,13 @@ func (r *Resolver) writeResolved(ctx context.Context, path string, info TrackInf
 	return nil
 }
 
-// findPrimaryMatch asks the providers in order and returns the first candidate
-// above the threshold.
+// findPrimaryMatch asks the providers in order. An exact candidate above the
+// threshold ends the search at once, as before. A donor is settled for only
+// once every provider has had the chance to offer the variant itself, and then
+// the earliest provider's wins: only files that declare a variant pay for the
+// extra lookups.
 func (r *Resolver) findPrimaryMatch(ctx context.Context, src source) (match, bool) {
+	var donor *match
 	for i, p := range r.providers {
 		results, err := p.Search(ctx, src.query)
 		if err != nil {
@@ -222,15 +230,23 @@ func (r *Resolver) findPrimaryMatch(ctx context.Context, src source) (match, boo
 			continue
 		}
 
-		best := r.evaluate(src, results)
-		if best == nil {
-			continue
+		exact, d := r.evaluate(src, results)
+		if exact != nil {
+			r.logger.Debug("  %s: best %q by %q (confidence: %.2f)", p.Name(), exact.info.Title, exact.info.Artist, exact.info.Confidence)
+			if exact.info.Confidence >= r.threshold {
+				exact.providerIdx = i
+				return *exact, true
+			}
 		}
-		r.logger.Debug("  %s: best %q by %q (confidence: %.2f)", p.Name(), best.info.Title, best.info.Artist, best.info.Confidence)
-		if best.info.Confidence >= r.threshold {
-			best.providerIdx = i
-			return *best, true
+		if donor == nil && d != nil && d.info.Confidence >= r.threshold {
+			d.providerIdx = i
+			donor = d
 		}
+	}
+
+	if donor != nil {
+		r.logger.Debug("  no provider has the %q version, borrowing metadata from %q", src.version.Label, donor.info.Title)
+		return *donor, true
 	}
 	return match{}, false
 }
@@ -249,7 +265,11 @@ func (r *Resolver) fillGaps(ctx context.Context, src source, primary match) Trac
 			continue
 		}
 
-		filler := r.evaluate(src, results)
+		exact, donor := r.evaluate(src, results)
+		filler := exact
+		if primary.donor {
+			filler = donor
+		}
 		if filler == nil || filler.info.Confidence < r.threshold {
 			continue
 		}

@@ -1151,3 +1151,62 @@ func TestResolveFile_RecordingOfSameLengthIsAccepted(t *testing.T) {
 		t.Errorf("album = %q, want %q", got, "Album")
 	}
 }
+
+func liveSource() source {
+	return source{
+		query:   SearchQuery{Title: "Song", Artist: "Artist"},
+		version: Version{Key: "live", Label: "Live"},
+	}
+}
+
+// Before settling for a donor, every provider gets the chance to offer the
+// variant itself.
+func TestFindPrimaryMatch_PrefersExactVariantFromLaterProvider(t *testing.T) {
+	p1 := &mockProvider{name: "studio-only", results: []TrackInfo{{Title: "Song", Artist: "Artist", Album: "Studio"}}}
+	p2 := &mockProvider{name: "has-live", results: []TrackInfo{{Title: "Song - Live", Artist: "Artist", Album: "Live"}}}
+	r := NewResolver([]Provider{p1, p2}, logger.New(false), 0.7)
+
+	m, ok := r.findPrimaryMatch(context.Background(), liveSource())
+
+	if !ok || m.donor || m.info.Album != "Live" || m.providerIdx != 1 {
+		t.Fatalf("match = %+v, ok = %v, want the live recording from the second provider", m, ok)
+	}
+}
+
+func TestFindPrimaryMatch_FallsBackToDonor(t *testing.T) {
+	p1 := &mockProvider{name: "studio-only", results: []TrackInfo{{Title: "Song", Artist: "Artist", Album: "Studio"}}}
+	p2 := &mockProvider{name: "empty"}
+	r := NewResolver([]Provider{p1, p2}, logger.New(false), 0.7)
+
+	m, ok := r.findPrimaryMatch(context.Background(), liveSource())
+
+	if !p2.called {
+		t.Error("second provider not consulted before settling for a donor")
+	}
+	if !ok || !m.donor || m.info.Album != "Studio" || m.providerIdx != 0 {
+		t.Fatalf("match = %+v, ok = %v, want the first provider's studio recording as donor", m, ok)
+	}
+}
+
+func TestResolveFile_VariantBorrowsOriginalMetadata(t *testing.T) {
+	path := newTestMP3(t)
+	tagTestFile(t, path, "Blinding Lights (Sped Up)", "The Weeknd")
+
+	resolveOne(t, path, &mockProvider{name: "mock", results: []TrackInfo{{
+		Title: "Blinding Lights", Artist: "The Weeknd", Album: "After Hours",
+		ISRC: "USUG11904206", TrackNumber: 9, Year: 2020, Duration: 200 * time.Second,
+	}}})
+
+	if got := readTestTag(t, path, taglib.Title); got != "Blinding Lights (Sped Up)" {
+		t.Errorf("title = %q, want %q", got, "Blinding Lights (Sped Up)")
+	}
+	if got := readTestTag(t, path, taglib.Album); got != "After Hours" {
+		t.Errorf("album = %q, want %q", got, "After Hours")
+	}
+	if got := readTestTag(t, path, taglib.ISRC); got != "" {
+		t.Errorf("ISRC = %q: the original's ISRC does not identify the variant", got)
+	}
+	if got := readTestTag(t, path, taglib.TrackNumber); got != "" {
+		t.Errorf("track number = %q: the variant is not that track of the album", got)
+	}
+}
