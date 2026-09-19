@@ -135,11 +135,18 @@ func RunImportOnly(ctx context.Context, cfg config.Config, log *logger.Logger, d
 	return nil
 }
 
+// fingerprinter is what AcoustID identification provides: single-file and
+// batch lookups.
+type fingerprinter interface {
+	metadata.Fingerprinter
+	metadata.BatchFingerprinter
+}
+
 type components struct {
 	providers       []metadata.Provider
-	fingerprinter   *fingerprint.Fingerprinter // nil if AcoustID not configured
-	albumResolver   metadata.AlbumResolver     // nil if musicbrainz not in providers
-	releaseResolver metadata.ReleaseResolver   // nil if musicbrainz not in providers
+	fingerprinter   fingerprinter            // nil if AcoustID not configured
+	albumResolver   metadata.AlbumResolver   // nil if musicbrainz not in providers
+	releaseResolver metadata.ReleaseResolver // nil if musicbrainz not in providers
 }
 
 // buildComponents creates all metadata-related components, sharing a single
@@ -172,7 +179,9 @@ func buildComponents(cfg config.Config, log *logger.Logger) components {
 		}
 	}
 
-	var fp *fingerprint.Fingerprinter
+	// Declared as the interface, not *fingerprint.Fingerprinter: a nil pointer
+	// converted to an interface is not nil and would crash the resolver.
+	var fp fingerprinter
 	if cfg.AcoustIDAPIKey != "" {
 		acoustid := fingerprint.NewAcoustIDClient(cfg.AcoustIDAPIKey, "")
 		fp = fingerprint.New(acoustid, func(ctx context.Context, mbid, preferAlbum string) (metadata.TrackInfo, error) {
