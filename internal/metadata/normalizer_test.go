@@ -154,7 +154,7 @@ func TestNormalizeQuery(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NormalizeQuery(tt.title, tt.artist)
+			got, _ := NormalizeQuery(tt.title, tt.artist)
 			if got.Title != tt.wantTitle {
 				t.Errorf("title = %q, want %q", got.Title, tt.wantTitle)
 			}
@@ -162,5 +162,78 @@ func TestNormalizeQuery(t *testing.T) {
 				t.Errorf("artist = %q, want %q", got.Artist, tt.wantArtist)
 			}
 		})
+	}
+}
+
+func TestCleanTitle(t *testing.T) {
+	tests := []struct {
+		raw         string
+		wantBase    string
+		wantVersion string
+	}{
+		{"Blinding Lights", "Blinding Lights", ""},
+		{"Blinding Lights (Official Video)", "Blinding Lights", ""},
+		{"Peaches (feat. Daniel Caesar & Giveon)", "Peaches", ""},
+		{"Stay (with Justin Bieber)", "Stay", ""},
+		{"Song ft. Someone", "Song", ""},
+		{"Here Comes the Sun - Remastered 2019", "Here Comes the Sun", ""},
+		{"Yesterday (2009 Remaster)", "Yesterday", ""},
+		{"Blinding Lights (Sped Up)", "Blinding Lights", "sped up"},
+		{"Blinding Lights [Slowed + Reverb]", "Blinding Lights", "slowed"},
+		{"Don't Stop Me Now - Live at Wembley 1986", "Don't Stop Me Now", "live"},
+		{"Levels (Skrillex Remix)", "Levels", "remix"},
+		{"Song - Radio Edit", "Song", "edit"},
+		{"Song (Acoustic Version)", "Song", "acoustic"},
+		{"Song (Live) [Acoustic]", "Song", "acoustic+live"},
+		// Titles that merely contain a marker word are not variants.
+		{"Live Forever", "Live Forever", ""},
+		{"Remix to Ignition", "Remix to Ignition", ""},
+		{"Live and Let Die", "Live and Let Die", ""},
+		{"Anti-Hero", "Anti-Hero", ""},
+		{"(I Just) Died in Your Arms", "(I Just) Died in Your Arms", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.raw, func(t *testing.T) {
+			base, v := cleanTitle(tt.raw)
+			if base != tt.wantBase {
+				t.Errorf("base = %q, want %q", base, tt.wantBase)
+			}
+			if v.Key != tt.wantVersion {
+				t.Errorf("version = %q, want %q", v.Key, tt.wantVersion)
+			}
+		})
+	}
+}
+
+func TestCleanTitleKeepsVariantLabel(t *testing.T) {
+	tests := []struct{ raw, wantLabel string }{
+		{"Levels (Skrillex Remix)", "Skrillex Remix"},
+		{"Song (Live) [Acoustic]", "Live, Acoustic"},
+	}
+	for _, tt := range tests {
+		if _, v := cleanTitle(tt.raw); v.Label != tt.wantLabel {
+			t.Errorf("cleanTitle(%q) label = %q, want %q", tt.raw, v.Label, tt.wantLabel)
+		}
+	}
+}
+
+func TestNormalizeQueryReturnsVersion(t *testing.T) {
+	tests := []struct {
+		title, artist         string
+		wantTitle, wantArtist string
+		wantVersion           string
+	}{
+		{"Blinding Lights (Sped Up)", "The Weeknd", "Blinding Lights", "The Weeknd", "sped up"},
+		// The first dash separates the artist, the last one the variant.
+		{"The Weeknd - Blinding Lights - Live", "", "Blinding Lights", "The Weeknd", "live"},
+		// A song called "Live Forever" is not a live version.
+		{"Oasis - Live Forever", "", "Live Forever", "Oasis", ""},
+	}
+	for _, tt := range tests {
+		q, v := NormalizeQuery(tt.title, tt.artist)
+		if q.Title != tt.wantTitle || q.Artist != tt.wantArtist || v.Key != tt.wantVersion {
+			t.Errorf("NormalizeQuery(%q, %q) = (%q, %q, %q), want (%q, %q, %q)",
+				tt.title, tt.artist, q.Title, q.Artist, v.Key, tt.wantTitle, tt.wantArtist, tt.wantVersion)
+		}
 	}
 }

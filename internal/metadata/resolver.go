@@ -152,7 +152,7 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 		return nil
 	}
 
-	query := NormalizeQuery(rawTitle, rawArtist)
+	query, _ := NormalizeQuery(rawTitle, rawArtist)
 	query.Album = strings.TrimSpace(rawAlbum)
 	r.logger.Debug("  Normalized: title=%q artist=%q album=%q", query.Title, query.Artist, query.Album)
 
@@ -237,9 +237,9 @@ func (r *Resolver) findPrimaryMatch(ctx context.Context, query SearchQuery) (Tra
 // Ties are broken by album similarity to the query album.
 func pickBest(query SearchQuery, results []TrackInfo) TrackInfo {
 	best := results[0]
-	best.Confidence = score(query, best)
+	best.Confidence = scoreCandidate(query, best)
 	for _, r := range results[1:] {
-		r.Confidence = score(query, r)
+		r.Confidence = scoreCandidate(query, r)
 		if r.Confidence > best.Confidence {
 			best = r
 			continue
@@ -253,6 +253,13 @@ func pickBest(query SearchQuery, results []TrackInfo) TrackInfo {
 		}
 	}
 	return best
+}
+
+// scoreCandidate scores a result on its cleaned title, so "Song (feat. X)"
+// is compared as "Song".
+func scoreCandidate(query SearchQuery, result TrackInfo) float64 {
+	result.Title, _ = cleanTitle(result.Title)
+	return score(query, result)
 }
 
 // fillGaps queries remaining providers to fill missing fields in the primary match.

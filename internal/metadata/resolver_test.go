@@ -441,21 +441,64 @@ func TestMatchTrackByTitle_NormalizesBeforeComparing(t *testing.T) {
 	}
 }
 
-// newTestMP3 creates a minimal silent MP3 in a temp dir and returns its path.
-// Skips the test if ffmpeg is not available.
 func newTestMP3(t *testing.T) string {
+	t.Helper()
+	return newTestMP3Len(t, "0.1")
+}
+
+// newTestMP3Len creates a silent MP3 lasting the given number of seconds.
+// Skips the test if ffmpeg is not available.
+func newTestMP3Len(t *testing.T, seconds string) string {
 	t.Helper()
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		t.Skip("ffmpeg not available")
 	}
 	path := filepath.Join(t.TempDir(), "test.mp3")
-	cmd := exec.Command("ffmpeg", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "0.1", "-q:a", "9", path)
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+	cmd := exec.Command("ffmpeg", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", seconds, "-q:a", "9", path)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("ffmpeg failed: %v", err)
 	}
 	return path
+}
+
+func tagTestFile(t *testing.T, path, title, artist string) {
+	t.Helper()
+	tags := map[string][]string{taglib.Title: {title}, taglib.Artist: {artist}}
+	if err := taglib.WriteTags(path, tags, 0); err != nil {
+		t.Fatalf("write tags: %v", err)
+	}
+}
+
+func readTestTag(t *testing.T, path, key string) string {
+	t.Helper()
+	tags, err := taglib.ReadTags(path)
+	if err != nil {
+		t.Fatalf("read tags: %v", err)
+	}
+	return firstTag(tags, key)
+}
+
+func resolveOne(t *testing.T, path string, providers ...Provider) {
+	t.Helper()
+	r := NewResolver(providers, logger.New(false), 0)
+	if err := r.Resolve(context.Background(), []string{path}); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+}
+
+// Providers write the featured artists into the track name; the query has
+// already dropped them. Compared raw, the two share 1 token out of 6.
+func TestResolveFile_MatchesCandidateWithFeaturingInTitle(t *testing.T) {
+	path := newTestMP3(t)
+	tagTestFile(t, path, "Peaches", "Justin Bieber")
+
+	resolveOne(t, path, &mockProvider{name: "mock", results: []TrackInfo{
+		{Title: "Peaches (feat. Daniel Caesar & Giveon)", Artist: "Justin Bieber", Album: "Justice"},
+	}})
+
+	if got := readTestTag(t, path, taglib.Album); got != "Justice" {
+		t.Errorf("album = %q, want %q", got, "Justice")
+	}
 }
 
 func TestGroupByAlbum_GroupsSameAlbumTogether(t *testing.T) {
