@@ -395,3 +395,49 @@ func TestMoveAudioFilesStaysInsideDestination(t *testing.T) {
 		t.Errorf("file not kept inside the destination: %v", err)
 	}
 }
+
+func TestCleanupRefusesSiblingOfTempDir(t *testing.T) {
+	base := t.TempDir()
+	tmp := filepath.Join(base, "tmp")
+	sibling := filepath.Join(base, "tmpfoo") // shares the prefix, is not inside
+	writeFile(t, filepath.Join(tmp, "keep"), "x")
+	writeFile(t, filepath.Join(sibling, "keep"), "x")
+	t.Setenv("TMPDIR", tmp)
+
+	if err := Cleanup(sibling); err == nil {
+		t.Error("expected an error: the directory only shares the prefix of the temp folder")
+	}
+	if _, err := os.Stat(sibling); err != nil {
+		t.Errorf("sibling of the temp folder was deleted: %v", err)
+	}
+}
+
+func TestCleanupRefusesTempDirItself(t *testing.T) {
+	base := t.TempDir()
+	tmp := filepath.Join(base, "tmp")
+	writeFile(t, filepath.Join(tmp, "someone-elses-file"), "x")
+	t.Setenv("TMPDIR", tmp)
+
+	if err := Cleanup(tmp); err == nil {
+		t.Error("expected an error: this would wipe the whole temp folder")
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "someone-elses-file")); err != nil {
+		t.Errorf("the temp folder was emptied: %v", err)
+	}
+}
+
+func TestCleanupRefusesTraversalIntoTempDir(t *testing.T) {
+	base := t.TempDir()
+	tmp := filepath.Join(base, "tmp")
+	outside := filepath.Join(base, "outside")
+	writeFile(t, filepath.Join(tmp, "keep"), "x")
+	writeFile(t, filepath.Join(outside, "keep"), "x")
+	t.Setenv("TMPDIR", tmp)
+
+	if err := Cleanup(filepath.Join(tmp, "..", "outside")); err == nil {
+		t.Error("expected an error: the path climbs out of the temp folder")
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Errorf("directory outside the temp folder was deleted: %v", err)
+	}
+}

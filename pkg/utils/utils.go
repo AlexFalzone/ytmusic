@@ -40,14 +40,20 @@ func CreateTempDir() (string, error) {
 	return dir, nil
 }
 
-// Cleanup removes the temporary folder.
-// Safety check: only deletes directories in /tmp
+// Cleanup removes a temporary folder this program created.
+//
+// It deletes only directories strictly inside os.TempDir(). A prefix test is
+// not enough: "/tmpfoo" starts with "/tmp" without being in it, and the temp
+// folder itself passes such a test, which would hand os.RemoveAll everything
+// every other program has left there.
 func Cleanup(dir string) error {
 	if dir == "" {
 		return nil
 	}
 
-	if !strings.HasPrefix(filepath.Clean(dir), filepath.Clean(os.TempDir())) {
+	rel, err := filepath.Rel(os.TempDir(), filepath.Clean(dir))
+	// "." is the temp folder itself, ".." and "../…" are outside it.
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 		return fmt.Errorf("refusing to delete directory outside temp folder: %s", dir)
 	}
 
