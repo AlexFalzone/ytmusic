@@ -30,11 +30,23 @@ func TestTokensMatch(t *testing.T) {
 		a, b string
 		want bool
 	}{
-		{"light", "lights", true},     // plural, JW 0.967
+		{"light", "lights", true},     // plural
+		{"box", "boxes", true},        // plural
 		{"blinding", "blindng", true}, // one-letter typo, JW 0.975
 		{"walking", "talking", false}, // another word, JW 0.905
 		{"love", "live", false},       // another word, JW 0.850
 		{"me", "we", false},           // too short to be fuzzy
+		{"i", "is", false},            // too short for the plural rule too
+		// One letter apart, but each pair is two different words. Edit distance
+		// alone cannot tell them apart: every one of these scores above 0.92.
+		{"lock", "clock", false},
+		{"ever", "never", false},
+		{"word", "world", false},
+		{"star", "start", false},
+		{"alone", "along", false},
+		{"thing", "think", false},
+		{"chance", "change", false},
+		{"storm", "story", false},
 	}
 	for _, tt := range tests {
 		if got := tokensMatch(tt.a, tt.b); got != tt.want {

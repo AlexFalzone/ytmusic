@@ -14,9 +14,15 @@ import (
 // ("walking"/"talking" 0.905, "love"/"live" 0.850).
 const fuzzyTokenThreshold = 0.92
 
-// fuzzyTokenMinLen keeps short words exact: one letter changes their meaning
-// ("me"/"we"), and they are too short for Jaro-Winkler to tell apart.
-const fuzzyTokenMinLen = 4
+// fuzzyTokenMinLen is the length the shorter token must reach before an edit
+// distance can be trusted. Below it one letter is usually another word, and
+// every one of these scores above the threshold: "lock"/"clock" 0.933,
+// "ever"/"never" 0.933, "star"/"start" 0.960, "alone"/"along" 0.920.
+const fuzzyTokenMinLen = 7
+
+// pluralMinLen keeps the plural rule off two-letter words, where it would make
+// "i" and "is" the same token.
+const pluralMinLen = 3
 
 // normalize prepares a string for comparison: lowercase, accents stripped,
 // "&" spelled "and", punctuation dropped, whitespace collapsed. Its output is
@@ -68,15 +74,28 @@ func similarity(a, b string) float64 {
 }
 
 // tokensMatch reports whether two tokens are the same word, allowing a plural
-// or a typo on words long enough for that to be safe.
+// at any length and a typo on words long enough for that to be safe.
 func tokensMatch(a, b string) bool {
 	if a == b {
 		return true
 	}
-	if utf8.RuneCountInString(a) < fuzzyTokenMinLen || utf8.RuneCountInString(b) < fuzzyTokenMinLen {
+	// Handled apart from the edit distance: it tells "light"/"lights" from
+	// "lock"/"clock", which are the same distance apart.
+	if isPlural(a, b) || isPlural(b, a) {
+		return true
+	}
+	if min(utf8.RuneCountInString(a), utf8.RuneCountInString(b)) < fuzzyTokenMinLen {
 		return false
 	}
 	return jaroWinkler(a, b) >= fuzzyTokenThreshold
+}
+
+// isPlural reports whether plural is singular with an English plural ending.
+func isPlural(plural, singular string) bool {
+	if utf8.RuneCountInString(singular) < pluralMinLen {
+		return false
+	}
+	return plural == singular+"s" || plural == singular+"es"
 }
 
 // jaroWinkler returns the Jaro-Winkler similarity of a and b (0.0-1.0).
