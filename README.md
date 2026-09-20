@@ -84,7 +84,8 @@ Before any candidate is scored, it has to pass two checks:
   short tracks) is a different cut and is skipped. A longer file is accepted up to twice the recording's length, since music
   videos often wrap the song in an intro and an outro.
 
-When comparing titles, remaster notes, featuring credits, accents and `&`/`and` are ignored on both sides.
+When comparing titles, remaster notes and featuring credits are ignored on both sides, accented letters are
+folded (`Perché` = `Perche`) and `&` reads as `and`.
 
 ## Web Interface
 
