@@ -261,7 +261,11 @@ func (r *Resolver) fillGaps(ctx context.Context, src source, primary match) Trac
 
 	for _, p := range r.providers[primary.providerIdx+1:] {
 		results, err := p.Search(ctx, src.query)
-		if err != nil || len(results) == 0 {
+		if err != nil {
+			r.logger.Debug("  provider %s failed: %v", p.Name(), err)
+			continue
+		}
+		if len(results) == 0 {
 			continue
 		}
 
