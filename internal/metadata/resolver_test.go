@@ -1111,6 +1111,23 @@ func TestGapFilling_IgnoresFillerOfAnotherVersion(t *testing.T) {
 	}
 }
 
+// A donor is completed by other originals, never by the variant it stands in for.
+func TestGapFilling_DonorTakesOriginalAsFiller(t *testing.T) {
+	p1 := &mockProvider{name: "primary"}
+	p2 := &mockProvider{name: "filler", results: []TrackInfo{
+		{Title: "Song - Live", Artist: "Artist", Genre: "Jazz"},
+		{Title: "Song", Artist: "Artist", Genre: "Rock"},
+	}}
+	r := NewResolver([]Provider{p1, p2}, logger.New(false), 0.5)
+
+	filled := r.fillGaps(context.Background(), liveSource(),
+		match{info: TrackInfo{Title: "Song", Artist: "Artist"}, donor: true})
+
+	if filled.Genre != "Rock" {
+		t.Errorf("Genre = %q, want %q", filled.Genre, "Rock")
+	}
+}
+
 func TestResolveFile_DoesNotTagOriginalAsLiveVersion(t *testing.T) {
 	path := newTestMP3(t)
 	tagTestFile(t, path, "Song", "Artist")

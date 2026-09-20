@@ -81,7 +81,9 @@ func TestEvaluateBreaksTiesOnDuration(t *testing.T) {
 	src := source{query: SearchQuery{Title: "Song", Artist: "Artist"}, duration: 200 * time.Second}
 
 	best, _ := newEvalResolver().evaluate(src, []TrackInfo{
-		{Title: "Song", Artist: "Artist", Album: "A", Duration: 230 * time.Second},
+		// Both plausible lengths: only the tie-break can separate them. 230s
+		// would have been vetoed outright, leaving nothing to break.
+		{Title: "Song", Artist: "Artist", Album: "A", Duration: 205 * time.Second},
 		{Title: "Song", Artist: "Artist", Album: "B", Duration: 201 * time.Second},
 	})
 
