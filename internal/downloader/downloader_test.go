@@ -191,3 +191,50 @@ func TestDownloadAllSurvivesPanicInProgressHook(t *testing.T) {
 		t.Errorf("progress hook ran %d times, want 3: a panic in one worker must not stop the others", got)
 	}
 }
+
+// fakeYtdlp puts a stub yt-dlp first in PATH. The script prints body on stdout
+// and exits with code.
+func fakeYtdlp(t *testing.T, body string, code int) {
+	t.Helper()
+	dir := t.TempDir()
+	script := fmt.Sprintf("#!/bin/sh\n%s\nexit %d\n", body, code)
+	path := filepath.Join(dir, "yt-dlp")
+	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
+		t.Fatalf("write stub: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestDownloadSingleFailsWhenNothingWasProduced(t *testing.T) {
+	// --ignore-errors lets yt-dlp succeed while producing no file at all.
+	fakeYtdlp(t, "", 0)
+
+	d := New(config.DefaultConfig(), logger.New(false), t.TempDir())
+	if err := d.DownloadSingle(context.Background(), "https://example.com/watch?v=x"); err == nil {
+		t.Error("expected an error: yt-dlp exited 0 without downloading anything")
+	}
+}
+
+func TestDownloadSingleAcceptsAnExistingFile(t *testing.T) {
+	tmp := t.TempDir()
+	produced := filepath.Join(tmp, "song.mp3")
+	if err := os.WriteFile(produced, []byte("audio"), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	fakeYtdlp(t, fmt.Sprintf("echo %q", produced), 0)
+
+	d := New(config.DefaultConfig(), logger.New(false), tmp)
+	if err := d.DownloadSingle(context.Background(), "https://example.com/watch?v=x"); err != nil {
+		t.Errorf("DownloadSingle = %v, want nil", err)
+	}
+}
+
+func TestDownloadSingleFailsWhenThePrintedFileIsMissing(t *testing.T) {
+	tmp := t.TempDir()
+	fakeYtdlp(t, fmt.Sprintf("echo %q", filepath.Join(tmp, "gone.mp3")), 0)
+
+	d := New(config.DefaultConfig(), logger.New(false), tmp)
+	if err := d.DownloadSingle(context.Background(), "https://example.com/watch?v=x"); err == nil {
+		t.Error("expected an error: the path yt-dlp printed does not exist")
+	}
+}

@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"ytmusic/internal/config"
@@ -117,6 +119,12 @@ func (d *Downloader) buildYtdlpArgs(url string) []string {
 		"--embed-thumbnail",
 		"--embed-metadata",
 		"-i",
+		// Verified against yt-dlp 2026.08.19: with --no-simulate, this prints
+		// the absolute path after the audio conversion (…/Title.mp3, not the
+		// downloaded .webm), and prints nothing when the download produced no
+		// file. That is what makes the check in DownloadSingle possible.
+		"--print", "after_move:filepath",
+		"--no-simulate",
 		"-o", outputTemplate,
 		url,
 	}
@@ -134,9 +142,12 @@ func (d *Downloader) DownloadSingle(ctx context.Context, url string) error {
 	args := d.buildYtdlpArgs(url)
 	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
 
-	var stderr bytes.Buffer
+	// stdout carries the path of every file produced, so it is captured even in
+	// verbose mode, where it must still reach the screen.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
 	if d.Config.Verbose {
-		cmd.Stdout = os.Stdout
+		cmd.Stdout = io.MultiWriter(os.Stdout, &stdout)
 		cmd.Stderr = os.Stderr
 	} else {
 		cmd.Stderr = &stderr
@@ -149,7 +160,33 @@ func (d *Downloader) DownloadSingle(ctx context.Context, url string) error {
 	if err != nil && stderr.Len() > 0 {
 		return fmt.Errorf("yt-dlp error: %w\nDetails: %s", err, stderr.String())
 	}
-	return err
+	if err != nil {
+		return err
+	}
+
+	return verifyProduced(url, stdout.String())
+}
+
+// verifyProduced checks that yt-dlp really wrote what it claims. Under
+// --ignore-errors it can exit 0 having downloaded nothing, which would
+// otherwise be counted as a success and reported to the user as one.
+func verifyProduced(url, stdout string) error {
+	var produced int
+	for _, line := range strings.Split(stdout, "\n") {
+		path := strings.TrimSpace(line)
+		if path == "" {
+			continue
+		}
+		if _, err := os.Stat(path); err != nil {
+			return fmt.Errorf("yt-dlp reported %s for %s but the file is not there: %w", path, url, err)
+		}
+		produced++
+	}
+
+	if produced == 0 {
+		return fmt.Errorf("yt-dlp downloaded nothing for %s (it exited without an error, likely skipped under --ignore-errors)", url)
+	}
+	return nil
 }
 
 // DownloadStats contains statistics about the download operation
