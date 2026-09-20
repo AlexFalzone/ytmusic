@@ -105,23 +105,63 @@ func MoveAudioFiles(srcDir, dstDir string, subDirFunc func(string) string) (move
 				destDir = filepath.Join(dstDir, sub)
 			}
 		}
-		dst := filepath.Join(destDir, filepath.Base(file))
+
+		dst, uniqueErr := uniquePath(filepath.Join(destDir, filepath.Base(file)))
+		if uniqueErr != nil {
+			failed++
+			continue
+		}
 		if moveErr := MoveFile(file, dst); moveErr != nil {
 			failed++
 			continue
 		}
 		moved++
 
-		// Move .lrc sidecar file if it exists
-		baseName := strings.TrimSuffix(file, filepath.Ext(file))
-		lrcSrc := baseName + ".lrc"
+		// The sidecar follows the name the audio file actually got: keeping
+		// the original one would leave lyrics no player can pair with a track.
+		lrcSrc := strings.TrimSuffix(file, filepath.Ext(file)) + ".lrc"
 		if _, err := os.Stat(lrcSrc); err == nil {
-			lrcDst := filepath.Join(destDir, strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))+".lrc")
+			lrcDst := strings.TrimSuffix(dst, filepath.Ext(dst)) + ".lrc"
 			MoveFile(lrcSrc, lrcDst)
 		}
 	}
 
 	return moved, failed, nil
+}
+
+// NumberedName returns the n-th candidate for a file name: base itself for
+// n == 1, then "name_2.ext", "name_3.ext", … The extension stays last so the
+// file keeps being recognised as audio.
+func NumberedName(base string, n int) string {
+	if n <= 1 {
+		return base
+	}
+	ext := filepath.Ext(base)
+	if ext == base {
+		ext = "" // a dotfile like ".hidden" is all name, no extension
+	}
+	return fmt.Sprintf("%s_%d%s", base[:len(base)-len(ext)], n, ext)
+}
+
+// uniquePath returns dst when nothing is there, otherwise dst with an
+// incremental suffix ("name_2.mp3", "name_3.mp3", …).
+//
+// The check is stat-then-rename, so it assumes no other process writes into
+// the same directory at the same moment. That holds today: the move phase is
+// sequential and single-process. If it ever stops holding, reserve the name
+// with O_CREATE|O_EXCL instead of testing for it.
+func uniquePath(dst string) (string, error) {
+	dir, base := filepath.Split(dst)
+	for n := 1; ; n++ {
+		candidate := filepath.Join(dir, NumberedName(base, n))
+		// Lstat, so a dangling symlink still counts as taken.
+		if _, err := os.Lstat(candidate); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return candidate, nil
+			}
+			return "", fmt.Errorf("failed to check %s: %w", candidate, err)
+		}
+	}
 }
 
 // MoveFile moves a file from src to dst, creating the destination directory if needed.

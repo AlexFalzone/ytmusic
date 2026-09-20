@@ -245,3 +245,126 @@ func TestCleanupEmptyPath(t *testing.T) {
 		t.Errorf("Cleanup(\"\") = %v, want nil", err)
 	}
 }
+
+func TestMoveAudioFilesKeepsTheExistingFile(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+	writeFile(t, filepath.Join(dst, "song.mp3"), "already here")
+	writeFile(t, filepath.Join(src, "song.mp3"), "the new one")
+
+	moved, failed, err := MoveAudioFiles(src, dst, nil)
+	if err != nil {
+		t.Fatalf("MoveAudioFiles: %v", err)
+	}
+	if moved != 1 || failed != 0 {
+		t.Errorf("moved=%d failed=%d, want 1 and 0", moved, failed)
+	}
+
+	old, err := os.ReadFile(filepath.Join(dst, "song.mp3"))
+	if err != nil {
+		t.Fatalf("read existing file: %v", err)
+	}
+	if string(old) != "already here" {
+		t.Errorf("existing file was overwritten: content = %q", old)
+	}
+
+	added, err := os.ReadFile(filepath.Join(dst, "song_2.mp3"))
+	if err != nil {
+		t.Fatalf("new file not stored under a free name: %v", err)
+	}
+	if string(added) != "the new one" {
+		t.Errorf("new file content = %q, want %q", added, "the new one")
+	}
+}
+
+func TestMoveAudioFilesNumbersEveryCollision(t *testing.T) {
+	dst := t.TempDir()
+	for i, content := range []string{"first", "second", "third"} {
+		src := t.TempDir()
+		writeFile(t, filepath.Join(src, "song.mp3"), content)
+		if _, _, err := MoveAudioFiles(src, dst, nil); err != nil {
+			t.Fatalf("move %d: %v", i, err)
+		}
+	}
+
+	want := map[string]string{
+		"song.mp3":   "first",
+		"song_2.mp3": "second",
+		"song_3.mp3": "third",
+	}
+	for name, content := range want {
+		got, err := os.ReadFile(filepath.Join(dst, name))
+		if err != nil {
+			t.Errorf("%s missing: %v", name, err)
+			continue
+		}
+		if string(got) != content {
+			t.Errorf("%s = %q, want %q", name, got, content)
+		}
+	}
+}
+
+func TestMoveAudioFilesSidecarFollowsTheResolvedName(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+	writeFile(t, filepath.Join(dst, "song.mp3"), "already here")
+	writeFile(t, filepath.Join(src, "song.mp3"), "the new one")
+	writeFile(t, filepath.Join(src, "song.lrc"), "the new lyrics")
+
+	if _, _, err := MoveAudioFiles(src, dst, nil); err != nil {
+		t.Fatalf("MoveAudioFiles: %v", err)
+	}
+
+	// An orphan sidecar keeping the old name is what no player would ever pair
+	// with the track it belongs to.
+	if _, err := os.Stat(filepath.Join(dst, "song.lrc")); err == nil {
+		t.Error("sidecar kept the original name, leaving it orphaned")
+	}
+	lrc, err := os.ReadFile(filepath.Join(dst, "song_2.lrc"))
+	if err != nil {
+		t.Fatalf("sidecar did not follow the audio file: %v", err)
+	}
+	if string(lrc) != "the new lyrics" {
+		t.Errorf("sidecar content = %q, want %q", lrc, "the new lyrics")
+	}
+}
+
+func TestUniquePathOddNames(t *testing.T) {
+	dir := t.TempDir()
+	tests := []struct {
+		name string
+		base string
+		want string
+	}{
+		{"no extension", "song", "song_2"},
+		{"double extension", "song.tar.gz", "song.tar_2.gz"},
+		{"dot file", ".hidden", ".hidden_2"},
+		{"trailing dot", "song.", "song_2."},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			taken := filepath.Join(dir, tt.base)
+			writeFile(t, taken, "x")
+
+			got, err := uniquePath(taken)
+			if err != nil {
+				t.Fatalf("uniquePath: %v", err)
+			}
+			if got != filepath.Join(dir, tt.want) {
+				t.Errorf("uniquePath(%q) = %q, want %q", tt.base, filepath.Base(got), tt.want)
+			}
+		})
+	}
+}
+
+func TestUniquePathLeavesFreeNamesAlone(t *testing.T) {
+	free := filepath.Join(t.TempDir(), "song.mp3")
+	got, err := uniquePath(free)
+	if err != nil {
+		t.Fatalf("uniquePath: %v", err)
+	}
+	if got != free {
+		t.Errorf("uniquePath(%q) = %q, want it unchanged", free, got)
+	}
+}

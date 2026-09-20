@@ -271,21 +271,12 @@ func (d *Downloader) MergeFiles() (string, error) {
 	seen := make(map[string]bool)
 	for _, file := range files {
 		base := filepath.Base(file)
-		ext := filepath.Ext(base)
-		name := base[:len(base)-len(ext)]
-
-		dst := filepath.Join(mergedDir, base)
-		if seen[base] {
-			for i := 2; ; i++ {
-				candidate := fmt.Sprintf("%s_%d%s", name, i, ext)
-				if !seen[candidate] {
-					base = candidate
-					dst = filepath.Join(mergedDir, candidate)
-					break
-				}
-			}
+		name := base
+		for n := 1; seen[name]; n++ {
+			name = utils.NumberedName(base, n+1)
 		}
-		seen[base] = true
+		seen[name] = true
+		dst := filepath.Join(mergedDir, name)
 
 		if err := utils.MoveFile(file, dst); err != nil {
 			d.Logger.Warn("Error moving %s: %v", file, err)
