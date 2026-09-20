@@ -137,17 +137,28 @@ func TestBuildQuery(t *testing.T) {
 		{
 			name:  "all fields",
 			query: metadata.SearchQuery{Title: "Santeria", Artist: "Marracash", Album: "Santeria"},
-			want:  `track:"Santeria" artist:"Marracash" album:"Santeria"`,
+			want:  "Santeria Marracash Santeria",
 		},
 		{
 			name:  "title only",
 			query: metadata.SearchQuery{Title: "Santeria"},
-			want:  `track:"Santeria"`,
+			want:  "Santeria",
 		},
 		{
 			name:  "title and artist",
 			query: metadata.SearchQuery{Title: "Money", Artist: "Marracash"},
-			want:  `track:"Money" artist:"Marracash"`,
+			want:  "Money Marracash",
+		},
+		{
+			// A field prefix would be read as a search term, not as a filter.
+			name:  "no field prefixes",
+			query: metadata.SearchQuery{Title: "Blinding Lights", Artist: "The Weeknd"},
+			want:  "Blinding Lights The Weeknd",
+		},
+		{
+			name:  "quotes stripped so the query cannot become a phrase",
+			query: metadata.SearchQuery{Title: `Say "Hello"`, Artist: "Nobody"},
+			want:  "Say Hello Nobody",
 		},
 	}
 

@@ -66,19 +66,17 @@ func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]meta
 	return parseResults(searchResp.Data), nil
 }
 
+// buildQuery returns a free-text query, not Deezer's documented advanced
+// search syntax: the live API no longer honours `artist:"…"` as a field filter
+// and matches the literal word "artist" instead, so every query carrying it is
+// ANDed down to zero results. Quotes are stripped for the same reason — they
+// would turn the query into an exact phrase.
 func buildQuery(query metadata.SearchQuery) string {
-	escape := func(s string) string {
-		return strings.ReplaceAll(s, "\"", "")
-	}
 	var parts []string
-	if query.Title != "" {
-		parts = append(parts, "track:\""+escape(query.Title)+"\"")
-	}
-	if query.Artist != "" {
-		parts = append(parts, "artist:\""+escape(query.Artist)+"\"")
-	}
-	if query.Album != "" {
-		parts = append(parts, "album:\""+escape(query.Album)+"\"")
+	for _, field := range []string{query.Title, query.Artist, query.Album} {
+		if field = strings.ReplaceAll(field, "\"", ""); field != "" {
+			parts = append(parts, field)
+		}
 	}
 	return strings.Join(parts, " ")
 }
@@ -123,16 +121,16 @@ type apiError struct {
 }
 
 type trackItem struct {
-	ID             int       `json:"id"`
-	Title          string    `json:"title"`
-	TitleShort     string    `json:"title_short"`
-	TitleVersion   string    `json:"title_version"`
-	ISRC           string    `json:"isrc"`
-	Duration       int       `json:"duration"`
-	TrackPosition  int       `json:"track_position"`
-	DiskNumber     int       `json:"disk_number"`
-	Artist         artist    `json:"artist"`
-	Album          albumInfo `json:"album"`
+	ID            int       `json:"id"`
+	Title         string    `json:"title"`
+	TitleShort    string    `json:"title_short"`
+	TitleVersion  string    `json:"title_version"`
+	ISRC          string    `json:"isrc"`
+	Duration      int       `json:"duration"`
+	TrackPosition int       `json:"track_position"`
+	DiskNumber    int       `json:"disk_number"`
+	Artist        artist    `json:"artist"`
+	Album         albumInfo `json:"album"`
 }
 
 type artist struct {
