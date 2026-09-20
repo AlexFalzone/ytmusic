@@ -185,6 +185,11 @@ func TestCleanTitle(t *testing.T) {
 		{"Song - Radio Edit", "Song", "edit"},
 		{"Song (Acoustic Version)", "Song", "acoustic"},
 		{"Song (Live) [Acoustic]", "Song", "acoustic+live"},
+		// Suffixes stack, and Spotify joins them with a semicolon.
+		{"Song - Live - Remastered 2011", "Song", "live"},
+		{"Comfortably Numb - Live; 2000 Remaster", "Comfortably Numb", "live"},
+		// Stops at the first suffix that is not a marker.
+		{"Song - Live - Studio Chat", "Song - Live - Studio Chat", ""},
 		// Titles that merely contain a marker word are not variants.
 		{"Live Forever", "Live Forever", ""},
 		{"Remix to Ignition", "Remix to Ignition", ""},
@@ -235,5 +240,14 @@ func TestNormalizeQueryReturnsVersion(t *testing.T) {
 			t.Errorf("NormalizeQuery(%q, %q) = (%q, %q, %q), want (%q, %q, %q)",
 				tt.title, tt.artist, q.Title, q.Artist, v.Key, tt.wantTitle, tt.wantArtist, tt.wantVersion)
 		}
+	}
+}
+
+// Without an artist tag, a hyphenated title is not "Artist - Song".
+func TestNormalizeQueryKeepsHyphenatedTitle(t *testing.T) {
+	q, _ := NormalizeQuery("Anti-Hero", "")
+
+	if q.Title != "Anti-Hero" || q.Artist != "" {
+		t.Errorf("got title %q artist %q, want %q and none", q.Title, q.Artist, "Anti-Hero")
 	}
 }

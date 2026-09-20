@@ -60,8 +60,10 @@ var dashSuffixPattern = regexp.MustCompile(`^(.*\S)\s+[-–—]\s+(.+)$`)
 // Pattern to detect "VEVO" channel suffix in artist name
 var vevoPattern = regexp.MustCompile(`(?i)vevo$`)
 
-// Pattern for "Artist - Title" format (common in YouTube titles)
-var artistTitleSeparator = regexp.MustCompile(`^(.+?)\s*[-–—]\s*(.+)$`)
+// Pattern for "Artist - Title" format (common in YouTube titles). The spaces
+// are required: without them "Anti-Hero" splits into artist "Anti", title
+// "Hero", and the search goes looking for a song that does not exist.
+var artistTitleSeparator = regexp.MustCompile(`^(.+?)\s+[-–—]\s+(.+)$`)
 
 // NormalizeQuery turns raw metadata (typically from yt-dlp) into the query sent
 // to providers, plus the variant the title declares. The query carries the
@@ -109,15 +111,37 @@ func cleanTitle(raw string) (string, Version) {
 		return segment
 	})
 
-	if m := dashSuffixPattern.FindStringSubmatch(title); m != nil {
-		suffix := strings.TrimSpace(m[2])
-		if key, ok := versionKey(suffix); ok {
-			keys = append(keys, key)
-			labels = append(labels, suffix)
-			title = m[1]
-		} else if remasterPattern.MatchString(suffix) {
-			title = m[1]
+	// Suffixes stack — "Song - Live - Remastered 2011" — and Spotify joins them
+	// with a semicolon: "Comfortably Numb - Live; 2000 Remaster". Strip while
+	// the whole suffix is made of markers, so a suffix that carries part of the
+	// title is left alone.
+	for {
+		m := dashSuffixPattern.FindStringSubmatch(title)
+		if m == nil {
+			break
 		}
+
+		var suffixKeys, suffixLabels []string
+		markersOnly := true
+		for _, part := range strings.Split(m[2], ";") {
+			part = strings.TrimSpace(part)
+			if key, ok := versionKey(part); ok {
+				suffixKeys = append(suffixKeys, key)
+				suffixLabels = append(suffixLabels, part)
+				continue
+			}
+			if !remasterPattern.MatchString(part) {
+				markersOnly = false
+				break
+			}
+		}
+		if !markersOnly {
+			break
+		}
+
+		keys = append(keys, suffixKeys...)
+		labels = append(labels, suffixLabels...)
+		title = m[1]
 	}
 
 	title = trailingFeaturingPattern.ReplaceAllString(title, "")
