@@ -368,3 +368,30 @@ func TestUniquePathLeavesFreeNamesAlone(t *testing.T) {
 		t.Errorf("uniquePath(%q) = %q, want it unchanged", free, got)
 	}
 }
+
+func TestMoveAudioFilesStaysInsideDestination(t *testing.T) {
+	src := t.TempDir()
+	root := t.TempDir()
+	dst := filepath.Join(root, "music")
+	writeFile(t, filepath.Join(src, "song.mp3"), "audio")
+
+	// A subDirFunc is fed by file tags, so it is attacker-influenced input.
+	// Containment must not depend on the caller sanitising it.
+	moved, _, err := MoveAudioFiles(src, dst, func(string) string {
+		return filepath.Join("..", "..", "etc")
+	})
+	if err != nil {
+		t.Fatalf("MoveAudioFiles: %v", err)
+	}
+	if moved != 1 {
+		t.Errorf("moved = %d, want 1", moved)
+	}
+
+	escaped := filepath.Join(filepath.Dir(root), "etc", "song.mp3")
+	if _, err := os.Stat(escaped); err == nil {
+		t.Errorf("file written outside the destination, at %s", escaped)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "song.mp3")); err != nil {
+		t.Errorf("file not kept inside the destination: %v", err)
+	}
+}

@@ -4,7 +4,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"go.senan.xyz/taglib"
 )
@@ -123,5 +125,72 @@ func TestWriteTagsEmptyInfo(t *testing.T) {
 	// Verify file still readable
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("file missing after empty write: %v", err)
+	}
+}
+
+func TestSanitizePathHostileInput(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"parent directory", "..", "_"},
+		{"current directory", ".", "_"},
+		{"deeper traversal", "../..", "_"},
+		{"newline", "Song\nTitle", "SongTitle"},
+		{"tab", "Song\tTitle", "SongTitle"},
+		{"null byte", "Song\x00Title", "SongTitle"},
+		{"leading dot", ".hidden", "hidden"},
+		{"trailing dot", "Album.", "Album"},
+		{"surrounding spaces", "  Album  ", "Album"},
+		{"only dots and spaces", " . . ", "_"},
+		{"separators still replaced", "AC/DC", "AC_DC"},
+		{"windows reserved name", "CON", "CON_"},
+		{"windows reserved lowercase", "nul", "nul_"},
+		{"windows reserved with digit", "COM4", "COM4_"},
+		{"not reserved", "CONCERT", "CONCERT"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sanitizePath(tt.input); got != tt.want {
+				t.Errorf("sanitizePath(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSanitizePathTruncatesOnRuneBoundary(t *testing.T) {
+	// 200 three-byte runes: 600 bytes, well past the 255-byte limit.
+	long := strings.Repeat("あ", 200)
+	got := sanitizePath(long)
+
+	if len(got) > 255 {
+		t.Errorf("result is %d bytes, want at most 255", len(got))
+	}
+	if !utf8.ValidString(got) {
+		t.Errorf("truncation split a rune: %q is not valid UTF-8", got)
+	}
+	if got == "" {
+		t.Error("truncation emptied the name")
+	}
+}
+
+func TestSubDirFromTagsCannotEscapeOutputDir(t *testing.T) {
+	dir := t.TempDir()
+	path := createTestAudioFile(t, dir)
+
+	if err := WriteTags(path, TrackInfo{Artist: "..", Album: "..", AlbumArtist: ".."}); err != nil {
+		t.Fatalf("WriteTags: %v", err)
+	}
+
+	sub := SubDirFromTags(path)
+	joined := filepath.Join("/music", sub)
+	rel, err := filepath.Rel("/music", joined)
+	if err != nil {
+		t.Fatalf("Rel: %v", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, "..") {
+		t.Errorf("SubDirFromTags returned %q, which escapes the output directory (rel = %q)", sub, rel)
 	}
 }

@@ -101,7 +101,11 @@ func MoveAudioFiles(srcDir, dstDir string, subDirFunc func(string) string) (move
 	for _, file := range files {
 		destDir := dstDir
 		if subDirFunc != nil {
-			if sub := subDirFunc(file); sub != "" {
+			// subDirFunc is fed by file tags, so it carries attacker-influenced
+			// input. A subdirectory that climbs out of dstDir is dropped, not
+			// followed: this holds even if the caller's own sanitising has a
+			// hole we did not foresee.
+			if sub := subDirFunc(file); sub != "" && within(dstDir, filepath.Join(dstDir, sub)) {
 				destDir = filepath.Join(dstDir, sub)
 			}
 		}
@@ -127,6 +131,15 @@ func MoveAudioFiles(srcDir, dstDir string, subDirFunc func(string) string) (move
 	}
 
 	return moved, failed, nil
+}
+
+// within reports whether path stays inside root, root itself included.
+func within(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }
 
 // NumberedName returns the n-th candidate for a file name: base itself for
