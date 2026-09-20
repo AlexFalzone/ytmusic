@@ -93,15 +93,17 @@ func FindAudioFiles(dir string) ([]string, error) {
 // MoveAudioFiles finds all audio files in srcDir and moves them to dstDir.
 // If subDirFunc is provided, it is called for each file to determine a subdirectory
 // within dstDir (e.g. "Artist/Album"). If it returns "", the file is placed in dstDir directly.
-// Returns the number of files moved and the number of failures.
-func MoveAudioFiles(srcDir, dstDir string, subDirFunc func(string) string) (moved int, failed int, err error) {
+// Returns how many files moved, how many failed, and how many .lrc sidecars
+// could not follow their track. The sidecar count is reported rather than
+// logged: this package has no logger, and its caller does.
+func MoveAudioFiles(srcDir, dstDir string, subDirFunc func(string) string) (moved int, failed int, lyricsFailed int, err error) {
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
-		return 0, 0, fmt.Errorf("failed to create output directory: %w", err)
+		return 0, 0, 0, fmt.Errorf("failed to create output directory: %w", err)
 	}
 
 	files, err := FindAudioFiles(srcDir)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to find audio files: %w", err)
+		return 0, 0, 0, fmt.Errorf("failed to find audio files: %w", err)
 	}
 
 	for _, file := range files {
@@ -132,11 +134,13 @@ func MoveAudioFiles(srcDir, dstDir string, subDirFunc func(string) string) (move
 		lrcSrc := strings.TrimSuffix(file, filepath.Ext(file)) + ".lrc"
 		if _, err := os.Stat(lrcSrc); err == nil {
 			lrcDst := strings.TrimSuffix(dst, filepath.Ext(dst)) + ".lrc"
-			MoveFile(lrcSrc, lrcDst)
+			if lrcErr := MoveFile(lrcSrc, lrcDst); lrcErr != nil {
+				lyricsFailed++
+			}
 		}
 	}
 
-	return moved, failed, nil
+	return moved, failed, lyricsFailed, nil
 }
 
 // within reports whether path stays inside root, root itself included.

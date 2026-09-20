@@ -174,7 +174,9 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 	m, ok := r.findPrimaryMatch(ctx, src)
 	if !ok {
 		r.logger.Debug("  No candidate above threshold %.2f, keeping original tags", r.threshold)
-		ensureAlbumArtist(path)
+		if err := ensureAlbumArtist(path); err != nil {
+			r.logger.Warn("  %v", err)
+		}
 		return nil
 	}
 
@@ -208,7 +210,9 @@ func (r *Resolver) writeResolved(ctx context.Context, path string, info TrackInf
 			r.logger.Warn("  Failed to embed artwork: %v", err)
 		}
 	}
-	ensureAlbumArtist(path)
+	if err := ensureAlbumArtist(path); err != nil {
+		r.logger.Warn("  %v", err)
+	}
 	return nil
 }
 
@@ -331,29 +335,33 @@ func mergeTrackInfo(base, filler TrackInfo) TrackInfo {
 
 // ensureAlbumArtist sets AlbumArtist to the primary artist (first before comma)
 // if it's missing. This prevents music servers like Navidrome from creating
-// separate entries for featured tracks.
-func ensureAlbumArtist(path string) {
+// separate entries for featured tracks. It is best-effort — nothing here can
+// fail the file — but the caller logs what went wrong instead of losing it.
+func ensureAlbumArtist(path string) error {
 	tags, err := taglib.ReadTags(path)
 	if err != nil {
-		return
+		return fmt.Errorf("reading tags of %s: %w", path, err)
 	}
 
 	if firstTag(tags, taglib.AlbumArtist) != "" {
-		return
+		return nil
 	}
 
 	artist := firstTag(tags, taglib.Artist)
 	if artist == "" {
-		return
+		return nil
 	}
 
 	if i := strings.Index(artist, ","); i > 0 {
 		artist = strings.TrimSpace(artist[:i])
 	}
 
-	taglib.WriteTags(path, map[string][]string{
+	if err := taglib.WriteTags(path, map[string][]string{
 		taglib.AlbumArtist: {artist},
-	}, 0)
+	}, 0); err != nil {
+		return fmt.Errorf("writing album artist to %s: %w", path, err)
+	}
+	return nil
 }
 
 func (r *Resolver) downloadAndEmbedArtwork(ctx context.Context, filePath, artworkURL string) error {

@@ -150,7 +150,7 @@ func TestMoveAudioFiles(t *testing.T) {
 	writeFile(t, filepath.Join(src, "two.flac"), "2")
 	writeFile(t, filepath.Join(src, "cover.jpg"), "x")
 
-	moved, failed, err := MoveAudioFiles(src, dst, nil)
+	moved, failed, _, err := MoveAudioFiles(src, dst, nil)
 	if err != nil {
 		t.Fatalf("MoveAudioFiles: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestMoveAudioFilesWithSubDir(t *testing.T) {
 	dst := t.TempDir()
 	writeFile(t, filepath.Join(src, "song.mp3"), "1")
 
-	moved, _, err := MoveAudioFiles(src, dst, func(string) string {
+	moved, _, _, err := MoveAudioFiles(src, dst, func(string) string {
 		return filepath.Join("Artist", "Album")
 	})
 	if err != nil {
@@ -192,7 +192,7 @@ func TestMoveAudioFilesMovesLyricsSidecar(t *testing.T) {
 	writeFile(t, filepath.Join(src, "song.mp3"), "audio")
 	writeFile(t, filepath.Join(src, "song.lrc"), "lyrics")
 
-	if _, _, err := MoveAudioFiles(src, dst, nil); err != nil {
+	if _, _, _, err := MoveAudioFiles(src, dst, nil); err != nil {
 		t.Fatalf("MoveAudioFiles: %v", err)
 	}
 
@@ -252,7 +252,7 @@ func TestMoveAudioFilesKeepsTheExistingFile(t *testing.T) {
 	writeFile(t, filepath.Join(dst, "song.mp3"), "already here")
 	writeFile(t, filepath.Join(src, "song.mp3"), "the new one")
 
-	moved, failed, err := MoveAudioFiles(src, dst, nil)
+	moved, failed, _, err := MoveAudioFiles(src, dst, nil)
 	if err != nil {
 		t.Fatalf("MoveAudioFiles: %v", err)
 	}
@@ -282,7 +282,7 @@ func TestMoveAudioFilesNumbersEveryCollision(t *testing.T) {
 	for i, content := range []string{"first", "second", "third"} {
 		src := t.TempDir()
 		writeFile(t, filepath.Join(src, "song.mp3"), content)
-		if _, _, err := MoveAudioFiles(src, dst, nil); err != nil {
+		if _, _, _, err := MoveAudioFiles(src, dst, nil); err != nil {
 			t.Fatalf("move %d: %v", i, err)
 		}
 	}
@@ -311,7 +311,7 @@ func TestMoveAudioFilesSidecarFollowsTheResolvedName(t *testing.T) {
 	writeFile(t, filepath.Join(src, "song.mp3"), "the new one")
 	writeFile(t, filepath.Join(src, "song.lrc"), "the new lyrics")
 
-	if _, _, err := MoveAudioFiles(src, dst, nil); err != nil {
+	if _, _, _, err := MoveAudioFiles(src, dst, nil); err != nil {
 		t.Fatalf("MoveAudioFiles: %v", err)
 	}
 
@@ -377,7 +377,7 @@ func TestMoveAudioFilesStaysInsideDestination(t *testing.T) {
 
 	// A subDirFunc is fed by file tags, so it is attacker-influenced input.
 	// Containment must not depend on the caller sanitising it.
-	moved, _, err := MoveAudioFiles(src, dst, func(string) string {
+	moved, _, _, err := MoveAudioFiles(src, dst, func(string) string {
 		return filepath.Join("..", "..", "etc")
 	})
 	if err != nil {
@@ -439,5 +439,29 @@ func TestCleanupRefusesTraversalIntoTempDir(t *testing.T) {
 	}
 	if _, err := os.Stat(outside); err != nil {
 		t.Errorf("directory outside the temp folder was deleted: %v", err)
+	}
+}
+
+func TestMoveAudioFilesCountsFailedSidecars(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+	writeFile(t, filepath.Join(src, "song.mp3"), "audio")
+	writeFile(t, filepath.Join(src, "song.lrc"), "lyrics")
+
+	// A directory sitting where the sidecar must land: the audio file moves,
+	// its lyrics cannot follow.
+	if err := os.MkdirAll(filepath.Join(dst, "song.lrc"), 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	moved, failed, lyricsFailed, err := MoveAudioFiles(src, dst, nil)
+	if err != nil {
+		t.Fatalf("MoveAudioFiles: %v", err)
+	}
+	if moved != 1 || failed != 0 {
+		t.Errorf("moved=%d failed=%d, want 1 and 0", moved, failed)
+	}
+	if lyricsFailed != 1 {
+		t.Errorf("lyricsFailed = %d, want 1: a sidecar left behind must not be silent", lyricsFailed)
 	}
 }

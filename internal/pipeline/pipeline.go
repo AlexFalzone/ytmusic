@@ -97,12 +97,15 @@ func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 	}
 
 	log.Info("moving files to %s", cfg.OutputDir)
-	moved, failed, err := utils.MoveAudioFiles(mergedDir, cfg.OutputDir, metadata.SubDirFromTags)
+	moved, failed, lyricsFailed, err := utils.MoveAudioFiles(mergedDir, cfg.OutputDir, metadata.SubDirFromTags)
 	if err != nil {
 		return fmt.Errorf("failed to move files to output: %w", err)
 	}
 	if failed > 0 {
 		log.Warn("%d files could not be moved", failed)
+	}
+	if lyricsFailed > 0 {
+		log.Warn("%d lyrics files could not be moved next to their track", lyricsFailed)
 	}
 	log.Info("Moved %d files to %s", moved, cfg.OutputDir)
 

@@ -81,8 +81,10 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		data, err := json.Marshal(s.jobToResponse(job))
 		if err != nil {
 			s.logger.Error("failed to marshal initial job response: %v", err)
-		} else {
-			conn.WriteMessage(websocket.TextMessage, data)
+		} else if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+			// The client is already gone: waiting on a dead connection would
+			// hold the subscription open until the job ends.
+			return
 		}
 	}
 
