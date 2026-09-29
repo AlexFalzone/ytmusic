@@ -234,7 +234,13 @@ func (s *Server) processJob(job Job) {
 		})
 		return
 	}
-	defer utils.Cleanup(tempDir)
+	defer func() {
+		// Leftover temp directories accumulate silently otherwise, and the job
+		// log is the only place this would ever surface.
+		if err := utils.Cleanup(tempDir); err != nil {
+			jobLog.Warn("Error during cleanup: %v", err)
+		}
+	}()
 
 	var warningMsg string
 	hooks := pipeline.Hooks{

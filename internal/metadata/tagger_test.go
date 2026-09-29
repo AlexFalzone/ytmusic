@@ -149,6 +149,8 @@ func TestSanitizePathHostileInput(t *testing.T) {
 		{"windows reserved lowercase", "nul", "nul_"},
 		{"windows reserved with digit", "COM4", "COM4_"},
 		{"not reserved", "CONCERT", "CONCERT"},
+		{"reserved with extension", "CON.mp3", "CON.mp3_"},
+		{"not reserved with extension", "CONCERT.mp3", "CONCERT.mp3"},
 	}
 
 	for _, tt := range tests {
@@ -161,18 +163,24 @@ func TestSanitizePathHostileInput(t *testing.T) {
 }
 
 func TestSanitizePathTruncatesOnRuneBoundary(t *testing.T) {
-	// 200 three-byte runes: 600 bytes, well past the 255-byte limit.
-	long := strings.Repeat("あ", 200)
+	// Two-byte runes on purpose: 255 is odd, so a naive s[:255] lands in the
+	// middle of a rune. Three-byte runes would not catch it — 255 = 3 × 85
+	// falls exactly on a boundary and the naive cut would look correct.
+	long := strings.Repeat("é", 200)
 	got := sanitizePath(long)
 
-	if len(got) > 255 {
-		t.Errorf("result is %d bytes, want at most 255", len(got))
+	if len(got) > maxComponentBytes {
+		t.Errorf("result is %d bytes, want at most %d", len(got), maxComponentBytes)
 	}
 	if !utf8.ValidString(got) {
 		t.Errorf("truncation split a rune: %q is not valid UTF-8", got)
 	}
-	if got == "" {
-		t.Error("truncation emptied the name")
+	if r, _ := utf8.DecodeLastRuneInString(got); r == utf8.RuneError {
+		t.Errorf("the last rune of %q is broken", got)
+	}
+	// 127 whole runes fit in 255 bytes; the 128th must be dropped, not halved.
+	if want := 127; utf8.RuneCountInString(got) != want {
+		t.Errorf("kept %d runes, want %d", utf8.RuneCountInString(got), want)
 	}
 }
 

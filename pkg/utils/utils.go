@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"unicode/utf8"
 )
 
 // Supported audio file extensions
@@ -152,6 +153,23 @@ func within(root, path string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
 }
 
+// MaxNameBytes is the length limit a single file or directory name gets on
+// ext4, APFS and NTFS alike.
+const MaxNameBytes = 255
+
+// TruncateBytes cuts s to at most max bytes without splitting a rune: half a
+// multi-byte character is not a valid name.
+func TruncateBytes(s string, max int) string {
+	var b strings.Builder
+	for _, r := range s {
+		if b.Len()+utf8.RuneLen(r) > max {
+			break
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 // NumberedName returns the n-th candidate for a file name: base itself for
 // n == 1, then "name_2.ext", "name_3.ext", … The extension stays last so the
 // file keeps being recognised as audio.
@@ -163,7 +181,16 @@ func NumberedName(base string, n int) string {
 	if ext == base {
 		ext = "" // a dotfile like ".hidden" is all name, no extension
 	}
-	return fmt.Sprintf("%s_%d%s", base[:len(base)-len(ext)], n, ext)
+	stem := base[:len(base)-len(ext)]
+	counter := fmt.Sprintf("_%d", n)
+
+	// A name already at the filesystem limit overflows once numbered, and the
+	// move then fails with ENAMETOOLONG — losing the very file the suffix
+	// exists to protect. Shorten the stem instead.
+	if over := len(stem) + len(counter) + len(ext) - MaxNameBytes; over > 0 {
+		stem = TruncateBytes(stem, len(stem)-over)
+	}
+	return stem + counter + ext
 }
 
 // uniquePath returns dst when nothing is there, otherwise dst with an

@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -104,8 +103,9 @@ func (d *Downloader) FetchMetadata(ctx context.Context, urls []string) error {
 	return nil
 }
 
-// buildYtdlpArgs constructs command-line arguments for yt-dlp
-func (d *Downloader) buildYtdlpArgs(url string) []string {
+// buildYtdlpArgs constructs command-line arguments for yt-dlp. producedList is
+// the file yt-dlp writes the path of every finished file into.
+func (d *Downloader) buildYtdlpArgs(url, producedList string) []string {
 	outputTemplate := filepath.Join(d.TmpDir, "%(artist)s", "%(album)s", "%(title)s.%(ext)s")
 
 	args := []string{
@@ -119,12 +119,13 @@ func (d *Downloader) buildYtdlpArgs(url string) []string {
 		"--embed-thumbnail",
 		"--embed-metadata",
 		"-i",
-		// Verified against yt-dlp 2026.08.19: with --no-simulate, this prints
-		// the absolute path after the audio conversion (…/Title.mp3, not the
-		// downloaded .webm), and prints nothing when the download produced no
-		// file. That is what makes the check in DownloadSingle possible.
-		"--print", "after_move:filepath",
-		"--no-simulate",
+		// Verified against yt-dlp 2026.08.19: this writes the absolute path of
+		// every finished file, after the audio conversion (…/Title.mp3, not the
+		// downloaded .m4a), and writes nothing when the download produced no
+		// file. --print-to-file rather than --print because --print implies
+		// --quiet, which would silence the progress output verbose mode exists
+		// to show — and its own lines would then land on stdout among the paths.
+		"--print-to-file", "after_move:filepath", producedList,
 		"-o", outputTemplate,
 		url,
 	}
@@ -139,40 +140,52 @@ func (d *Downloader) buildYtdlpArgs(url string) []string {
 
 // DownloadSingle downloads a single video and converts it to audio
 func (d *Downloader) DownloadSingle(ctx context.Context, url string) error {
-	args := d.buildYtdlpArgs(url)
+	// yt-dlp reports what it produced into its own file rather than on stdout,
+	// which stays free for the progress output. One file per call, so parallel
+	// downloads never write to the same list.
+	list, err := os.CreateTemp(d.TmpDir, "produced-*.txt")
+	if err != nil {
+		return fmt.Errorf("creating the download report file for %s: %w", url, err)
+	}
+	listPath := list.Name()
+	list.Close()
+	defer os.Remove(listPath)
+
+	args := d.buildYtdlpArgs(url, listPath)
 	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
 
-	// stdout carries the path of every file produced, so it is captured even in
-	// verbose mode, where it must still reach the screen.
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
+	var stderr bytes.Buffer
 	if d.Config.Verbose {
-		cmd.Stdout = io.MultiWriter(os.Stdout, &stdout)
+		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 	} else {
 		cmd.Stderr = &stderr
 	}
 
-	err := cmd.Run()
+	runErr := cmd.Run()
 	if ctx.Err() != nil {
 		return fmt.Errorf("downloading %s: %w", url, ctx.Err())
 	}
-	if err != nil && stderr.Len() > 0 {
-		return fmt.Errorf("yt-dlp error: %w\nDetails: %s", err, stderr.String())
+	if runErr != nil && stderr.Len() > 0 {
+		return fmt.Errorf("yt-dlp error: %w\nDetails: %s", runErr, stderr.String())
 	}
-	if err != nil {
-		return err
+	if runErr != nil {
+		return runErr
 	}
 
-	return verifyProduced(url, stdout.String())
+	produced, err := os.ReadFile(listPath)
+	if err != nil {
+		return fmt.Errorf("reading what yt-dlp produced for %s: %w", url, err)
+	}
+	return verifyProduced(url, string(produced))
 }
 
 // verifyProduced checks that yt-dlp really wrote what it claims. Under
 // --ignore-errors it can exit 0 having downloaded nothing, which would
 // otherwise be counted as a success and reported to the user as one.
-func verifyProduced(url, stdout string) error {
+func verifyProduced(url, report string) error {
 	var produced int
-	for _, line := range strings.Split(stdout, "\n") {
+	for _, line := range strings.Split(report, "\n") {
 		path := strings.TrimSpace(line)
 		if path == "" {
 			continue

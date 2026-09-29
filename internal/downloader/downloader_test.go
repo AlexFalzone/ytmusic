@@ -192,12 +192,22 @@ func TestDownloadAllSurvivesPanicInProgressHook(t *testing.T) {
 	}
 }
 
-// fakeYtdlp puts a stub yt-dlp first in PATH. The script prints body on stdout
-// and exits with code.
+// fakeYtdlp puts a stub yt-dlp first in PATH. The script finds the file that
+// --print-to-file was pointed at, exposes it as $list, then runs body and exits
+// with code.
 func fakeYtdlp(t *testing.T, body string, code int) {
 	t.Helper()
 	dir := t.TempDir()
-	script := fmt.Sprintf("#!/bin/sh\n%s\nexit %d\n", body, code)
+	script := fmt.Sprintf(`#!/bin/sh
+next=0
+list=""
+for a in "$@"; do
+	if [ "$next" = "1" ]; then list="$a"; next=0; fi
+	if [ "$a" = "after_move:filepath" ]; then next=1; fi
+done
+%s
+exit %d
+`, body, code)
 	path := filepath.Join(dir, "yt-dlp")
 	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
 		t.Fatalf("write stub: %v", err)
@@ -207,7 +217,8 @@ func fakeYtdlp(t *testing.T, body string, code int) {
 
 func TestDownloadSingleFailsWhenNothingWasProduced(t *testing.T) {
 	// --ignore-errors lets yt-dlp succeed while producing no file at all.
-	fakeYtdlp(t, "", 0)
+	// The stub leaves the report file empty, as yt-dlp does when it skips.
+	fakeYtdlp(t, ":", 0)
 
 	d := New(config.DefaultConfig(), logger.New(false), t.TempDir())
 	if err := d.DownloadSingle(context.Background(), "https://example.com/watch?v=x"); err == nil {
@@ -221,7 +232,7 @@ func TestDownloadSingleAcceptsAnExistingFile(t *testing.T) {
 	if err := os.WriteFile(produced, []byte("audio"), 0644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	fakeYtdlp(t, fmt.Sprintf("echo %q", produced), 0)
+	fakeYtdlp(t, fmt.Sprintf(`printf '%%s\n' %q > "$list"`, produced), 0)
 
 	d := New(config.DefaultConfig(), logger.New(false), tmp)
 	if err := d.DownloadSingle(context.Background(), "https://example.com/watch?v=x"); err != nil {
@@ -231,7 +242,7 @@ func TestDownloadSingleAcceptsAnExistingFile(t *testing.T) {
 
 func TestDownloadSingleFailsWhenThePrintedFileIsMissing(t *testing.T) {
 	tmp := t.TempDir()
-	fakeYtdlp(t, fmt.Sprintf("echo %q", filepath.Join(tmp, "gone.mp3")), 0)
+	fakeYtdlp(t, fmt.Sprintf(`printf '%%s\n' %q > "$list"`, filepath.Join(tmp, "gone.mp3")), 0)
 
 	d := New(config.DefaultConfig(), logger.New(false), tmp)
 	if err := d.DownloadSingle(context.Background(), "https://example.com/watch?v=x"); err == nil {

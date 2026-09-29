@@ -5,7 +5,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"unicode/utf8"
+
+	"ytmusic/pkg/utils"
 
 	"go.senan.xyz/taglib"
 )
@@ -77,9 +78,9 @@ func SubDirFromTags(path string) string {
 	return filepath.Join(sanitizePath(artist), sanitizePath(album))
 }
 
-// maxComponentBytes is the length limit a single path component gets on ext4,
-// APFS and NTFS alike.
-const maxComponentBytes = 255
+// maxComponentBytes is the length limit a single path component gets, shared
+// with the file names pkg/utils writes.
+const maxComponentBytes = utils.MaxNameBytes
 
 // windowsReserved are device names that cannot be a path component on Windows
 // or on an SMB share, whatever extension follows them.
@@ -124,7 +125,7 @@ func sanitizePath(s string) string {
 	s = strings.Trim(s, " .")
 
 	if len(s) > maxComponentBytes {
-		s = truncateBytes(s, maxComponentBytes)
+		s = utils.TruncateBytes(s, maxComponentBytes)
 		s = strings.Trim(s, " .")
 	}
 
@@ -134,23 +135,12 @@ func sanitizePath(s string) string {
 		return "_"
 	}
 
-	if windowsReserved[strings.ToUpper(s)] {
+	// Windows refuses "CON" and "CON.mp3" alike, so the stem is what matters.
+	stem, _, _ := strings.Cut(s, ".")
+	if windowsReserved[strings.ToUpper(stem)] {
 		return s + "_"
 	}
 	return s
-}
-
-// truncateBytes cuts s to at most max bytes without splitting a rune: half a
-// multi-byte character is not a valid name.
-func truncateBytes(s string, max int) string {
-	var b strings.Builder
-	for _, r := range s {
-		if b.Len()+utf8.RuneLen(r) > max {
-			break
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
 }
 
 // WriteArtwork embeds artwork image data into an audio file.

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -221,16 +222,14 @@ func TestCleanupRemovesTempDir(t *testing.T) {
 }
 
 func TestCleanupRefusesOutsideTemp(t *testing.T) {
-	// A directory next to the package source, i.e. outside os.TempDir().
-	dir, err := os.MkdirTemp(".", "ytmusic-outside-*")
-	if err != nil {
-		t.Fatalf("MkdirTemp: %v", err)
-	}
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		t.Fatalf("Abs: %v", err)
-	}
-	defer os.RemoveAll(abs)
+	// A directory that is not under the temp folder, arranged by pointing the
+	// temp folder elsewhere rather than by writing into the source tree.
+	base := t.TempDir()
+	tmp := filepath.Join(base, "tmp")
+	abs := filepath.Join(base, "elsewhere")
+	writeFile(t, filepath.Join(tmp, "keep"), "x")
+	writeFile(t, filepath.Join(abs, "keep"), "x")
+	t.Setenv("TMPDIR", tmp)
 
 	if err := Cleanup(abs); err == nil {
 		t.Error("expected an error for a directory outside the temp folder")
@@ -463,5 +462,51 @@ func TestMoveAudioFilesCountsFailedSidecars(t *testing.T) {
 	}
 	if lyricsFailed != 1 {
 		t.Errorf("lyricsFailed = %d, want 1: a sidecar left behind must not be silent", lyricsFailed)
+	}
+}
+
+func TestNumberedNameStaysWithinTheNameLimit(t *testing.T) {
+	// A name already at the filesystem limit: numbering it naively overflows.
+	base := strings.Repeat("a", 251) + ".mp3"
+	if len(base) != 255 {
+		t.Fatalf("test fixture is %d bytes, want 255", len(base))
+	}
+
+	got := NumberedName(base, 2)
+	if len(got) > 255 {
+		t.Errorf("NumberedName produced %d bytes, want at most 255", len(got))
+	}
+	if filepath.Ext(got) != ".mp3" {
+		t.Errorf("extension lost: %q", filepath.Ext(got))
+	}
+	if !strings.Contains(got, "_2") {
+		t.Errorf("counter lost: %q", got[:20])
+	}
+}
+
+func TestMoveAudioFilesKeepsAFileWhoseNameIsAtTheLimit(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+	name := strings.Repeat("a", 251) + ".mp3"
+	writeFile(t, filepath.Join(dst, name), "already here")
+	writeFile(t, filepath.Join(src, name), "the new one")
+
+	moved, failed, _, err := MoveAudioFiles(src, dst, nil)
+	if err != nil {
+		t.Fatalf("MoveAudioFiles: %v", err)
+	}
+	// Failing here means the new download is left in the temp directory, which
+	// the caller then deletes: the file is lost, which is the opposite of what
+	// the incremental suffix exists for.
+	if moved != 1 || failed != 0 {
+		t.Errorf("moved=%d failed=%d, want 1 and 0", moved, failed)
+	}
+
+	entries, err := os.ReadDir(dst)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Errorf("destination holds %d files, want 2", len(entries))
 	}
 }
