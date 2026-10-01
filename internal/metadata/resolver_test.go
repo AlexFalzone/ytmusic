@@ -204,7 +204,7 @@ func TestGapFilling(t *testing.T) {
 		Year:   2020,
 	}
 
-	filled := r.fillGaps(context.Background(), source{query: query}, match{info: base})
+	filled := r.fillGaps(context.Background(), source{query: query}, match{info: base}, nil)
 
 	if filled.Genre != "Rock" {
 		t.Errorf("Genre = %q, want %q", filled.Genre, "Rock")
@@ -244,7 +244,7 @@ func TestGapFilling_CompleteMatch_SkipsSecondProvider(t *testing.T) {
 	r := NewResolver([]Provider{p1, p2}, log, 0.5)
 
 	query := SearchQuery{Title: "My Song", Artist: "My Artist"}
-	filled := r.fillGaps(context.Background(), source{query: query}, match{info: p1.results[0]})
+	filled := r.fillGaps(context.Background(), source{query: query}, match{info: p1.results[0]}, nil)
 
 	if p2.called {
 		t.Error("second provider should not be consulted when match is complete")
@@ -1094,7 +1094,7 @@ func TestGapFilling_IgnoresFillerOfAnotherVersion(t *testing.T) {
 
 	filled := r.fillGaps(context.Background(),
 		source{query: SearchQuery{Title: "Song", Artist: "Artist"}},
-		match{info: TrackInfo{Title: "Song", Artist: "Artist"}})
+		match{info: TrackInfo{Title: "Song", Artist: "Artist"}}, nil)
 
 	if filled.Genre != "" {
 		t.Errorf("Genre = %q: a live recording must not fill the studio one", filled.Genre)
@@ -1111,7 +1111,7 @@ func TestGapFilling_DonorTakesOriginalAsFiller(t *testing.T) {
 	r := NewResolver([]Provider{p1, p2}, logger.New(false), 0.5)
 
 	filled := r.fillGaps(context.Background(), liveSource(),
-		match{info: TrackInfo{Title: "Song", Artist: "Artist"}, donor: true})
+		match{info: TrackInfo{Title: "Song", Artist: "Artist"}, donor: true}, nil)
 
 	if filled.Genre != "Rock" {
 		t.Errorf("Genre = %q, want %q", filled.Genre, "Rock")

@@ -117,3 +117,53 @@ func TestResolveFile_FingerprintMatchFallsBackToFillerArtwork(t *testing.T) {
 		t.Errorf("embedded image is %d bytes, want the filler's %d", len(got), len(b))
 	}
 }
+
+// A fingerprint match comes from MusicBrainz, and the MusicBrainz text search
+// finds the same recording on the same release: as a filler it offers the very
+// URL that just failed. It must not keep a later provider's artwork out.
+func TestResolveFile_DroppedArtworkOfferedAgainIsSkipped(t *testing.T) {
+	srv, _, b := artworkServer(t)
+	path := newTestMP3(t)
+	tagTestFile(t, path, "Song", "Artist")
+
+	fp := &stubFingerprinter{info: TrackInfo{Title: "Song", Artist: "Artist", Album: "Album", ArtworkURL: srv.URL + "/missing"}, found: true}
+	sameRelease := &mockProvider{name: "musicbrainz", results: []TrackInfo{
+		{Title: "Song", Artist: "Artist", Album: "Album", ArtworkURL: srv.URL + "/missing"},
+	}}
+	later := &mockProvider{name: "itunes", results: []TrackInfo{
+		{Title: "Song", Artist: "Artist", Album: "Album", ArtworkURL: srv.URL + "/b"},
+	}}
+	r := NewResolver([]Provider{sameRelease, later}, logger.New(false), 0).WithFingerprinter(fp)
+	if err := r.Resolve(context.Background(), []string{path}); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	if got := readTestImage(t, path); !bytes.Equal(got, b) {
+		t.Errorf("embedded image is %d bytes, want the later provider's %d", len(got), len(b))
+	}
+}
+
+// The first filler completes every field but its artwork is broken: gap
+// filling would stop there, and the next provider's artwork must still be
+// reached.
+func TestResolveFile_BrokenFillerArtworkFallsBackToTheNext(t *testing.T) {
+	srv, _, b := artworkServer(t)
+	path := newTestMP3(t)
+	tagTestFile(t, path, "Song", "Artist")
+
+	primary := &mockProvider{name: "primary", results: []TrackInfo{
+		{Title: "Song", Artist: "Artist", Album: "Album", ArtworkURL: srv.URL + "/missing"},
+	}}
+	complete := &mockProvider{name: "complete", results: []TrackInfo{{
+		Title: "Song", Artist: "Artist", Album: "Album", Genre: "Rock", TrackNumber: 1, DiscNumber: 1,
+		Year: 2020, ISRC: "USXX12345678", ArtworkURL: srv.URL + "/also-missing",
+	}}}
+	last := &mockProvider{name: "last", results: []TrackInfo{
+		{Title: "Song", Artist: "Artist", Album: "Album", ArtworkURL: srv.URL + "/b"},
+	}}
+	resolveOne(t, path, primary, complete, last)
+
+	if got := readTestImage(t, path); !bytes.Equal(got, b) {
+		t.Errorf("embedded image is %d bytes, want the last provider's %d", len(got), len(b))
+	}
+}

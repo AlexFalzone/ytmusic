@@ -32,7 +32,7 @@ func TestResolverAsksEachProviderOncePerQuery(t *testing.T) {
 	if !ok || !m.donor {
 		t.Fatalf("match = %+v, ok = %v, want a donor", m, ok)
 	}
-	r.fillGaps(context.Background(), liveSource(), m)
+	r.fillGaps(context.Background(), liveSource(), m, nil)
 
 	if n := p2.calls.Load(); n != 1 {
 		t.Errorf("second provider asked %d times, want 1", n)

@@ -263,30 +263,30 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 	return r.writeResolved(path, existing, info, art)
 }
 
-// complete fills the match's gaps and fetches its artwork. The primary's
-// artwork is fetched before gap filling: MusicBrainz hands out Cover Art
-// Archive URLs unchecked, and a URL that yields no image is dropped so that
-// another provider can supply one. A filler's broken URL has no such second
-// chance.
+// complete fills the match's gaps and downloads its artwork. A URL that
+// yields no image is set aside and gap filling runs again without it, so the
+// next provider's artwork gets its chance: MusicBrainz hands out Cover Art
+// Archive URLs unchecked, and offers a failed one again as a filler when its
+// text search lands on the same release. Searches are remembered for the run,
+// so running again sends no request.
 func (r *Resolver) complete(ctx context.Context, src source, m match) (TrackInfo, []byte) {
-	var art []byte
-	if m.info.ArtworkURL != "" {
-		var err error
-		if art, err = r.downloadArtwork(ctx, m.info.ArtworkURL); err != nil {
-			r.logger.Debug("  dropping artwork %s: %v", m.info.ArtworkURL, err)
-			m.info.ArtworkURL = ""
+	failed := make(map[string]bool)
+	for {
+		info := r.fillGaps(ctx, src, m, failed)
+		if info.ArtworkURL == "" {
+			if len(failed) > 0 {
+				r.logger.Warn("  No artwork could be downloaded: %d URLs failed", len(failed))
+			}
+			return info, nil
 		}
-	}
 
-	info := r.fillGaps(ctx, src, m)
-
-	if art == nil && info.ArtworkURL != "" {
-		var err error
-		if art, err = r.downloadArtwork(ctx, info.ArtworkURL); err != nil {
-			r.logger.Warn("  Failed to fetch artwork: %v", err)
+		art, err := r.downloadArtwork(ctx, info.ArtworkURL)
+		if err == nil {
+			return info, art
 		}
+		r.logger.Debug("  dropping artwork %s: %v", info.ArtworkURL, err)
+		failed[info.ArtworkURL] = true
 	}
-	return info, art
 }
 
 // fileDuration reads the file's own length. Zero means unknown, which disables
@@ -358,8 +358,12 @@ func (r *Resolver) findPrimaryMatch(ctx context.Context, src source) (match, boo
 
 // fillGaps queries the providers after the primary's to fill its missing
 // fields. A filler passes the same constraints as the match it completes.
-func (r *Resolver) fillGaps(ctx context.Context, src source, primary match) TrackInfo {
+// Artwork URLs in failedArtwork count as missing, wherever they come from.
+func (r *Resolver) fillGaps(ctx context.Context, src source, primary match, failedArtwork map[string]bool) TrackInfo {
 	base := primary.info
+	if failedArtwork[base.ArtworkURL] {
+		base.ArtworkURL = ""
+	}
 	if !hasMissingFields(base) {
 		return base
 	}
@@ -384,7 +388,11 @@ func (r *Resolver) fillGaps(ctx context.Context, src source, primary match) Trac
 		}
 
 		r.logger.Debug("  gap fill from %s: %q by %q", p.Name(), filler.info.Title, filler.info.Artist)
-		base = mergeTrackInfo(base, filler.info)
+		fill := filler.info
+		if failedArtwork[fill.ArtworkURL] {
+			fill.ArtworkURL = ""
+		}
+		base = mergeTrackInfo(base, fill)
 
 		if !hasMissingFields(base) {
 			break
