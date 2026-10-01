@@ -30,6 +30,7 @@ type Resolver struct {
 	batchFingerprinter BatchFingerprinter // nil if not configured
 	releaseResolver    ReleaseResolver    // nil if not configured
 	httpClient         *http.Client
+	tags               *tagStore
 }
 
 // NewResolver creates a new Resolver with the given providers.
@@ -47,6 +48,7 @@ func NewResolver(providers []Provider, log *logger.Logger, threshold float64) *R
 		logger:     log,
 		threshold:  threshold,
 		httpClient: &http.Client{Timeout: 15 * time.Second},
+		tags:       &tagStore{},
 	}
 }
 
@@ -82,7 +84,7 @@ func (r *Resolver) WithReleaseResolver(rr ReleaseResolver) *Resolver {
 func (r *Resolver) Resolve(ctx context.Context, files []string) error {
 	r.logger.Info("resolving metadata for %d files", len(files))
 
-	groups := groupByAlbum(files)
+	groups := r.groupByAlbum(files)
 	resolvedByA := make(map[string]bool)
 
 	// Phase A: batch fingerprint → dominant release (writes positional tags)
@@ -142,14 +144,14 @@ func (r *Resolver) Resolve(ctx context.Context, files []string) error {
 }
 
 func (r *Resolver) resolveFile(ctx context.Context, path string) error {
-	existingTags, err := taglib.ReadTags(path)
+	existing, err := r.tags.read(path)
 	if err != nil {
 		return fmt.Errorf("failed to read existing tags: %w", err)
 	}
 
-	rawTitle := firstTag(existingTags, taglib.Title)
-	rawArtist := firstTag(existingTags, taglib.Artist)
-	rawAlbum := firstTag(existingTags, taglib.Album)
+	rawTitle := firstTag(existing, taglib.Title)
+	rawArtist := firstTag(existing, taglib.Artist)
+	rawAlbum := firstTag(existing, taglib.Album)
 
 	if rawTitle == "" {
 		r.logger.Debug("  Skipping: no title metadata")
@@ -171,15 +173,17 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 		if info, found, err := r.fingerprinter.LookupByFile(ctx, path, query.Album); err == nil && found {
 			r.logger.Debug("  Fingerprint match: %q by %q", info.Title, info.Artist)
 			info, art := r.complete(ctx, src, match{info: info, providerIdx: -1})
-			return r.writeResolved(path, info, art)
+			return r.writeResolved(path, existing, info, art)
 		}
 	}
 
 	m, ok := r.findPrimaryMatch(ctx, src)
 	if !ok {
 		r.logger.Debug("  No candidate above threshold %.2f, keeping original tags", r.threshold)
-		if err := ensureAlbumArtist(path); err != nil {
-			r.logger.Warn("  %v", err)
+		if artist := albumArtistFallback(existing, ""); artist != "" {
+			if err := r.tags.write(path, map[string][]string{taglib.AlbumArtist: {artist}}); err != nil {
+				r.logger.Warn("  writing album artist to %s: %v", path, err)
+			}
 		}
 		return nil
 	}
@@ -188,7 +192,7 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 	if m.donor {
 		info = asVariant(info, m.base, src.version)
 	}
-	return r.writeResolved(path, info, art)
+	return r.writeResolved(path, existing, info, art)
 }
 
 // complete fills the match's gaps and fetches its artwork. The primary's
@@ -230,16 +234,17 @@ func (r *Resolver) fileDuration(path string) time.Duration {
 
 // writeResolved writes the resolved metadata, keeping the track and disc
 // numbers the file already had, then embeds the artwork if there is one.
-func (r *Resolver) writeResolved(path string, info TrackInfo, art []byte) error {
-	info = mergeWithExisting(path, info)
-	if err := WriteTags(path, info); err != nil {
-		return fmt.Errorf("failed to write tags: %w", err)
+// existing are the file's tags as read before resolving it.
+func (r *Resolver) writeResolved(path string, existing map[string][]string, info TrackInfo, art []byte) error {
+	info = mergeWithExisting(existing, info)
+	if info.AlbumArtist == "" {
+		info.AlbumArtist = albumArtistFallback(existing, info.Artist)
+	}
+	if err := r.tags.write(path, tagMap(info)); err != nil {
+		return fmt.Errorf("failed to write tags to %s: %w", path, err)
 	}
 	if err := WriteArtwork(path, art); err != nil {
 		r.logger.Warn("  Failed to embed artwork: %v", err)
-	}
-	if err := ensureAlbumArtist(path); err != nil {
-		r.logger.Warn("  %v", err)
 	}
 	return nil
 }
@@ -361,35 +366,22 @@ func mergeTrackInfo(base, filler TrackInfo) TrackInfo {
 	return base
 }
 
-// ensureAlbumArtist sets AlbumArtist to the primary artist (first before comma)
-// if it's missing. This prevents music servers like Navidrome from creating
-// separate entries for featured tracks. It is best-effort — nothing here can
-// fail the file — but the caller logs what went wrong instead of losing it.
-func ensureAlbumArtist(path string) error {
-	tags, err := taglib.ReadTags(path)
-	if err != nil {
-		return fmt.Errorf("reading tags of %s: %w", path, err)
+// albumArtistFallback returns the album artist to write when the file would
+// otherwise be left without one: the primary artist, the first before a comma.
+// Music servers such as Navidrome otherwise file every track with a featured
+// artist under an entry of its own. artist is the artist about to be written,
+// empty when none is.
+func albumArtistFallback(existing map[string][]string, artist string) string {
+	if firstTag(existing, taglib.AlbumArtist) != "" {
+		return ""
 	}
-
-	if firstTag(tags, taglib.AlbumArtist) != "" {
-		return nil
-	}
-
-	artist := firstTag(tags, taglib.Artist)
 	if artist == "" {
-		return nil
+		artist = firstTag(existing, taglib.Artist)
 	}
-
 	if i := strings.Index(artist, ","); i > 0 {
 		artist = strings.TrimSpace(artist[:i])
 	}
-
-	if err := taglib.WriteTags(path, map[string][]string{
-		taglib.AlbumArtist: {artist},
-	}, 0); err != nil {
-		return fmt.Errorf("writing album artist to %s: %w", path, err)
-	}
-	return nil
+	return artist
 }
 
 // downloadArtwork fetches the image at artworkURL. An empty body counts as a
@@ -429,7 +421,7 @@ const trackMatchThreshold = 0.6
 func (r *Resolver) resolveGroup(ctx context.Context, album string, files []string, ar AlbumResolver) error {
 	artist := ""
 	if len(files) > 0 {
-		if tags, err := taglib.ReadTags(files[0]); err == nil {
+		if tags, err := r.tags.read(files[0]); err == nil {
 			artist = firstTag(tags, taglib.Artist)
 		}
 	}
@@ -443,7 +435,7 @@ func (r *Resolver) resolveGroup(ctx context.Context, album string, files []strin
 	}
 
 	for _, path := range files {
-		tags, err := taglib.ReadTags(path)
+		tags, err := r.tags.read(path)
 		if err != nil {
 			continue
 		}
@@ -459,7 +451,7 @@ func (r *Resolver) resolveGroup(ctx context.Context, album string, files []strin
 		}
 
 		r.logger.Debug("  album-first: %q → track %d disc %d (score %.2f)", title, track.TrackNumber, track.DiscNumber, matchScore)
-		if err := writePositionalTags(path, track.TrackNumber, track.DiscNumber); err != nil {
+		if err := r.tags.writePositional(path, track.TrackNumber, track.DiscNumber); err != nil {
 			r.logger.Warn("  album-first: failed to write positional tags for %q: %v", path, err)
 		}
 	}
@@ -508,7 +500,7 @@ func (r *Resolver) resolveGroupByFingerprint(ctx context.Context, files []string
 
 	var resolved []string
 	for _, path := range files {
-		tags, err := taglib.ReadTags(path)
+		tags, err := r.tags.read(path)
 		if err != nil {
 			continue
 		}
@@ -524,7 +516,7 @@ func (r *Resolver) resolveGroupByFingerprint(ctx context.Context, files []string
 		}
 
 		r.logger.Debug("  batch fingerprint: %q → track %d disc %d (score %.2f)", title, track.TrackNumber, track.DiscNumber, matchScore)
-		if err := writePositionalTags(path, track.TrackNumber, track.DiscNumber); err != nil {
+		if err := r.tags.writePositional(path, track.TrackNumber, track.DiscNumber); err != nil {
 			r.logger.Warn("  batch fingerprint: failed to write positional tags for %q: %v", path, err)
 			continue
 		}
@@ -583,10 +575,10 @@ func filterResolved(files []string, resolved map[string]bool) []string {
 }
 
 // groupByAlbum reads the album tag of each file and groups paths by album name.
-func groupByAlbum(files []string) map[string][]string {
+func (r *Resolver) groupByAlbum(files []string) map[string][]string {
 	groups := make(map[string][]string)
 	for _, path := range files {
-		tags, err := taglib.ReadTags(path)
+		tags, err := r.tags.read(path)
 		if err != nil {
 			continue
 		}
@@ -594,21 +586,6 @@ func groupByAlbum(files []string) map[string][]string {
 		groups[album] = append(groups[album], path)
 	}
 	return groups
-}
-
-// writePositionalTags writes TrackNumber and DiscNumber to a file, skipping zeros.
-func writePositionalTags(path string, trackNum, discNum int) error {
-	tags := make(map[string][]string)
-	if trackNum > 0 {
-		tags[taglib.TrackNumber] = []string{strconv.Itoa(trackNum)}
-	}
-	if discNum > 0 {
-		tags[taglib.DiscNumber] = []string{strconv.Itoa(discNum)}
-	}
-	if len(tags) == 0 {
-		return nil
-	}
-	return taglib.WriteTags(path, tags, 0)
 }
 
 // matchTrackByTitle finds the track in tracks whose title best matches fileTitle.
@@ -626,14 +603,11 @@ func matchTrackByTitle(fileTitle string, tracks []ReleaseTrack) (ReleaseTrack, f
 	return best, bestScore
 }
 
-// mergeWithExisting reads the file's current TrackNumber and DiscNumber tags and
-// keeps their non-zero values over whatever the provider returned. This prevents
-// a wrong release selection from overwriting correct positional data from yt-dlp.
-func mergeWithExisting(path string, info TrackInfo) TrackInfo {
-	tags, err := taglib.ReadTags(path)
-	if err != nil {
-		return info
-	}
+// mergeWithExisting keeps the non-zero TrackNumber and DiscNumber the file
+// already has over whatever the provider returned. This prevents a wrong
+// release selection from overwriting correct positional data from yt-dlp or
+// from the album-first phases.
+func mergeWithExisting(tags map[string][]string, info TrackInfo) TrackInfo {
 	if n := parseTagInt(tags, taglib.TrackNumber); n > 0 {
 		info.TrackNumber = n
 	}

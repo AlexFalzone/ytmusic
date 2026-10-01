@@ -74,3 +74,17 @@ func TestDoIsSafeForConcurrentUse(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestForgetMakesTheNextDoCallAgain(t *testing.T) {
+	var c Cache[string, int]
+	calls := 0
+	fn := func() (int, error) { calls++; return calls, nil }
+
+	if _, err := c.Do("k", fn); err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	c.Forget("k")
+	if got, err := c.Do("k", fn); err != nil || got != 2 {
+		t.Errorf("Do after Forget = %d, %v, want 2", got, err)
+	}
+}

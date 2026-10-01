@@ -36,3 +36,10 @@ func (c *Cache[K, V]) Do(key K, fn func() (V, error)) (V, error) {
 	c.mu.Unlock()
 	return v, nil
 }
+
+// Forget drops what is remembered for key, for a value known to have changed.
+func (c *Cache[K, V]) Forget(key K) {
+	c.mu.Lock()
+	delete(c.vals, key)
+	c.mu.Unlock()
+}

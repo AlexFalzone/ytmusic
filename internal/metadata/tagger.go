@@ -13,6 +13,14 @@ import (
 
 // WriteTags writes the given TrackInfo metadata to an audio file.
 func WriteTags(path string, info TrackInfo) error {
+	if err := taglib.WriteTags(path, tagMap(info), 0); err != nil {
+		return fmt.Errorf("failed to write tags to %s: %w", path, err)
+	}
+	return nil
+}
+
+// tagMap turns the non-empty fields of info into tags.
+func tagMap(info TrackInfo) map[string][]string {
 	tags := make(map[string][]string)
 
 	if info.Title != "" {
@@ -44,11 +52,7 @@ func WriteTags(path string, info TrackInfo) error {
 	if info.ISRC != "" {
 		tags[taglib.ISRC] = []string{info.ISRC}
 	}
-
-	if err := taglib.WriteTags(path, tags, 0); err != nil {
-		return fmt.Errorf("failed to write tags to %s: %w", path, err)
-	}
-	return nil
+	return tags
 }
 
 // SubDirFromTags reads an audio file's tags and returns an "Artist/Album"

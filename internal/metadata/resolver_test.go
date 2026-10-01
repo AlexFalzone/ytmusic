@@ -519,7 +519,7 @@ func TestGroupByAlbum_GroupsSameAlbumTogether(t *testing.T) {
 	}
 	writeTestTags(t, p3, map[string][]string{taglib.Album: {"Veteran"}})
 
-	groups := groupByAlbum([]string{p1, p2, p3})
+	groups := newEvalResolver().groupByAlbum([]string{p1, p2, p3})
 
 	if len(groups["LP!"]) != 2 {
 		t.Errorf("LP! group size = %d, want 2", len(groups["LP!"]))
@@ -533,7 +533,7 @@ func TestGroupByAlbum_FilesWithNoAlbumGetOwnGroup(t *testing.T) {
 	p := newTestMP3(t)
 	// no album tag written
 
-	groups := groupByAlbum([]string{p})
+	groups := newEvalResolver().groupByAlbum([]string{p})
 
 	total := 0
 	for _, files := range groups {
@@ -547,8 +547,8 @@ func TestGroupByAlbum_FilesWithNoAlbumGetOwnGroup(t *testing.T) {
 func TestWritePositionalTags_WritesTrackAndDisc(t *testing.T) {
 	p := newTestMP3(t)
 
-	if err := writePositionalTags(p, 5, 2); err != nil {
-		t.Fatalf("writePositionalTags: %v", err)
+	if err := (&tagStore{}).writePositional(p, 5, 2); err != nil {
+		t.Fatalf("writePositional: %v", err)
 	}
 
 	tags, _ := taglib.ReadTags(p)
@@ -565,8 +565,8 @@ func TestWritePositionalTags_SkipsZeroValues(t *testing.T) {
 	writeTestTags(t, p, map[string][]string{taglib.TrackNumber: {"3"}})
 
 	// disc = 0 means "unknown", should not write
-	if err := writePositionalTags(p, 4, 0); err != nil {
-		t.Fatalf("writePositionalTags: %v", err)
+	if err := (&tagStore{}).writePositional(p, 4, 0); err != nil {
+		t.Fatalf("writePositional: %v", err)
 	}
 
 	tags, _ := taglib.ReadTags(p)
@@ -579,18 +579,14 @@ func TestWritePositionalTags_SkipsZeroValues(t *testing.T) {
 }
 
 func TestMergeWithExisting_HandlesSlashTrackNumberFormat(t *testing.T) {
-	path := newTestMP3(t)
-
-	if err := taglib.WriteTags(path, map[string][]string{
+	tags := map[string][]string{
 		taglib.Title:       {"TRUST!"},
 		taglib.TrackNumber: {"5/12"},
-	}, 0); err != nil {
-		t.Fatalf("write initial tags: %v", err)
 	}
 
 	// Provider returns track 3 (wrong release), existing tag is "5/12"
 	info := TrackInfo{Title: "TRUST!", TrackNumber: 3}
-	got := mergeWithExisting(path, info)
+	got := mergeWithExisting(tags, info)
 
 	if got.TrackNumber != 5 {
 		t.Errorf("TrackNumber = %d, want 5 (slash format must be parsed, not ignored)", got.TrackNumber)
@@ -598,17 +594,13 @@ func TestMergeWithExisting_HandlesSlashTrackNumberFormat(t *testing.T) {
 }
 
 func TestMergeWithExisting_PreservesNonZeroTrackNumber(t *testing.T) {
-	path := newTestMP3(t)
-
-	if err := taglib.WriteTags(path, map[string][]string{
+	tags := map[string][]string{
 		taglib.Title:       {"TRUST!"},
 		taglib.TrackNumber: {"5"},
-	}, 0); err != nil {
-		t.Fatalf("write initial tags: %v", err)
 	}
 
 	info := TrackInfo{Title: "TRUST!", TrackNumber: 3}
-	got := mergeWithExisting(path, info)
+	got := mergeWithExisting(tags, info)
 
 	if got.TrackNumber != 5 {
 		t.Errorf("TrackNumber = %d, want 5 (yt-dlp value preserved)", got.TrackNumber)
@@ -616,16 +608,12 @@ func TestMergeWithExisting_PreservesNonZeroTrackNumber(t *testing.T) {
 }
 
 func TestMergeWithExisting_FillsZeroTrackNumber(t *testing.T) {
-	path := newTestMP3(t)
-
-	if err := taglib.WriteTags(path, map[string][]string{
+	tags := map[string][]string{
 		taglib.Title: {"TRUST!"},
-	}, 0); err != nil {
-		t.Fatalf("write initial tags: %v", err)
 	}
 
 	info := TrackInfo{Title: "TRUST!", TrackNumber: 5}
-	got := mergeWithExisting(path, info)
+	got := mergeWithExisting(tags, info)
 
 	if got.TrackNumber != 5 {
 		t.Errorf("TrackNumber = %d, want 5 (provider value used when no existing tag)", got.TrackNumber)
@@ -633,17 +621,13 @@ func TestMergeWithExisting_FillsZeroTrackNumber(t *testing.T) {
 }
 
 func TestMergeWithExisting_PreservesNonZeroDiscNumber(t *testing.T) {
-	path := newTestMP3(t)
-
-	if err := taglib.WriteTags(path, map[string][]string{
+	tags := map[string][]string{
 		taglib.Title:      {"TRUST!"},
 		taglib.DiscNumber: {"1"},
-	}, 0); err != nil {
-		t.Fatalf("write initial tags: %v", err)
 	}
 
 	info := TrackInfo{Title: "TRUST!", DiscNumber: 2}
-	got := mergeWithExisting(path, info)
+	got := mergeWithExisting(tags, info)
 
 	if got.DiscNumber != 1 {
 		t.Errorf("DiscNumber = %d, want 1 (yt-dlp value preserved)", got.DiscNumber)
