@@ -61,7 +61,9 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("WebSocket upgrade failed: %v", err)
 		return
 	}
-	defer conn.Close()
+	// The handler is done with the connection either way, and a close error
+	// on a dead client has no one to be reported to.
+	defer func() { _ = conn.Close() }()
 
 	jobID := r.URL.Query().Get("job_id")
 	if jobID == "" {

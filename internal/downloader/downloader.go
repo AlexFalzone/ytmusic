@@ -148,8 +148,12 @@ func (d *Downloader) DownloadSingle(ctx context.Context, url string) error {
 		return fmt.Errorf("creating the download report file for %s: %w", url, err)
 	}
 	listPath := list.Name()
-	list.Close()
-	defer os.Remove(listPath)
+	if err := list.Close(); err != nil {
+		return fmt.Errorf("closing the download report file for %s: %w", url, err)
+	}
+	// Best effort: the file lives in the job's temp dir, which is removed as a
+	// whole when the job ends.
+	defer func() { _ = os.Remove(listPath) }()
 
 	args := d.buildYtdlpArgs(url, listPath)
 	cmd := exec.CommandContext(ctx, "yt-dlp", args...)

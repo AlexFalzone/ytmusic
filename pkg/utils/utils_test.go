@@ -112,6 +112,29 @@ func TestMoveFileRejectsBadInput(t *testing.T) {
 
 // copyAndDelete is the cross-device fallback. Two filesystems cannot be
 // arranged in a unit test, so it is called directly.
+// A copy that fails halfway must not leave a truncated file in the library,
+// where it would pass for the real track, nor lose the source.
+func TestCopyAndDeleteDiscardsAFailedCopy(t *testing.T) {
+	dir := t.TempDir()
+	// Reading a directory fails after it opens fine: a copy that breaks
+	// mid-stream, with the destination already created.
+	src := filepath.Join(dir, "src")
+	if err := os.Mkdir(src, 0755); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(dir, "dst.mp3")
+
+	if err := copyAndDelete(src, dst); err == nil {
+		t.Fatal("want an error from a copy that cannot read its source")
+	}
+	if _, err := os.Stat(dst); !os.IsNotExist(err) {
+		t.Errorf("partial destination left behind (stat err: %v)", err)
+	}
+	if _, err := os.Stat(src); err != nil {
+		t.Errorf("source lost after a failed copy: %v", err)
+	}
+}
+
 func TestCopyAndDelete(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src.mp3")

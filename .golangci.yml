@@ -2,12 +2,14 @@ version: "2"
 
 linters:
   default: standard
-  exclusions:
-    presets:
-      # Deferred Close on a body that was only read, best-effort os.Remove on a
-      # cleanup path, printing to the terminal: the idioms where no caller could
-      # act on the error.
-      - std-error-handling
+  settings:
+    errcheck:
+      exclude-functions:
+        # Closing a response body that was only read, and printing to the
+        # terminal: no caller could act on the error. Anything else, closing a
+        # written file included, has to handle it or say why not.
+        - (io.Closer).Close
+        - fmt.Fprint
 
 formatters:
   enable:

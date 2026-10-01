@@ -68,7 +68,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to setup file logging: %v\n", err)
 		}
 	}
-	defer l.Close()
+	defer func() {
+		if err := l.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to close log file: %v\n", err)
+		}
+	}()
 
 	if !cfg.Auth.Enabled {
 		l.Warn("authentication is DISABLED: anyone who can reach this server can control it")

@@ -257,7 +257,8 @@ func copyAndDelete(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open source %s: %w", src, err)
 	}
-	defer srcFile.Close()
+	// Only read from: a failed close loses nothing.
+	defer func() { _ = srcFile.Close() }()
 
 	srcInfo, err := srcFile.Stat()
 	if err != nil {
@@ -268,16 +269,17 @@ func copyAndDelete(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create destination %s: %w", dst, err)
 	}
-	defer dstFile.Close()
 
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		os.Remove(dst)
+	// The close is part of the copy: on a written file it can be the call that
+	// reports the data did not make it to disk.
+	_, copyErr := io.Copy(dstFile, srcFile)
+	if err := errors.Join(copyErr, dstFile.Close()); err != nil {
+		// A partial copy left in the library would pass for the real track, so
+		// failing to remove it has to be reported too.
+		if rmErr := os.Remove(dst); rmErr != nil {
+			err = errors.Join(err, fmt.Errorf("removing the partial copy: %w", rmErr))
+		}
 		return fmt.Errorf("failed to copy %s to %s: %w", src, dst, err)
-	}
-
-	if err := dstFile.Close(); err != nil {
-		os.Remove(dst)
-		return fmt.Errorf("failed to close destination %s: %w", dst, err)
 	}
 
 	return os.Remove(src)

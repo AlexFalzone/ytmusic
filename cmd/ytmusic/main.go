@@ -26,7 +26,11 @@ func main() {
 	defer sh.Wait()
 
 	log := logger.New(cfg.Verbose)
-	defer log.Close()
+	defer func() {
+		if err := log.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "[WARN] Failed to close log file: %v\n", err)
+		}
+	}()
 
 	if !cfg.Verbose {
 		logDir := cfg.LogDir
