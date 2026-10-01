@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"ytmusic/internal/buildinfo"
 	"ytmusic/internal/metadata"
 )
 
@@ -22,8 +23,8 @@ func newTestClient(url string) *Client {
 func TestSearch_ParsesResponse(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/recording", func(w http.ResponseWriter, r *http.Request) {
-		if ua := r.Header.Get("User-Agent"); ua == "" {
-			t.Error("missing User-Agent header")
+		if ua := r.Header.Get("User-Agent"); ua != buildinfo.UserAgent() {
+			t.Errorf("User-Agent = %q, want %q", ua, buildinfo.UserAgent())
 		}
 		w.Header().Set("Content-Type", "application/json")
 		// artwork URL will be rewritten to point to this test server

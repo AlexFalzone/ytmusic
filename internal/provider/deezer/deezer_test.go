@@ -7,13 +7,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"ytmusic/internal/buildinfo"
 	"ytmusic/internal/metadata"
 )
 
 func TestSearch(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("User-Agent") != "ytmusic/1.0" {
+		if r.Header.Get("User-Agent") != buildinfo.UserAgent() {
 			t.Errorf("unexpected User-Agent: %s", r.Header.Get("User-Agent"))
 		}
 		json.NewEncoder(w).Encode(searchResponse{

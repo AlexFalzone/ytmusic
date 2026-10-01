@@ -12,8 +12,11 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -a -installsuffix cgo -o ytmusic ./cmd/ytmusic
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -a -installsuffix cgo -o ytmusic-web ./cmd/ytmusic-web
+# .git is not in the build context, so the version comes from the caller
+# (make build / make build-web pass git describe).
+ARG VERSION=dev
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X ytmusic/internal/buildinfo.Version=${VERSION}" -a -installsuffix cgo -o ytmusic ./cmd/ytmusic
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X ytmusic/internal/buildinfo.Version=${VERSION}" -a -installsuffix cgo -o ytmusic-web ./cmd/ytmusic-web
 
 RUN apk add --no-cache upx && \
     upx --best --lzma ytmusic ytmusic-web

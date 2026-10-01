@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"ytmusic/internal/buildinfo"
 )
 
 type Result struct {
@@ -67,7 +69,7 @@ func (c *Client) doFetch(ctx context.Context, artist, title, album string) (Resu
 	if err != nil {
 		return Result{}, fmt.Errorf("failed to create lrclib request: %w", err)
 	}
-	req.Header.Set("User-Agent", "ytmusic/1.0")
+	req.Header.Set("User-Agent", buildinfo.UserAgent())
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

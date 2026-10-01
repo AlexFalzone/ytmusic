@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"ytmusic/internal/buildinfo"
 )
 
 func TestFetch(t *testing.T) {
@@ -56,7 +58,7 @@ func TestFetch(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Header.Get("User-Agent") != "ytmusic/1.0" {
+				if r.Header.Get("User-Agent") != buildinfo.UserAgent() {
 					t.Errorf("unexpected User-Agent: %s", r.Header.Get("User-Agent"))
 				}
 				w.WriteHeader(tt.status)

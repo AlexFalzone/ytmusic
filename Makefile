@@ -1,5 +1,8 @@
 .PHONY: help build build-web up down logs clean test
 
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS := -X ytmusic/internal/buildinfo.Version=$(VERSION)
+
 help:
 	@echo "ytmusic - Makefile commands"
 	@echo ""
@@ -16,10 +19,10 @@ help:
 	@echo "  make test       - Run tests"
 
 build:
-	docker compose build ytmusic-cli
+	docker compose build --build-arg VERSION=$(VERSION) ytmusic-cli
 
 build-web:
-	docker compose build ytmusic-web
+	docker compose build --build-arg VERSION=$(VERSION) ytmusic-web
 
 up:
 	docker compose up -d ytmusic-web
@@ -34,8 +37,8 @@ clean:
 	docker compose down -v --rmi all
 
 local:
-	go build -o ytmusic ./cmd/ytmusic
-	go build -o ytmusic-web ./cmd/ytmusic-web
+	go build -ldflags "$(LDFLAGS)" -o ytmusic ./cmd/ytmusic
+	go build -ldflags "$(LDFLAGS)" -o ytmusic-web ./cmd/ytmusic-web
 
 test:
 	go test -race ./... && go vet ./...

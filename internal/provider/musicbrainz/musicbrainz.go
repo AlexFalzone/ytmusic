@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"ytmusic/internal/buildinfo"
 	"ytmusic/internal/metadata"
 )
 
@@ -58,7 +59,7 @@ func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]meta
 	if err != nil {
 		return nil, fmt.Errorf("failed to create musicbrainz request: %w", err)
 	}
-	req.Header.Set("User-Agent", "ytmusic/1.0")
+	req.Header.Set("User-Agent", buildinfo.UserAgent())
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.doWithRetry(ctx, req)
@@ -90,7 +91,7 @@ func (c *Client) LookupByMBID(ctx context.Context, mbid, preferAlbum string) (me
 	if err != nil {
 		return metadata.TrackInfo{}, fmt.Errorf("failed to create musicbrainz lookup request: %w", err)
 	}
-	req.Header.Set("User-Agent", "ytmusic/1.0")
+	req.Header.Set("User-Agent", buildinfo.UserAgent())
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.doWithRetry(ctx, req)
@@ -429,7 +430,7 @@ func (c *Client) searchRelease(ctx context.Context, album, artist string) ([]rel
 	if err != nil {
 		return nil, fmt.Errorf("failed to create release search request: %w", err)
 	}
-	req.Header.Set("User-Agent", "ytmusic/1.0")
+	req.Header.Set("User-Agent", buildinfo.UserAgent())
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.doWithRetry(ctx, req)
@@ -459,7 +460,7 @@ func (c *Client) lookupRelease(ctx context.Context, releaseID string) (metadata.
 	if err != nil {
 		return metadata.Tracklist{}, fmt.Errorf("failed to create release lookup request: %w", err)
 	}
-	req.Header.Set("User-Agent", "ytmusic/1.0")
+	req.Header.Set("User-Agent", buildinfo.UserAgent())
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.doWithRetry(ctx, req)
@@ -513,7 +514,7 @@ func (c *Client) ReleaseIDsForRecording(ctx context.Context, mbid string) ([]str
 	if err != nil {
 		return nil, fmt.Errorf("failed to create recording lookup request: %w", err)
 	}
-	req.Header.Set("User-Agent", "ytmusic/1.0")
+	req.Header.Set("User-Agent", buildinfo.UserAgent())
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.doWithRetry(ctx, req)

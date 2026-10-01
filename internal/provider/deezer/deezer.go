@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"ytmusic/internal/buildinfo"
 	"ytmusic/internal/metadata"
 )
 
@@ -41,7 +42,7 @@ func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]meta
 	if err != nil {
 		return nil, fmt.Errorf("failed to create deezer request: %w", err)
 	}
-	req.Header.Set("User-Agent", "ytmusic/1.0")
+	req.Header.Set("User-Agent", buildinfo.UserAgent())
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
