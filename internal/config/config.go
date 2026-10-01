@@ -102,7 +102,6 @@ func DefaultConfig() Config {
 		Verbose:             false,
 		DryRun:              false,
 		ParallelJobs:        4,
-		CookiesBrowser:      "brave",
 		AudioFormat:         "mp3",
 		ConfidenceThreshold: 0.7,
 		OutputDir:           filepath.Join(homeDir(), "Music"),

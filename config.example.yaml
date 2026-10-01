@@ -10,10 +10,12 @@
 # YouTube may rate-limit if too many parallel connections are made
 parallel_jobs: 4
 
-# Browser to extract cookies from
+# Browser to extract cookies from (empty = no cookies)
 # Supported: chrome, firefox, brave, edge, safari, opera, etc.
-# Cookies are needed to download age-restricted or private videos
-cookies_browser: brave
+# Cookies are needed to download age-restricted or private videos.
+# Only for the CLI on a desktop: a container has no browser, and setting this
+# in Docker makes every download fail.
+cookies_browser: ""
 
 # Audio format for output files
 # Supported: mp3, m4a, opus, flac, wav, aac

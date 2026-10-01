@@ -393,3 +393,11 @@ func TestDefaultMaxConcurrentJobsIsOne(t *testing.T) {
 		t.Errorf("MaxConcurrentJobs default = %d, want 1", got)
 	}
 }
+
+func TestDefaultConfigReadsNoBrowserCookies(t *testing.T) {
+	// A container has no browser to read cookies from: any default browser makes
+	// every download fail there, so cookies have to be an explicit choice.
+	if got := DefaultConfig().CookiesBrowser; got != "" {
+		t.Errorf("CookiesBrowser default = %q, want empty", got)
+	}
+}

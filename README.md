@@ -40,7 +40,7 @@ ytmusic [options] <playlist_url>
 -v, --verbose              Detailed output
 -n, --dry-run              Preview only (no download)
 -p, --parallel <n>         Parallel downloads (1-10, default: 4)
--b, --browser <name>       Browser for cookie extraction (default: brave)
+-b, --browser <name>       Browser for cookie extraction (default: none)
 -f, --format <fmt>         Audio format: mp3, m4a, opus, flac, wav, aac (default: mp3)
 -o, --output <dir>         Output directory (default: ~/Music)
 -c, --config <path>        Config file path
@@ -54,6 +54,11 @@ ytmusic [options] <playlist_url>
 ## Configuration
 
 Look at `config.example.yaml` or just run `./ytmusic --init-config`
+
+**Cookies.** Age-restricted and private videos need your YouTube cookies. On a desktop, point the CLI at
+the browser you are logged in with, either per run (`-b firefox`) or in the config
+(`cookies_browser: firefox`). Leave it empty in Docker: there is no browser inside the container, and
+setting one makes every download fail.
 
 ## Metadata Providers
 
