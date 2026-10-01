@@ -2,6 +2,8 @@ package web
 
 import (
 	"context"
+	"embed"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"strings"
@@ -12,6 +14,12 @@ import (
 	"ytmusic/internal/logger"
 	"ytmusic/internal/pipeline"
 )
+
+// staticFiles is the frontend, compiled into the binary so the server does not
+// depend on the directory it is started from.
+//
+//go:embed static
+var staticFiles embed.FS
 
 type Server struct {
 	ctx      context.Context
@@ -57,8 +65,9 @@ func NewServer(ctx context.Context, jobMgr *JobManager, cfg config.Config, log *
 func (s *Server) Router() http.Handler {
 	mux := http.NewServeMux()
 
-	// Static files
-	mux.Handle("/", s.staticCacheMiddleware(http.FileServer(http.Dir("web/static"))))
+	// fs.Sub fails only on an invalid path, and "static" is a constant.
+	static, _ := fs.Sub(staticFiles, "static")
+	mux.Handle("/", s.staticCacheMiddleware(http.FileServerFS(static)))
 
 	// Auth endpoints
 	mux.HandleFunc("/api/health", s.handleHealth)

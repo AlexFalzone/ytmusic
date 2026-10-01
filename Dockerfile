@@ -85,7 +85,6 @@ RUN apt-get update && \
 COPY --from=builder /build/ytmusic /usr/local/bin/ytmusic
 COPY --from=builder /build/ytmusic-web /usr/local/bin/ytmusic-web
 
-COPY web/static /app/web/static
 COPY config.example.yaml /etc/ytmusic/config.example.yaml
 
 WORKDIR /app
