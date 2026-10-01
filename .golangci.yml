@@ -1,0 +1,14 @@
+version: "2"
+
+linters:
+  default: standard
+  exclusions:
+    presets:
+      # Deferred Close on a body that was only read, best-effort os.Remove on a
+      # cleanup path, printing to the terminal: the idioms where no caller could
+      # act on the error.
+      - std-error-handling
+
+formatters:
+  enable:
+    - gofmt

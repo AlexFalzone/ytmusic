@@ -1,7 +1,9 @@
-.PHONY: help build build-web up down logs clean test
+.PHONY: help build build-web up down logs clean local test lint
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -X ytmusic/internal/buildinfo.Version=$(VERSION)
+# Pinned here only: CI runs `make lint` too.
+GOLANGCI_LINT_VERSION := v2.14.0
 
 help:
 	@echo "ytmusic - Makefile commands"
@@ -17,6 +19,7 @@ help:
 	@echo "Local build:"
 	@echo "  make local      - Build local binaries"
 	@echo "  make test       - Run tests"
+	@echo "  make lint       - Run golangci-lint"
 
 build:
 	docker compose build --build-arg VERSION=$(VERSION) ytmusic-cli
@@ -42,3 +45,6 @@ local:
 
 test:
 	go test -race ./... && go vet ./...
+
+lint:
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run ./...
