@@ -82,12 +82,9 @@ func (l *Logger) debugLocked(format string, args ...interface{}) {
 	if l.Verbose {
 		msg := l.formatMsg("DEBUG", format, args...)
 		fmt.Fprint(l.writer, msg)
-		if l.fileLog != nil {
-			l.fileLog.WriteString(msg) //nolint:errcheck — best-effort file write
-		}
+		l.writeFileLocked(msg)
 	} else if l.fileLog != nil {
-		msg := l.formatMsg("DEBUG", format, args...)
-		l.fileLog.WriteString(msg) //nolint:errcheck — best-effort file write
+		l.writeFileLocked(l.formatMsg("DEBUG", format, args...))
 	}
 }
 
@@ -96,9 +93,7 @@ func (l *Logger) Error(format string, args ...interface{}) {
 	defer l.mu.Unlock()
 	msg := l.formatMsg("ERROR", format, args...)
 	fmt.Fprint(os.Stderr, msg)
-	if l.fileLog != nil {
-		l.fileLog.WriteString(msg) //nolint:errcheck — best-effort file write
-	}
+	l.writeFileLocked(msg)
 }
 
 func (l *Logger) Warn(format string, args ...interface{}) {
@@ -112,8 +107,15 @@ func (l *Logger) log(level, format string, args ...interface{}) {
 	if l.Verbose || !*l.hasBar {
 		fmt.Fprint(l.writer, msg)
 	}
+	l.writeFileLocked(msg)
+}
+
+// writeFileLocked copies a line to the log file, if there is one; caller must
+// hold l.mu. A logger has nowhere to report its own write failure, so a failed
+// file write is dropped on purpose.
+func (l *Logger) writeFileLocked(msg string) {
 	if l.fileLog != nil {
-		l.fileLog.WriteString(msg) //nolint:errcheck — best-effort file write
+		_, _ = l.fileLog.WriteString(msg)
 	}
 }
 

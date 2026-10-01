@@ -37,8 +37,8 @@ type acoustidResponse struct {
 }
 
 type acoustidResult struct {
-	ID         string             `json:"id"`
-	Score      float64            `json:"score"`
+	ID         string              `json:"id"`
+	Score      float64             `json:"score"`
 	Recordings []acoustidRecording `json:"recordings"`
 }
 

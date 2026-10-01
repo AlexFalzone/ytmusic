@@ -72,8 +72,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	s.wg.Add(1)
 	go s.processJob(job)
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.jobToResponse(job))
+	s.writeJSON(w, s.jobToResponse(job))
 }
 
 // validateDownloadURL checks the URL is an http(s) address whose host is
@@ -138,8 +137,7 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 		responses[i] = s.jobToResponse(job)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(responses)
+	s.writeJSON(w, responses)
 }
 
 func (s *Server) handleJobAction(w http.ResponseWriter, r *http.Request) {
@@ -159,8 +157,7 @@ func (s *Server) handleJobAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(s.jobToResponse(job))
+		s.writeJSON(w, s.jobToResponse(job))
 		return
 	}
 
@@ -175,11 +172,11 @@ func (s *Server) handleJobAction(w http.ResponseWriter, r *http.Request) {
 			job.Cancel()
 		}
 
-		s.jobMgr.UpdateJob(jobID, func(j *Job) {
+		s.updateJob(jobID, func(j *Job) {
 			j.Status = StatusCancelled
 		})
 
-		writeJSON(w, map[string]string{"status": "cancelled"})
+		s.writeJSON(w, map[string]string{"status": "cancelled"})
 		return
 	}
 
@@ -194,7 +191,7 @@ func (s *Server) processJob(job Job) {
 	defer func() {
 		if r := recover(); r != nil {
 			jobLog.Error("panic: %v", r)
-			s.jobMgr.UpdateJob(job.ID, func(j *Job) {
+			s.updateJob(job.ID, func(j *Job) {
 				j.Status = StatusFailed
 				j.Error = fmt.Sprintf("internal error: %v", r)
 			})
@@ -213,13 +210,13 @@ func (s *Server) processJob(job Job) {
 		defer func() { <-s.jobSem }()
 	case <-job.ctx.Done():
 		jobLog.Info("cancelled while queued")
-		s.jobMgr.UpdateJob(job.ID, func(j *Job) {
+		s.updateJob(job.ID, func(j *Job) {
 			j.Status = StatusCancelled
 		})
 		return
 	}
 
-	s.jobMgr.UpdateJob(job.ID, func(j *Job) {
+	s.updateJob(job.ID, func(j *Job) {
 		j.Status = StatusRunning
 	})
 
@@ -228,7 +225,7 @@ func (s *Server) processJob(job Job) {
 	tempDir, err := utils.CreateTempDir()
 	if err != nil {
 		jobLog.Error("failed to create temp dir: %v", err)
-		s.jobMgr.UpdateJob(job.ID, func(j *Job) {
+		s.updateJob(job.ID, func(j *Job) {
 			j.Status = StatusFailed
 			j.Error = err.Error()
 		})
@@ -245,12 +242,12 @@ func (s *Server) processJob(job Job) {
 	var warningMsg string
 	hooks := pipeline.Hooks{
 		OnURLsExtracted: func(total int) {
-			s.jobMgr.UpdateJob(job.ID, func(j *Job) {
+			s.updateJob(job.ID, func(j *Job) {
 				j.Total = total
 			})
 		},
 		OnProgress: func() {
-			s.jobMgr.UpdateJob(job.ID, func(j *Job) {
+			s.updateJob(job.ID, func(j *Job) {
 				j.Progress++
 			})
 		},
@@ -268,21 +265,21 @@ func (s *Server) processJob(job Job) {
 			} else {
 				jobLog.Info("cancelled by user")
 			}
-			s.jobMgr.UpdateJob(job.ID, func(j *Job) {
+			s.updateJob(job.ID, func(j *Job) {
 				j.Status = StatusCancelled
 			})
 			return
 		}
 
 		jobLog.Error("job failed: %v", err)
-		s.jobMgr.UpdateJob(job.ID, func(j *Job) {
+		s.updateJob(job.ID, func(j *Job) {
 			j.Status = StatusFailed
 			j.Error = err.Error()
 		})
 		return
 	}
 
-	s.jobMgr.UpdateJob(job.ID, func(j *Job) {
+	s.updateJob(job.ID, func(j *Job) {
 		j.Status = StatusCompleted
 		if warningMsg != "" {
 			j.Error = warningMsg
@@ -293,6 +290,15 @@ func (s *Server) processJob(job Job) {
 		jobLog.Info("completed with warnings: %s", warningMsg)
 	} else {
 		jobLog.Info("completed successfully")
+	}
+}
+
+// updateJob applies fn to a job's state. UpdateJob fails only when the job no
+// longer exists, which the retention cleanup never does to a job still running;
+// the log is there so a broken invariant cannot pass unnoticed.
+func (s *Server) updateJob(id string, fn func(*Job)) {
+	if err := s.jobMgr.UpdateJob(id, fn); err != nil {
+		s.logger.Warn("updating job %s: %v", id, err)
 	}
 }
 

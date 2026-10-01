@@ -151,7 +151,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	s.setSessionCookie(w, r, token)
 	s.logger.Info("login from %s", ip)
 
-	writeJSON(w, map[string]string{"username": s.config.Auth.Username})
+	s.writeJSON(w, map[string]string{"username": s.config.Auth.Username})
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -167,11 +167,11 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.clearSessionCookie(w, r)
-	writeJSON(w, map[string]string{"status": "logged out"})
+	s.writeJSON(w, map[string]string{"status": "logged out"})
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, map[string]string{"username": s.config.Auth.Username})
+	s.writeJSON(w, map[string]string{"username": s.config.Auth.Username})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -189,10 +189,10 @@ func hasJSONContentType(r *http.Request) bool {
 	return strings.EqualFold(strings.TrimSpace(ct), "application/json")
 }
 
-func writeJSON(w http.ResponseWriter, v any) {
+func (s *Server) writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		// The status line is already written; nothing left but to record it.
-		return
+		s.logger.Warn("writing JSON response: %v", err)
 	}
 }
