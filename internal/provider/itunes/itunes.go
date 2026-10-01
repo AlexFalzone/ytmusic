@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -103,8 +104,11 @@ func parseResults(items []resultItem) []metadata.TrackInfo {
 
 		if item.ReleaseDate != "" {
 			info.ReleaseDate = item.ReleaseDate
+			// A date that does not start with a year leaves it unknown.
 			if len(item.ReleaseDate) >= 4 {
-				fmt.Sscanf(item.ReleaseDate[:4], "%d", &info.Year)
+				if year, err := strconv.Atoi(item.ReleaseDate[:4]); err == nil {
+					info.Year = year
+				}
 			}
 		}
 
