@@ -510,3 +510,41 @@ func TestMoveAudioFilesKeepsAFileWhoseNameIsAtTheLimit(t *testing.T) {
 		t.Errorf("destination holds %d files, want 2", len(entries))
 	}
 }
+
+// onlyOnPath replaces PATH with a directory holding a stub executable for each
+// name, so a test controls exactly which tools exist.
+func onlyOnPath(t *testing.T, names ...string) {
+	t.Helper()
+	dir := t.TempDir()
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir)
+}
+
+func TestCheckDependenciesNamesEveryMissingTool(t *testing.T) {
+	onlyOnPath(t, "yt-dlp")
+
+	err := CheckDependencies("yt-dlp", "ffmpeg", "fpcalc")
+	if err == nil {
+		t.Fatal("want an error for the missing tools, got none")
+	}
+	for _, missing := range []string{"ffmpeg", "fpcalc"} {
+		if !strings.Contains(err.Error(), missing) {
+			t.Errorf("error should name %s, got: %v", missing, err)
+		}
+	}
+	if strings.Contains(err.Error(), "yt-dlp") {
+		t.Errorf("error names yt-dlp, which is installed: %v", err)
+	}
+}
+
+func TestCheckDependenciesPassesWhenAllPresent(t *testing.T) {
+	onlyOnPath(t, "yt-dlp", "ffmpeg")
+
+	if err := CheckDependencies("yt-dlp", "ffmpeg"); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}

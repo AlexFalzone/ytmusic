@@ -23,13 +23,24 @@ var audioExtensions = map[string]bool{
 	".ogg":  true,
 }
 
-// CheckDependencies verifies that required external commands are installed
-func CheckDependencies() error {
-	if _, err := exec.LookPath("yt-dlp"); err != nil {
-		return fmt.Errorf("required command 'yt-dlp' not found in PATH. Install with: pip install yt-dlp")
-	}
+// installHints say how to get each external program the pipeline runs.
+var installHints = map[string]string{
+	"yt-dlp":  "install it with: pip install yt-dlp",
+	"ffmpeg":  "install FFmpeg",
+	"ffprobe": "install FFmpeg, which ships ffprobe",
+	"fpcalc":  "install Chromaprint, or remove acoustid_api_key from the config to run without fingerprinting",
+}
 
-	return nil
+// CheckDependencies reports every program in names that is not on PATH, all
+// in one error, so a single run tells the user everything there is to install.
+func CheckDependencies(names ...string) error {
+	var missing []error
+	for _, name := range names {
+		if _, err := exec.LookPath(name); err != nil {
+			missing = append(missing, fmt.Errorf("required program %q not found in PATH: %s", name, installHints[name]))
+		}
+	}
+	return errors.Join(missing...)
 }
 
 // CreateTempDir creates a temporary folder for downloads

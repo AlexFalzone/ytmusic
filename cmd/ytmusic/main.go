@@ -53,6 +53,10 @@ func main() {
 	}
 
 	if cfg.ImportOnly != "" {
+		if err := pipeline.CheckImportTools(cfg); err != nil {
+			log.Error("Dependency check failed: %v", err)
+			os.Exit(1)
+		}
 		if err := pipeline.RunImportOnly(sh.Context(), cfg, log, cfg.ImportOnly); err != nil {
 			log.Error("%v", err)
 			os.Exit(1)
@@ -74,7 +78,7 @@ func main() {
 
 func run(sh *shutdown.Handler, cfg config.Config, log *logger.Logger) error {
 	log.Debug("Checking dependencies...")
-	if err := utils.CheckDependencies(); err != nil {
+	if err := pipeline.CheckTools(cfg); err != nil {
 		return fmt.Errorf("dependency check failed: %w", err)
 	}
 

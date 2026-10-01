@@ -19,7 +19,11 @@ from multiple providers.
 
 - Go 1.27+
 - yt-dlp
-- FFmpeg
+- FFmpeg (`ffmpeg` and `ffprobe`)
+- Chromaprint (`fpcalc`), only when `acoustid_api_key` is set
+
+Both `ytmusic` and `ytmusic-web` check for these at startup and refuse to run if one is missing, naming
+every missing program at once.
 
 ## Build
 

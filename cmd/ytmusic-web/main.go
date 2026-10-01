@@ -14,6 +14,7 @@ import (
 
 	"ytmusic/internal/config"
 	"ytmusic/internal/logger"
+	"ytmusic/internal/pipeline"
 	"ytmusic/internal/web"
 )
 
@@ -47,6 +48,13 @@ func main() {
 
 	if err := cfg.ValidateWeb(); err != nil {
 		fmt.Fprintf(os.Stderr, "Config error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Checked here rather than per job: a missing tool would otherwise surface
+	// only as the first job failing, long after the server looked healthy.
+	if err := pipeline.CheckTools(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Dependency error: %v\n", err)
 		os.Exit(1)
 	}
 
