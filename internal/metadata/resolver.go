@@ -38,8 +38,12 @@ func NewResolver(providers []Provider, log *logger.Logger, threshold float64) *R
 	if threshold <= 0 {
 		threshold = defaultConfidenceThreshold
 	}
+	cached := make([]Provider, len(providers))
+	for i, p := range providers {
+		cached[i] = &cachedProvider{Provider: p}
+	}
 	return &Resolver{
-		providers:  providers,
+		providers:  cached,
 		logger:     log,
 		threshold:  threshold,
 		httpClient: &http.Client{Timeout: 15 * time.Second},
