@@ -9,20 +9,25 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"ytmusic/internal/buildinfo"
 	"ytmusic/internal/metadata"
+	"ytmusic/internal/throttle"
 )
 
+// requestInterval is MusicBrainz's rate limit: one request per second per
+// client, enforced by throttling whoever exceeds it.
+const requestInterval = time.Second
+
 // Client is a MusicBrainz Web API client that implements metadata.Provider.
+// Its throttle covers every request it sends, which is why a run must share
+// one Client rather than create several.
 type Client struct {
 	httpClient     *http.Client
 	apiURL         string
 	artworkBaseURL string
-	mu             sync.Mutex
-	lastRequest    time.Time
+	throttle       *throttle.Throttle
 }
 
 // New creates a new MusicBrainz client.
@@ -31,6 +36,7 @@ func New() *Client {
 		httpClient:     &http.Client{Timeout: 10 * time.Second},
 		apiURL:         "https://musicbrainz.org/ws/2",
 		artworkBaseURL: "https://coverartarchive.org/release",
+		throttle:       throttle.New(requestInterval),
 	}
 }
 
@@ -40,6 +46,7 @@ func NewWithURL(apiURL, artworkBaseURL string) *Client {
 		httpClient:     &http.Client{Timeout: 10 * time.Second},
 		apiURL:         apiURL,
 		artworkBaseURL: artworkBaseURL,
+		throttle:       throttle.New(requestInterval),
 	}
 }
 
@@ -51,8 +58,6 @@ func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]meta
 	if q == "" {
 		return nil, nil
 	}
-
-	c.rateLimit()
 
 	reqURL := fmt.Sprintf("%s/recording?query=%s&fmt=json&limit=5", c.apiURL, url.QueryEscape(q))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
@@ -84,8 +89,6 @@ func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]meta
 // LookupByMBID fetches a single recording by its MusicBrainz recording ID.
 // preferAlbum, if non-empty, is used to break ties when the recording appears in multiple releases.
 func (c *Client) LookupByMBID(ctx context.Context, mbid, preferAlbum string) (metadata.TrackInfo, error) {
-	c.rateLimit()
-
 	reqURL := fmt.Sprintf("%s/recording/%s?inc=artists+releases+isrcs+artist-credits&fmt=json", c.apiURL, mbid)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
@@ -117,20 +120,12 @@ func (c *Client) LookupByMBID(ctx context.Context, mbid, preferAlbum string) (me
 	return results[0], nil
 }
 
-// rateLimit enforces MusicBrainz's 1 request/second limit.
-// The mutex is held for the full duration (including sleep) so that concurrent
-// callers queue up and each waits a full second from the previous request.
-func (c *Client) rateLimit() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if elapsed := time.Since(c.lastRequest); elapsed < time.Second {
-		time.Sleep(time.Second - elapsed)
-	}
-	c.lastRequest = time.Now()
-}
-
-// doWithRetry executes the request, retrying on 429/503 with backoff.
+// doWithRetry waits for the throttle and executes the request, retrying once
+// on 429/503 after the server's Retry-After.
 func (c *Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Response, error) {
+	if err := c.throttle.Wait(ctx); err != nil {
+		return nil, err
+	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -151,9 +146,9 @@ func (c *Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Resp
 		case <-time.After(time.Duration(retryAfter) * time.Second):
 		}
 
-		c.mu.Lock()
-		c.lastRequest = time.Now()
-		c.mu.Unlock()
+		if err := c.throttle.Wait(ctx); err != nil {
+			return nil, err
+		}
 		retry := req.Clone(ctx)
 		return c.httpClient.Do(retry)
 	}
@@ -303,10 +298,7 @@ func releaseAlbumSim(releaseTitle, preferAlbum string) float64 {
 			matches++
 		}
 	}
-	maxLen := len(at)
-	if len(bt) > maxLen {
-		maxLen = len(bt)
-	}
+	maxLen := max(len(bt), len(at))
 	return float64(matches) / float64(maxLen)
 }
 
@@ -423,8 +415,6 @@ func (c *Client) searchRelease(ctx context.Context, album, artist string) ([]rel
 		q += fmt.Sprintf(" AND artist:%q", artist)
 	}
 
-	c.rateLimit()
-
 	reqURL := fmt.Sprintf("%s/release?query=%s&fmt=json&limit=5", c.apiURL, url.QueryEscape(q))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
@@ -453,8 +443,6 @@ func (c *Client) searchRelease(ctx context.Context, album, artist string) ([]rel
 
 // lookupRelease fetches the full tracklist for a release by its MusicBrainz ID.
 func (c *Client) lookupRelease(ctx context.Context, releaseID string) (metadata.Tracklist, error) {
-	c.rateLimit()
-
 	reqURL := fmt.Sprintf("%s/release/%s?inc=recordings+artist-credits&fmt=json", c.apiURL, releaseID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
@@ -507,8 +495,6 @@ func (c *Client) lookupRelease(ctx context.Context, releaseID string) (metadata.
 // ReleaseIDsForRecording returns all release IDs that contain the given recording MBID.
 // Implements metadata.ReleaseResolver.
 func (c *Client) ReleaseIDsForRecording(ctx context.Context, mbid string) ([]string, error) {
-	c.rateLimit()
-
 	reqURL := fmt.Sprintf("%s/recording/%s?inc=releases&fmt=json", c.apiURL, mbid)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {

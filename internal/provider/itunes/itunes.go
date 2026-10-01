@@ -13,12 +13,19 @@ import (
 
 	"ytmusic/internal/buildinfo"
 	"ytmusic/internal/metadata"
+	"ytmusic/internal/throttle"
 )
+
+// requestInterval keeps to Apple's documented limit of about 20 calls a
+// minute. Exceeding it gets requests refused, and gap filling then loses the
+// genre without a word: iTunes is often the only provider that has one.
+const requestInterval = 3 * time.Second
 
 // Client is an iTunes Search API client that implements metadata.Provider.
 type Client struct {
 	httpClient *http.Client
 	apiURL     string
+	throttle   *throttle.Throttle
 }
 
 // New creates a new iTunes client.
@@ -26,6 +33,7 @@ func New() *Client {
 	return &Client{
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		apiURL:     "https://itunes.apple.com/search",
+		throttle:   throttle.New(requestInterval),
 	}
 }
 
@@ -51,6 +59,9 @@ func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]meta
 	}
 	req.Header.Set("User-Agent", buildinfo.UserAgent())
 
+	if err := c.throttle.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("waiting for itunes rate limit: %w", err)
+	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("itunes search request failed: %w", err)

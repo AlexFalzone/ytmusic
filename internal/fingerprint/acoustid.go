@@ -8,15 +8,22 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+
+	"ytmusic/internal/throttle"
 )
 
 const defaultAcoustIDURL = "https://api.acoustid.org/v2/lookup"
+
+// requestInterval is AcoustID's published limit: no more than three requests
+// per second.
+const requestInterval = time.Second / 3
 
 // AcoustIDClient queries the AcoustID API to resolve a fingerprint to a MusicBrainz recording ID.
 type AcoustIDClient struct {
 	apiKey     string
 	baseURL    string
 	httpClient *http.Client
+	throttle   *throttle.Throttle
 }
 
 // NewAcoustIDClient creates a new client. baseURL overrides the default endpoint (used in tests).
@@ -28,6 +35,7 @@ func NewAcoustIDClient(apiKey, baseURL string) *AcoustIDClient {
 		apiKey:     apiKey,
 		baseURL:    baseURL,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
+		throttle:   throttle.New(requestInterval),
 	}
 }
 
@@ -49,6 +57,10 @@ type acoustidRecording struct {
 // Lookup submits a fingerprint to AcoustID and returns the first MusicBrainz recording ID found.
 // Returns (mbid, true, nil) on success, ("", false, nil) when no match is found.
 func (c *AcoustIDClient) Lookup(ctx context.Context, fp Result) (string, bool, error) {
+	if err := c.throttle.Wait(ctx); err != nil {
+		return "", false, fmt.Errorf("waiting for acoustid rate limit: %w", err)
+	}
+
 	params := url.Values{}
 	params.Set("client", c.apiKey)
 	params.Set("duration", strconv.Itoa(fp.Duration))

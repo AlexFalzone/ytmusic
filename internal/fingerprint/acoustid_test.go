@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"ytmusic/internal/fingerprint"
 )
@@ -96,5 +97,27 @@ func TestAcoustIDClient_Lookup_NoRecordings(t *testing.T) {
 	}
 	if found {
 		t.Fatal("expected found=false for result with no recordings")
+	}
+}
+
+// AcoustID allows three requests per second, and is called from several
+// goroutines at once: the batch phase and the per-file workers.
+func TestAcoustIDClient_SpacesRequests(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		respondJSON(t, w, map[string]any{"status": "ok", "results": []any{}})
+	}))
+	defer srv.Close()
+
+	client := fingerprint.NewAcoustIDClient("test-key", srv.URL)
+	start := time.Now()
+	for range 3 {
+		if _, _, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 240, Fingerprint: "AQ"}); err != nil {
+			t.Fatalf("Lookup: %v", err)
+		}
+	}
+	// Three requests at three per second: the last goes two thirds of a second in.
+	if elapsed := time.Since(start); elapsed < 600*time.Millisecond {
+		t.Errorf("three lookups took %v, want at least 600ms", elapsed)
 	}
 }

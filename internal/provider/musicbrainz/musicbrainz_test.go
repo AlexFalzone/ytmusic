@@ -11,6 +11,7 @@ import (
 
 	"ytmusic/internal/buildinfo"
 	"ytmusic/internal/metadata"
+	"ytmusic/internal/throttle"
 )
 
 // respond writes body as the fake server's reply. t.Errorf rather than Fatal:
@@ -33,9 +34,9 @@ func respondJSON(t *testing.T, w http.ResponseWriter, v any) {
 
 func newTestClient(url string) *Client {
 	return &Client{
-		httpClient:  &http.Client{Timeout: 5 * time.Second},
-		apiURL:      url,
-		lastRequest: time.Now().Add(-2 * time.Second), // avoid rate limit in tests
+		httpClient: &http.Client{Timeout: 5 * time.Second},
+		apiURL:     url,
+		throttle:   throttle.New(0),
 	}
 }
 
@@ -119,6 +120,28 @@ func TestSearch_ParsesResponse(t *testing.T) {
 	wantArtwork := srv.URL + "/release/rel-1/front-500"
 	if r.ArtworkURL != wantArtwork {
 		t.Errorf("ArtworkURL = %q, want %q", r.ArtworkURL, wantArtwork)
+	}
+}
+
+// Every request waits for the client's throttle: MusicBrainz throttles clients
+// that exceed one request per second.
+func TestRequestsWaitForTheThrottle(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		respond(t, w, `{"recordings": []}`)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(srv.URL)
+	c.throttle = throttle.New(100 * time.Millisecond)
+	start := time.Now()
+	for range 3 {
+		if _, err := c.Search(context.Background(), metadata.SearchQuery{Title: "Song"}); err != nil {
+			t.Fatalf("Search: %v", err)
+		}
+	}
+	if elapsed := time.Since(start); elapsed < 200*time.Millisecond {
+		t.Errorf("three searches took %v, want at least 200ms", elapsed)
 	}
 }
 
