@@ -62,6 +62,18 @@ func TestWithPrefixPrependsToMessages(t *testing.T) {
 	}
 }
 
+// The web server prefixes a job's logger with the job ID and the resolver
+// prefixes it again per file: with jobs running side by side, a file's line
+// must still say which job it belongs to.
+func TestWithPrefixKeepsTheParentPrefix(t *testing.T) {
+	l, buf := newTestLogger(false)
+	l.WithPrefix("job_42").WithPrefix("3/20").Info("processing")
+
+	if out := buf.String(); !strings.Contains(out, "[INFO] [job_42] [3/20] processing") {
+		t.Errorf("want both prefixes in order, got: %q", out)
+	}
+}
+
 func TestWithPrefixSharesWriter(t *testing.T) {
 	l, buf := newTestLogger(false)
 	prefixed := l.WithPrefix("job_1")

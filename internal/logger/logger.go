@@ -14,7 +14,7 @@ type Logger struct {
 	mu      *sync.Mutex
 	fileLog *os.File
 	hasBar  *bool
-	prefix  string
+	prefix  string // "[a] [b]": every WithPrefix up the chain, outermost first
 }
 
 func New(verbose bool) *Logger {
@@ -27,16 +27,22 @@ func New(verbose bool) *Logger {
 	}
 }
 
-// WithPrefix returns a child logger that prepends [prefix] to every message body.
-// The child shares the parent's writer, fileLog, and mutex so concurrent writes remain safe.
+// WithPrefix returns a child logger that prepends [prefix] to every message
+// body, after the parent's own prefixes: a file's line inside a web job reads
+// "[job] [3/20]". The child shares the parent's writer, fileLog, and mutex so
+// concurrent writes remain safe.
 func (l *Logger) WithPrefix(prefix string) *Logger {
+	tag := "[" + prefix + "]"
+	if l.prefix != "" {
+		tag = l.prefix + " " + tag
+	}
 	return &Logger{
 		Verbose: l.Verbose,
 		writer:  l.writer,
 		mu:      l.mu,
 		fileLog: l.fileLog,
 		hasBar:  l.hasBar, // shared pointer so SetProgressBar on parent propagates to all children
-		prefix:  prefix,
+		prefix:  tag,
 	}
 }
 
@@ -123,7 +129,7 @@ func (l *Logger) formatMsg(level, format string, args ...interface{}) string {
 	ts := time.Now().Format("2006-01-02 15:04:05")
 	body := fmt.Sprintf(format, args...)
 	if l.prefix != "" {
-		return fmt.Sprintf("%s [%s] [%s] %s\n", ts, level, l.prefix, body)
+		return fmt.Sprintf("%s [%s] %s %s\n", ts, level, l.prefix, body)
 	}
 	return fmt.Sprintf("%s [%s] %s\n", ts, level, body)
 }
