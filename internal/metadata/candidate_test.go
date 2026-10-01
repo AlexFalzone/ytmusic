@@ -77,6 +77,38 @@ func TestEvaluateVetoesShorterRecording(t *testing.T) {
 	}
 }
 
+// MusicBrainz returns isolated recordings with neither a length nor a release.
+// With nothing to check them against they passed every veto, and a truncated
+// clip inherited one's ISRC.
+func TestEvaluateRejectsCandidateWithNeitherLengthNorAlbum(t *testing.T) {
+	original := source{query: SearchQuery{Title: "Song", Artist: "Artist"}, duration: 200 * time.Second}
+	variant := source{
+		query:    SearchQuery{Title: "Song", Artist: "Artist"},
+		version:  Version{Key: "sped up", Label: "Sped Up"},
+		duration: 160 * time.Second,
+	}
+
+	tests := []struct {
+		name      string
+		candidate TrackInfo
+		wantKept  bool
+	}{
+		{"neither", TrackInfo{Title: "Song", Artist: "Artist", ISRC: "USXX12345678"}, false},
+		{"album only", TrackInfo{Title: "Song", Artist: "Artist", Album: "Record"}, true},
+		{"length only", TrackInfo{Title: "Song", Artist: "Artist", Duration: 200 * time.Second}, true},
+	}
+	for _, tt := range tests {
+		exact, _ := newEvalResolver().evaluate(original, []TrackInfo{tt.candidate})
+		if got := exact != nil; got != tt.wantKept {
+			t.Errorf("%s: exact kept = %v, want %v", tt.name, got, tt.wantKept)
+		}
+		_, donor := newEvalResolver().evaluate(variant, []TrackInfo{tt.candidate})
+		if got := donor != nil; got != tt.wantKept {
+			t.Errorf("%s: donor kept = %v, want %v", tt.name, got, tt.wantKept)
+		}
+	}
+}
+
 func TestEvaluateBreaksTiesOnDuration(t *testing.T) {
 	src := source{query: SearchQuery{Title: "Song", Artist: "Artist"}, duration: 200 * time.Second}
 
@@ -96,7 +128,7 @@ func TestEvaluateScoresCleanedTitle(t *testing.T) {
 	src := source{query: SearchQuery{Title: "Here Comes the Sun", Artist: "The Beatles"}}
 
 	best, _ := newEvalResolver().evaluate(src, []TrackInfo{
-		{Title: "Here Comes the Sun - Remastered 2019", Artist: "The Beatles"},
+		{Title: "Here Comes the Sun - Remastered 2019", Artist: "The Beatles", Album: "Album"},
 	})
 
 	if best == nil || best.info.Confidence < 0.99 {
@@ -131,7 +163,7 @@ func TestEvaluateOffersNoDonorForOriginalFile(t *testing.T) {
 	src := source{query: SearchQuery{Title: "Song", Artist: "Artist"}}
 
 	exact, donor := newEvalResolver().evaluate(src, []TrackInfo{
-		{Title: "Song - Live", Artist: "Artist"},
+		{Title: "Song - Live", Artist: "Artist", Album: "Album"},
 	})
 
 	if exact != nil || donor != nil {

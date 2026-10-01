@@ -1087,8 +1087,8 @@ func TestResolveFile_PreservesYtdlpTrackNumber(t *testing.T) {
 
 // A file with no variant must not pay for extra lookups: the first match wins.
 func TestFindPrimaryMatch_StopsAtFirstMatch(t *testing.T) {
-	p1 := &mockProvider{name: "first", results: []TrackInfo{{Title: "Song", Artist: "Artist"}}}
-	p2 := &mockProvider{name: "second", results: []TrackInfo{{Title: "Song", Artist: "Artist"}}}
+	p1 := &mockProvider{name: "first", results: []TrackInfo{{Title: "Song", Artist: "Artist", Album: "Album"}}}
+	p2 := &mockProvider{name: "second", results: []TrackInfo{{Title: "Song", Artist: "Artist", Album: "Album"}}}
 	r := NewResolver([]Provider{p1, p2}, logger.New(false), 0.7)
 
 	m, ok := r.findPrimaryMatch(context.Background(), source{query: SearchQuery{Title: "Song", Artist: "Artist"}})
@@ -1104,7 +1104,7 @@ func TestFindPrimaryMatch_StopsAtFirstMatch(t *testing.T) {
 func TestGapFilling_IgnoresFillerOfAnotherVersion(t *testing.T) {
 	p1 := &mockProvider{name: "primary"}
 	p2 := &mockProvider{name: "filler", results: []TrackInfo{
-		{Title: "Song - Live", Artist: "Artist", Genre: "Rock"},
+		{Title: "Song - Live", Artist: "Artist", Album: "Album", Genre: "Rock"},
 	}}
 	r := NewResolver([]Provider{p1, p2}, logger.New(false), 0.5)
 
@@ -1121,8 +1121,8 @@ func TestGapFilling_IgnoresFillerOfAnotherVersion(t *testing.T) {
 func TestGapFilling_DonorTakesOriginalAsFiller(t *testing.T) {
 	p1 := &mockProvider{name: "primary"}
 	p2 := &mockProvider{name: "filler", results: []TrackInfo{
-		{Title: "Song - Live", Artist: "Artist", Genre: "Jazz"},
-		{Title: "Song", Artist: "Artist", Genre: "Rock"},
+		{Title: "Song - Live", Artist: "Artist", Album: "Album", Genre: "Jazz"},
+		{Title: "Song", Artist: "Artist", Album: "Album", Genre: "Rock"},
 	}}
 	r := NewResolver([]Provider{p1, p2}, logger.New(false), 0.5)
 

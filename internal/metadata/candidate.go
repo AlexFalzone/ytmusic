@@ -116,6 +116,14 @@ func score(query SearchQuery, result TrackInfo) float64 {
 // original in length.
 func (r *Resolver) evaluate(src source, results []TrackInfo) (exact, donor *match) {
 	for _, res := range results {
+		// Missing data never vetoes on its own, but with both missing there is
+		// nothing left to check the candidate against: MusicBrainz returns
+		// such isolated recordings, and a truncated clip took one's ISRC.
+		if res.Duration == 0 && res.Album == "" {
+			r.logger.Debug("  skip %q: neither a length nor an album to check it against", res.Title)
+			continue
+		}
+
 		base, version := cleanTitle(res.Title)
 
 		isDonor := false

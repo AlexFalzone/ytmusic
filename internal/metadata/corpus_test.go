@@ -102,6 +102,15 @@ var corpus = []corpusCase{
 		want:  unchanged("Shape of You", "Ed Sheeran"),
 	},
 	{
+		// The candidate is an isolated MusicBrainz recording: no length, no
+		// release, only an ISRC that the clip must not inherit.
+		name:  "truncated clip against a recording with neither length nor album",
+		title: "Blinding Lights", artist: "The Weeknd", seconds: "60",
+		key:   "Blinding Lights",
+		first: []TrackInfo{{Title: "Blinding Lights", Artist: "The Weeknd", ISRC: "USUG11904206"}},
+		want:  unchanged("Blinding Lights", "The Weeknd"),
+	},
+	{
 		name:  "music video longer than the recording",
 		title: "Bad Guy", artist: "Billie Eilish", seconds: "230",
 		key:   "Bad Guy",
