@@ -7,13 +7,16 @@ services:
       target: cli
     image: ytmusic:cli
     container_name: ytmusic-cli
+    user: "1000:1000"
+    # :z lets SELinux hosts share the bind mounts with the container; elsewhere
+    # it is ignored.
     volumes:
-      - ./config:/config
-      - ./music:/music
-      - ./logs:/logs
-      - ytmusic-cache:/root/.cache
+      - ./config/config.yaml:/config/config.yaml:ro,z
+      - ./music:/music:z
+      - ./logs:/logs:z
+      - ytmusic-cache:/tmp/.cache
     environment:
-      - HOME=/root
+      - HOME=/tmp
     profiles:
       - cli
 
@@ -27,13 +30,16 @@ services:
     container_name: ytmusic-web
     ports:
       - "8080:8080"
+    user: "1000:1000"
+    # :z lets SELinux hosts share the bind mounts with the container; elsewhere
+    # it is ignored.
     volumes:
-      - ./config:/config
-      - ./music:/music
-      - ./logs:/logs
-      - ytmusic-cache:/root/.cache
+      - ./config/config.yaml:/config/config.yaml:ro,z
+      - ./music:/music:z
+      - ./logs:/logs:z
+      - ytmusic-cache:/tmp/.cache
     environment:
-      - HOME=/root
+      - HOME=/tmp
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]

@@ -200,6 +200,36 @@ Volumes mounted from `docker-compose.yml`:
 
 | Container path | Host path | Content |
 |---------------|-----------|---------|
-| `/config`     | `./config`| Config YAML |
+| `/config/config.yaml` | `./config/config.yaml` | Config YAML, read-only |
 | `/music`      | `./music` | Output audio files |
 | `/logs`       | `./logs`  | Log files |
+| `/tmp/.cache` | volume `ytmusic-cache` | yt-dlp cache |
+
+The containers run as UID and GID 1000, not as root, so everything they write on the host belongs to that
+user. Inside the container `HOME` is `/tmp`. The bind mounts carry `:z`, which on SELinux hosts (Fedora,
+openSUSE, RHEL) relabels them so the container may read them; without SELinux it does nothing.
+
+**First run.** Create the directories and the config file before starting, as the host user with UID 1000.
+Docker creates a missing bind-mount path itself, owned by root (the container then cannot write to it), and
+a missing `config/config.yaml` as a directory:
+
+```bash
+mkdir -p config music logs
+cp config.example.yaml config/config.yaml
+chmod 600 config/config.yaml
+```
+
+In that config, use the container paths: `output_dir: /music` and `log_dir: /logs`. Leave
+`cookies_browser` empty.
+
+**Upgrading from a root container.** Images built before this change ran as root, so the existing files
+belong to root and the new user cannot add to them:
+
+```bash
+docker compose down
+sudo chown -R 1000:1000 config music logs
+docker volume rm ytmusic_ytmusic-cache   # only yt-dlp's cache, rebuilt on the next run
+```
+
+The volume name starts with the compose project name, which is the directory name unless you changed it:
+`docker volume ls` shows it.

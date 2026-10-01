@@ -51,14 +51,17 @@ COPY --from=ffmpeg-downloader /ffmpeg/ffprobe /usr/local/bin/ffprobe
 
 RUN pip install --no-cache-dir yt-dlp && pip cache purge
 
-RUN mkdir -p /config /music /tmp/ytmusic /logs
+# Owned by the runtime user: a named volume mounted on /tmp/.cache copies this
+# ownership when it is first created, so yt-dlp can write its cache there.
+RUN mkdir -p /config /music /tmp/ytmusic /logs /tmp/.cache && \
+    chown 1000:1000 /music /tmp/ytmusic /logs /tmp/.cache
 
-ENV HOME=/root \
+ENV HOME=/tmp \
     PATH="/usr/local/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-VOLUME ["/config", "/music", "/logs"]
+VOLUME ["/music", "/logs"]
 
 # ==================================================
 # CLI variant
@@ -68,6 +71,7 @@ FROM base AS cli
 COPY --from=builder /build/ytmusic /usr/local/bin/ytmusic
 COPY config.example.yaml /etc/ytmusic/config.example.yaml
 
+USER 1000:1000
 WORKDIR /tmp/ytmusic
 ENTRYPOINT ["ytmusic"]
 CMD ["--help"]
@@ -87,6 +91,7 @@ COPY --from=builder /build/ytmusic-web /usr/local/bin/ytmusic-web
 
 COPY config.example.yaml /etc/ytmusic/config.example.yaml
 
+USER 1000:1000
 WORKDIR /app
 EXPOSE 8080
 
