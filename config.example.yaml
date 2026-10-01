@@ -10,6 +10,12 @@
 # YouTube may rate-limit if too many parallel connections are made
 parallel_jobs: 4
 
+# How many files are matched against the metadata providers at once (1-10)
+# MusicBrainz still answers one request per second and iTunes about one every
+# three, however high this is set: more workers only let the other providers
+# and the artwork downloads run during those waits.
+metadata_workers: 4
+
 # Browser to extract cookies from (empty = no cookies)
 # Supported: chrome, firefox, brave, edge, safari, opera, etc.
 # Cookies are needed to download age-restricted or private videos.

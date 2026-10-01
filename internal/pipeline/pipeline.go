@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -156,11 +157,8 @@ type components struct {
 // MusicBrainz client so its rate limiter is coordinated across all usages.
 func buildComponents(cfg config.Config, log *logger.Logger) components {
 	var mbClient *musicbrainz.Client
-	for _, p := range cfg.MetadataProviders {
-		if p == "musicbrainz" {
-			mbClient = musicbrainz.New()
-			break
-		}
+	if slices.Contains(cfg.MetadataProviders, "musicbrainz") {
+		mbClient = musicbrainz.New()
 	}
 	// Also need a MusicBrainz client for fingerprint MBID lookups even when the
 	// musicbrainz search provider is not in the provider list.

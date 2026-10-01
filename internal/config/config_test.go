@@ -13,6 +13,7 @@ func TestValidate(t *testing.T) {
 		return Config{
 			PlaylistURL:         "https://youtube.com/playlist?list=abc",
 			ParallelJobs:        4,
+			MetadataWorkers:     4,
 			MaxConcurrentJobs:   1,
 			AudioFormat:         "mp3",
 			OutputDir:           "/tmp/music",
@@ -63,6 +64,20 @@ func TestValidate(t *testing.T) {
 		{
 			name:   "parallel jobs 10",
 			modify: func(c *Config) { c.ParallelJobs = 10 },
+		},
+		{
+			name:    "metadata workers 0",
+			modify:  func(c *Config) { c.MetadataWorkers = 0 },
+			wantErr: true,
+		},
+		{
+			name:    "metadata workers 11",
+			modify:  func(c *Config) { c.MetadataWorkers = 11 },
+			wantErr: true,
+		},
+		{
+			name:   "metadata workers 10",
+			modify: func(c *Config) { c.MetadataWorkers = 10 },
 		},
 		{
 			name:    "invalid format",
@@ -227,6 +242,7 @@ func TestExpandHome(t *testing.T) {
 func validAuthConfig() Config {
 	return Config{
 		ParallelJobs:        4,
+		MetadataWorkers:     4,
 		MaxConcurrentJobs:   1,
 		AudioFormat:         "mp3",
 		OutputDir:           "/tmp/music",
@@ -428,5 +444,30 @@ func TestLoadConfigFileReadsLogDir(t *testing.T) {
 	}
 	if want := filepath.Join(home, "ytlogs"); cfg.LogDir != want {
 		t.Errorf("LogDir = %q, want %q", cfg.LogDir, want)
+	}
+}
+
+func TestDefaultConfigResolvesFourFilesAtOnce(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.MetadataWorkers != 4 {
+		t.Errorf("MetadataWorkers = %d, want 4", cfg.MetadataWorkers)
+	}
+	if err := cfg.ValidateBase(); err != nil {
+		t.Errorf("default config fails validation: %v", err)
+	}
+}
+
+func TestLoadConfigFileReadsMetadataWorkers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("metadata_workers: 6\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfigFile(path)
+	if err != nil {
+		t.Fatalf("LoadConfigFile: %v", err)
+	}
+	if cfg.MetadataWorkers != 6 {
+		t.Errorf("MetadataWorkers = %d, want 6", cfg.MetadataWorkers)
 	}
 }

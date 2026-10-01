@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -79,6 +80,7 @@ type Config struct {
 	Verbose             bool       `yaml:"verbose"`
 	DryRun              bool       `yaml:"dry_run"`
 	ParallelJobs        int        `yaml:"parallel_jobs"`
+	MetadataWorkers     int        `yaml:"metadata_workers"`
 	CookiesBrowser      string     `yaml:"cookies_browser"`
 	AudioFormat         string     `yaml:"audio_format"`
 	MetadataProviders   []string   `yaml:"metadata_providers"`
@@ -103,6 +105,7 @@ func DefaultConfig() Config {
 		Verbose:             false,
 		DryRun:              false,
 		ParallelJobs:        4,
+		MetadataWorkers:     4,
 		AudioFormat:         "mp3",
 		ConfidenceThreshold: 0.7,
 		OutputDir:           filepath.Join(homeDir(), "Music"),
@@ -219,18 +222,16 @@ func (c *Config) ValidateBase() error {
 		return fmt.Errorf("parallel jobs cannot exceed 10 (to avoid rate limiting), got %d", c.ParallelJobs)
 	}
 
+	if c.MetadataWorkers < 1 || c.MetadataWorkers > 10 {
+		return fmt.Errorf("metadata_workers must be between 1 and 10, got %d", c.MetadataWorkers)
+	}
+
 	if c.MaxConcurrentJobs < 1 {
 		return fmt.Errorf("max_concurrent_jobs must be at least 1, got %d", c.MaxConcurrentJobs)
 	}
 
 	validFormats := []string{"mp3", "m4a", "opus", "flac", "wav", "aac"}
-	isValid := false
-	for _, format := range validFormats {
-		if c.AudioFormat == format {
-			isValid = true
-			break
-		}
-	}
+	isValid := slices.Contains(validFormats, c.AudioFormat)
 	if !isValid {
 		return fmt.Errorf("unsupported audio format '%s', valid formats: %v", c.AudioFormat, validFormats)
 	}
@@ -293,10 +294,5 @@ func (c *Config) Validate() error {
 }
 
 func (c *Config) hasProvider(name string) bool {
-	for _, p := range c.MetadataProviders {
-		if p == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.MetadataProviders, name)
 }

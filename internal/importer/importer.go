@@ -73,7 +73,8 @@ func (i *Importer) Import(ctx context.Context, dir string) error {
 
 	i.Logger.Debug("Found %d audio files", len(files))
 
-	resolver := metadata.NewResolver(i.providers, i.Logger, i.Config.ConfidenceThreshold)
+	resolver := metadata.NewResolver(i.providers, i.Logger, i.Config.ConfidenceThreshold).
+		WithWorkers(i.Config.MetadataWorkers)
 	if i.fingerprinter != nil {
 		resolver = resolver.WithFingerprinter(i.fingerprinter)
 	}

@@ -185,8 +185,8 @@ var corpus = []corpusCase{
 	},
 }
 
-// TestResolveCorpus resolves every hard case in a single run, the way a
-// playlist is resolved, and checks what each file ends up tagged with.
+// TestResolveCorpus resolves every hard case in a single run on four workers,
+// the way a playlist is resolved, and checks what each file ends up tagged with.
 func TestResolveCorpus(t *testing.T) {
 	first := corpusProvider{name: "first", byTitle: map[string][]TrackInfo{}}
 	second := corpusProvider{name: "second", byTitle: map[string][]TrackInfo{}}
@@ -203,7 +203,7 @@ func TestResolveCorpus(t *testing.T) {
 		tagTestFile(t, paths[i], c.title, c.artist)
 	}
 
-	r := NewResolver([]Provider{first, second}, logger.New(false), 0)
+	r := NewResolver([]Provider{first, second}, logger.New(false), 0).WithWorkers(4)
 	if err := r.Resolve(context.Background(), paths); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
