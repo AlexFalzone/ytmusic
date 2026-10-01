@@ -3,15 +3,14 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"ytmusic/internal/config"
 )
 
 // parseArgs parses command-line arguments and loads configuration.
 // Priority: CLI flags > config file > defaults
-func parseArgs() (config.Config, string, error) {
-	args := os.Args[1:]
-
+func parseArgs(args []string) (config.Config, string, error) {
 	if len(args) == 0 {
 		printUsage()
 		os.Exit(1)
@@ -49,6 +48,9 @@ func parseArgs() (config.Config, string, error) {
 		configPath = config.FindConfigFile()
 	}
 
+	// Tracked apart from cfg.PlaylistURL, which the config file may already
+	// have set: a URL on the command line overrides that one, it is not a second.
+	urlGiven := false
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 
@@ -64,8 +66,8 @@ func parseArgs() (config.Config, string, error) {
 				return config.Config{}, "", fmt.Errorf("--parallel requires a number argument")
 			}
 			i++
-			var jobs int
-			if _, err := fmt.Sscanf(args[i], "%d", &jobs); err != nil {
+			jobs, err := strconv.Atoi(args[i])
+			if err != nil {
 				return config.Config{}, "", fmt.Errorf("invalid parallel jobs value: %s", args[i])
 			}
 			cfg.ParallelJobs = jobs
@@ -115,6 +117,10 @@ func parseArgs() (config.Config, string, error) {
 			if len(arg) > 0 && arg[0] == '-' {
 				return config.Config{}, "", fmt.Errorf("unknown flag: %s", arg)
 			}
+			if urlGiven {
+				return config.Config{}, "", fmt.Errorf("only one playlist URL is accepted, got a second one: %s", arg)
+			}
+			urlGiven = true
 			cfg.PlaylistURL = arg
 		}
 	}

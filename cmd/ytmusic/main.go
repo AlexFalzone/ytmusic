@@ -15,7 +15,7 @@ import (
 )
 
 func main() {
-	cfg, configPath, err := parseArgs()
+	cfg, configPath, err := parseArgs(os.Args[1:])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[ERROR] %v\n", err)
 		os.Exit(1)
