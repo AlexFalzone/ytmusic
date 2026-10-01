@@ -193,10 +193,12 @@ func TestJobReadsDoNotRaceWithUpdates(t *testing.T) {
 	go func() {
 		defer close(done)
 		for i := 0; i < 200; i++ {
-			s.jobMgr.UpdateJob(job.ID, func(j *Job) {
+			if err := s.jobMgr.UpdateJob(job.ID, func(j *Job) {
 				j.Progress++
 				j.Status = StatusRunning
-			})
+			}); err != nil {
+				t.Errorf("UpdateJob: %v", err)
+			}
 		}
 	}()
 

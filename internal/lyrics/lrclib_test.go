@@ -62,7 +62,9 @@ func TestFetch(t *testing.T) {
 					t.Errorf("unexpected User-Agent: %s", r.Header.Get("User-Agent"))
 				}
 				w.WriteHeader(tt.status)
-				w.Write([]byte(tt.body))
+				if _, err := w.Write([]byte(tt.body)); err != nil {
+					t.Errorf("writing fake response: %v", err)
+				}
 			}))
 			defer srv.Close()
 
@@ -108,5 +110,7 @@ func TestFetchQueryParams(t *testing.T) {
 	c := NewClient()
 	c.apiURL = srv.URL
 
-	c.Fetch(context.Background(), "The Beatles", "Let It Be", "Let It Be")
+	if _, err := c.Fetch(context.Background(), "The Beatles", "Let It Be", "Let It Be"); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
 }

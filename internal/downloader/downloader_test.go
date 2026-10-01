@@ -14,6 +14,17 @@ import (
 	"ytmusic/internal/logger"
 )
 
+// writeFile creates path, parent directories included, holding content.
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestMergeFilesDeduplicate(t *testing.T) {
 	tmpDir := t.TempDir()
 	log := logger.New(false)
@@ -22,11 +33,8 @@ func TestMergeFilesDeduplicate(t *testing.T) {
 	// Create two subdirectories with files that have the same name
 	dir1 := filepath.Join(tmpDir, "artist1", "album1")
 	dir2 := filepath.Join(tmpDir, "artist2", "album2")
-	os.MkdirAll(dir1, 0755)
-	os.MkdirAll(dir2, 0755)
-
-	os.WriteFile(filepath.Join(dir1, "song.mp3"), []byte("content-1"), 0644)
-	os.WriteFile(filepath.Join(dir2, "song.mp3"), []byte("content-2"), 0644)
+	writeFile(t, filepath.Join(dir1, "song.mp3"), "content-1")
+	writeFile(t, filepath.Join(dir2, "song.mp3"), "content-2")
 
 	mergedDir, err := d.MergeFiles()
 	if err != nil {
@@ -71,8 +79,7 @@ func TestMergeFilesTripleDuplicate(t *testing.T) {
 
 	for i := 1; i <= 3; i++ {
 		dir := filepath.Join(tmpDir, "artist", fmt.Sprintf("album%d", i))
-		os.MkdirAll(dir, 0755)
-		os.WriteFile(filepath.Join(dir, "track.mp3"), []byte(fmt.Sprintf("v%d", i)), 0644)
+		writeFile(t, filepath.Join(dir, "track.mp3"), fmt.Sprintf("v%d", i))
 	}
 
 	mergedDir, err := d.MergeFiles()
@@ -96,9 +103,8 @@ func TestMergeFilesNoDuplicates(t *testing.T) {
 	d := New(config.DefaultConfig(), log, tmpDir)
 
 	dir := filepath.Join(tmpDir, "artist", "album")
-	os.MkdirAll(dir, 0755)
-	os.WriteFile(filepath.Join(dir, "song1.mp3"), []byte("a"), 0644)
-	os.WriteFile(filepath.Join(dir, "song2.mp3"), []byte("b"), 0644)
+	writeFile(t, filepath.Join(dir, "song1.mp3"), "a")
+	writeFile(t, filepath.Join(dir, "song2.mp3"), "b")
 
 	mergedDir, err := d.MergeFiles()
 	if err != nil {

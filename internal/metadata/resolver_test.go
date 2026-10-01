@@ -129,7 +129,9 @@ func TestResolveFileLowConfidence(t *testing.T) {
 
 	log := logger.New(false)
 	resolver := NewResolver([]Provider{mock}, log, 0)
-	resolver.Resolve(context.Background(), []string{path})
+	if err := resolver.Resolve(context.Background(), []string{path}); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
 
 	tags, err := taglib.ReadTags(path)
 	if err != nil {
@@ -465,7 +467,11 @@ func newTestMP3Len(t *testing.T, seconds string) string {
 
 func tagTestFile(t *testing.T, path, title, artist string) {
 	t.Helper()
-	tags := map[string][]string{taglib.Title: {title}, taglib.Artist: {artist}}
+	writeTestTags(t, path, map[string][]string{taglib.Title: {title}, taglib.Artist: {artist}})
+}
+
+func writeTestTags(t *testing.T, path string, tags map[string][]string) {
+	t.Helper()
 	if err := taglib.WriteTags(path, tags, 0); err != nil {
 		t.Fatalf("write tags: %v", err)
 	}
@@ -509,9 +515,9 @@ func TestGroupByAlbum_GroupsSameAlbumTogether(t *testing.T) {
 	p3 := newTestMP3(t)
 
 	for _, p := range []string{p1, p2} {
-		taglib.WriteTags(p, map[string][]string{taglib.Album: {"LP!"}}, 0)
+		writeTestTags(t, p, map[string][]string{taglib.Album: {"LP!"}})
 	}
-	taglib.WriteTags(p3, map[string][]string{taglib.Album: {"Veteran"}}, 0)
+	writeTestTags(t, p3, map[string][]string{taglib.Album: {"Veteran"}})
 
 	groups := groupByAlbum([]string{p1, p2, p3})
 
@@ -556,7 +562,7 @@ func TestWritePositionalTags_WritesTrackAndDisc(t *testing.T) {
 
 func TestWritePositionalTags_SkipsZeroValues(t *testing.T) {
 	p := newTestMP3(t)
-	taglib.WriteTags(p, map[string][]string{taglib.TrackNumber: {"3"}}, 0)
+	writeTestTags(t, p, map[string][]string{taglib.TrackNumber: {"3"}})
 
 	// disc = 0 means "unknown", should not write
 	if err := writePositionalTags(p, 4, 0); err != nil {
@@ -736,16 +742,16 @@ func TestResolveGroupByFingerprint_WritesPositionalTags(t *testing.T) {
 	p1 := newTestMP3(t)
 	p2 := newTestMP3(t)
 
-	taglib.WriteTags(p1, map[string][]string{
+	writeTestTags(t, p1, map[string][]string{
 		taglib.Title:  {"TRUST!"},
 		taglib.Artist: {"JPEGMAFIA"},
 		taglib.Album:  {"LP!"},
-	}, 0)
-	taglib.WriteTags(p2, map[string][]string{
+	})
+	writeTestTags(t, p2, map[string][]string{
 		taglib.Title:  {"DIRTY!"},
 		taglib.Artist: {"JPEGMAFIA"},
 		taglib.Album:  {"LP!"},
-	}, 0)
+	})
 
 	bf := &mockBatchFingerprinter{
 		matches: []FileMatch{
@@ -832,16 +838,16 @@ func TestResolve_PhaseA_RunsBeforePhaseB(t *testing.T) {
 	p1 := newTestMP3(t)
 	p2 := newTestMP3(t)
 
-	taglib.WriteTags(p1, map[string][]string{
+	writeTestTags(t, p1, map[string][]string{
 		taglib.Title:  {"TRUST!"},
 		taglib.Artist: {"JPEGMAFIA"},
 		taglib.Album:  {"LP!"},
-	}, 0)
-	taglib.WriteTags(p2, map[string][]string{
+	})
+	writeTestTags(t, p2, map[string][]string{
 		taglib.Title:  {"DIRTY!"},
 		taglib.Artist: {"JPEGMAFIA"},
 		taglib.Album:  {"LP!"},
-	}, 0)
+	})
 
 	// Phase A resolves both files with correct positions
 	bf := &mockBatchFingerprinter{
@@ -895,16 +901,16 @@ func TestResolveGroup_WritesPositionalTags(t *testing.T) {
 	p1 := newTestMP3(t)
 	p2 := newTestMP3(t)
 
-	taglib.WriteTags(p1, map[string][]string{
+	writeTestTags(t, p1, map[string][]string{
 		taglib.Title:  {"TRUST!"},
 		taglib.Artist: {"JPEGMAFIA"},
 		taglib.Album:  {"LP!"},
-	}, 0)
-	taglib.WriteTags(p2, map[string][]string{
+	})
+	writeTestTags(t, p2, map[string][]string{
 		taglib.Title:  {"DIRTY!"},
 		taglib.Artist: {"JPEGMAFIA"},
 		taglib.Album:  {"LP!"},
-	}, 0)
+	})
 
 	ar := &mockAlbumResolver{
 		found: true,
@@ -940,10 +946,10 @@ func TestResolveGroup_WritesPositionalTags(t *testing.T) {
 
 func TestResolveGroup_NotFound_DoesNothing(t *testing.T) {
 	p := newTestMP3(t)
-	taglib.WriteTags(p, map[string][]string{
+	writeTestTags(t, p, map[string][]string{
 		taglib.Title: {"TRUST!"},
 		taglib.Album: {"LP!"},
-	}, 0)
+	})
 
 	ar := &mockAlbumResolver{found: false}
 
@@ -961,10 +967,10 @@ func TestResolveGroup_NotFound_DoesNothing(t *testing.T) {
 
 func TestResolveGroup_LowTitleMatch_DoesNotWriteTags(t *testing.T) {
 	p := newTestMP3(t)
-	taglib.WriteTags(p, map[string][]string{
+	writeTestTags(t, p, map[string][]string{
 		taglib.Title: {"COMPLETELY DIFFERENT TRACK"},
 		taglib.Album: {"LP!"},
-	}, 0)
+	})
 
 	ar := &mockAlbumResolver{
 		found: true,
@@ -992,16 +998,16 @@ func TestResolve_AlbumFirstPhaseWritesPositionalTags(t *testing.T) {
 	p1 := newTestMP3(t)
 	p2 := newTestMP3(t)
 
-	taglib.WriteTags(p1, map[string][]string{
+	writeTestTags(t, p1, map[string][]string{
 		taglib.Title:  {"TRUST!"},
 		taglib.Artist: {"JPEGMAFIA"},
 		taglib.Album:  {"LP!"},
-	}, 0)
-	taglib.WriteTags(p2, map[string][]string{
+	})
+	writeTestTags(t, p2, map[string][]string{
 		taglib.Title:  {"DIRTY!"},
 		taglib.Artist: {"JPEGMAFIA"},
 		taglib.Album:  {"LP!"},
-	}, 0)
+	})
 
 	ar := &mockAlbumResolver{
 		found: true,

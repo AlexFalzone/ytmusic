@@ -19,9 +19,11 @@ func TestCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
-	jm.UpdateJob(old.ID, func(j *Job) {
+	if err := jm.UpdateJob(old.ID, func(j *Job) {
 		j.Status = StatusCompleted
-	})
+	}); err != nil {
+		t.Fatalf("UpdateJob: %v", err)
+	}
 	// Backdate CompletedAt
 	jm.mu.Lock()
 	past := time.Now().Add(-2 * time.Hour)
@@ -33,18 +35,22 @@ func TestCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
-	jm.UpdateJob(recent.ID, func(j *Job) {
+	if err := jm.UpdateJob(recent.ID, func(j *Job) {
 		j.Status = StatusCompleted
-	})
+	}); err != nil {
+		t.Fatalf("UpdateJob: %v", err)
+	}
 
 	// Create a running job (should never be cleaned)
 	running, err := jm.CreateJob(context.Background(), "https://example.com/running", cfg)
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
-	jm.UpdateJob(running.ID, func(j *Job) {
+	if err := jm.UpdateJob(running.ID, func(j *Job) {
 		j.Status = StatusRunning
-	})
+	}); err != nil {
+		t.Fatalf("UpdateJob: %v", err)
+	}
 
 	jm.cleanup()
 
@@ -98,18 +104,22 @@ func TestUpdateJobTimestamps(t *testing.T) {
 	}
 
 	// Pending → Running should set StartedAt
-	jm.UpdateJob(job.ID, func(j *Job) {
+	if err := jm.UpdateJob(job.ID, func(j *Job) {
 		j.Status = StatusRunning
-	})
+	}); err != nil {
+		t.Fatalf("UpdateJob: %v", err)
+	}
 	j, _ := jm.GetJob(job.ID)
 	if j.StartedAt == nil {
 		t.Error("StartedAt should be set when status changes to running")
 	}
 
 	// Running → Completed should set CompletedAt
-	jm.UpdateJob(job.ID, func(j *Job) {
+	if err := jm.UpdateJob(job.ID, func(j *Job) {
 		j.Status = StatusCompleted
-	})
+	}); err != nil {
+		t.Fatalf("UpdateJob: %v", err)
+	}
 	j, _ = jm.GetJob(job.ID)
 	if j.CompletedAt == nil {
 		t.Error("CompletedAt should be set when status changes to completed")
@@ -134,9 +144,13 @@ func TestSubscribeReceivesUpdates(t *testing.T) {
 
 	ch := jm.Subscribe(job.ID)
 
-	jm.UpdateJob(job.ID, func(j *Job) {
+	if err := jm.UpdateJob(job.ID, func(j *Job) {
 		j.Status = StatusRunning
-	})
+	}); err != nil {
+
+		t.Fatalf("UpdateJob: %v", err)
+
+	}
 
 	select {
 	case update := <-ch:

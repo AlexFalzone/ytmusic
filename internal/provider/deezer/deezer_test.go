@@ -11,13 +11,22 @@ import (
 	"ytmusic/internal/metadata"
 )
 
+// respondJSON encodes v as the fake server's reply. t.Errorf rather than Fatal:
+// it runs on the handler's goroutine.
+func respondJSON(t *testing.T, w http.ResponseWriter, v any) {
+	t.Helper()
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		t.Errorf("encoding fake response: %v", err)
+	}
+}
+
 func TestSearch(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/search", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("User-Agent") != buildinfo.UserAgent() {
 			t.Errorf("unexpected User-Agent: %s", r.Header.Get("User-Agent"))
 		}
-		json.NewEncoder(w).Encode(searchResponse{
+		respondJSON(t, w, searchResponse{
 			Data: []trackItem{
 				{
 					ID:            1,
@@ -96,7 +105,7 @@ func TestSearchEmptyQuery(t *testing.T) {
 
 func TestSearchNoResults(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(searchResponse{Data: []trackItem{}})
+		respondJSON(t, w, searchResponse{Data: []trackItem{}})
 	}))
 	defer srv.Close()
 
@@ -114,7 +123,7 @@ func TestSearchNoResults(t *testing.T) {
 
 func TestSearchAPIError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(searchResponse{
+		respondJSON(t, w, searchResponse{
 			Error: &apiError{Type: "Exception", Message: "Quota exceeded", Code: 4},
 		})
 	}))

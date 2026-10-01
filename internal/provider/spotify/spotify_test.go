@@ -10,6 +10,15 @@ import (
 	"ytmusic/internal/metadata"
 )
 
+// respondJSON encodes v as the fake server's reply. t.Errorf rather than Fatal:
+// it runs on the handler's goroutine.
+func respondJSON(t *testing.T, w http.ResponseWriter, v any) {
+	t.Helper()
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		t.Errorf("encoding fake response: %v", err)
+	}
+}
+
 func TestSearch(t *testing.T) {
 	// Mock Spotify API
 	mux := http.NewServeMux()
@@ -23,7 +32,7 @@ func TestSearch(t *testing.T) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		json.NewEncoder(w).Encode(tokenResponse{
+		respondJSON(t, w, tokenResponse{
 			AccessToken: "test-token",
 			TokenType:   "Bearer",
 			ExpiresIn:   3600,
@@ -60,7 +69,7 @@ func TestSearch(t *testing.T) {
 				},
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		respondJSON(t, w, resp)
 	})
 
 	server := httptest.NewServer(mux)
@@ -126,7 +135,7 @@ func TestTokenCaching(t *testing.T) {
 
 	mux.HandleFunc("/api/token", func(w http.ResponseWriter, r *http.Request) {
 		tokenCalls++
-		json.NewEncoder(w).Encode(tokenResponse{
+		respondJSON(t, w, tokenResponse{
 			AccessToken: "cached-token",
 			TokenType:   "Bearer",
 			ExpiresIn:   3600,
@@ -135,7 +144,7 @@ func TestTokenCaching(t *testing.T) {
 
 	mux.HandleFunc("/v1/search", func(w http.ResponseWriter, r *http.Request) {
 		resp := searchResponse{}
-		json.NewEncoder(w).Encode(resp)
+		respondJSON(t, w, resp)
 	})
 
 	server := httptest.NewServer(mux)
@@ -146,8 +155,11 @@ func TestTokenCaching(t *testing.T) {
 	client.apiURL = server.URL + "/v1"
 
 	// Two searches should only call token endpoint once
-	client.Search(context.Background(), metadata.SearchQuery{Title: "a"})
-	client.Search(context.Background(), metadata.SearchQuery{Title: "b"})
+	for _, title := range []string{"a", "b"} {
+		if _, err := client.Search(context.Background(), metadata.SearchQuery{Title: title}); err != nil {
+			t.Fatalf("Search(%q): %v", title, err)
+		}
+	}
 
 	if tokenCalls != 1 {
 		t.Errorf("expected 1 token call, got %d", tokenCalls)

@@ -3,6 +3,7 @@ package musicbrainz
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,24 @@ import (
 	"ytmusic/internal/buildinfo"
 	"ytmusic/internal/metadata"
 )
+
+// respond writes body as the fake server's reply. t.Errorf rather than Fatal:
+// it runs on the handler's goroutine.
+func respond(t *testing.T, w http.ResponseWriter, body string) {
+	t.Helper()
+	if _, err := io.WriteString(w, body); err != nil {
+		t.Errorf("writing fake response: %v", err)
+	}
+}
+
+// respondJSON encodes v as the fake server's reply. t.Errorf rather than Fatal:
+// it runs on the handler's goroutine.
+func respondJSON(t *testing.T, w http.ResponseWriter, v any) {
+	t.Helper()
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		t.Errorf("encoding fake response: %v", err)
+	}
+}
 
 func newTestClient(url string) *Client {
 	return &Client{
@@ -28,7 +47,7 @@ func TestSearch_ParsesResponse(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		// artwork URL will be rewritten to point to this test server
-		w.Write([]byte(`{
+		respond(t, w, `{
 			"recordings": [{
 				"id": "rec-1",
 				"title": "Bohemian Rhapsody",
@@ -43,7 +62,7 @@ func TestSearch_ParsesResponse(t *testing.T) {
 				}],
 				"isrcs": ["GBUM71029604"]
 			}]
-		}`))
+		}`)
 	})
 	mux.HandleFunc("/release/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -117,7 +136,7 @@ func TestSearch_EmptyQuery(t *testing.T) {
 func TestSearch_ServerError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("internal error"))
+		respond(t, w, "internal error")
 	}))
 	defer srv.Close()
 
@@ -138,7 +157,7 @@ func TestSearch_RetryOn429(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"recordings": [{"id": "r1", "title": "Test", "artist-credit": [{"artist": {"name": "Artist"}}]}]}`))
+		respond(t, w, `{"recordings": [{"id": "r1", "title": "Test", "artist-credit": [{"artist": {"name": "Artist"}}]}]}`)
 	}))
 	defer srv.Close()
 
@@ -158,7 +177,7 @@ func TestSearch_RetryOn429(t *testing.T) {
 func TestSearch_MultipleArtistCredits(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{
+		respond(t, w, `{
 			"recordings": [{
 				"id": "rec-2",
 				"title": "Under Pressure",
@@ -168,7 +187,7 @@ func TestSearch_MultipleArtistCredits(t *testing.T) {
 					{"artist": {"id": "a2", "name": "David Bowie"}}
 				]
 			}]
-		}`))
+		}`)
 	}))
 	defer srv.Close()
 
@@ -400,7 +419,7 @@ func TestLookupByMBID_Found(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(recording)
+		respondJSON(t, w, recording)
 	}))
 	defer srv.Close()
 
@@ -435,7 +454,7 @@ func TestSearchRelease_ReturnsCandidates(t *testing.T) {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{
+		respond(t, w, `{
 			"releases": [
 				{
 					"id": "release-lp",
@@ -445,7 +464,7 @@ func TestSearchRelease_ReturnsCandidates(t *testing.T) {
 					"release-group": {"primary-type": "Album", "secondary-types": []}
 				}
 			]
-		}`))
+		}`)
 	}))
 	defer srv.Close()
 
@@ -468,7 +487,7 @@ func TestSearchRelease_ReturnsCandidates(t *testing.T) {
 func TestSearchRelease_EmptyResults(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"releases": []}`))
+		respond(t, w, `{"releases": []}`)
 	}))
 	defer srv.Close()
 
@@ -485,7 +504,7 @@ func TestSearchRelease_EmptyResults(t *testing.T) {
 func TestLookupRelease_ReturnsTracklist(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{
+		respond(t, w, `{
 			"id": "release-lp",
 			"title": "LP!",
 			"artist-credit": [{"artist": {"id": "a1", "name": "JPEGMAFIA"}}],
@@ -500,7 +519,7 @@ func TestLookupRelease_ReturnsTracklist(t *testing.T) {
 					]
 				}
 			]
-		}`))
+		}`)
 	}))
 	defer srv.Close()
 
@@ -529,7 +548,7 @@ func TestLookupRelease_ReturnsTracklist(t *testing.T) {
 func TestLookupRelease_MultiDisc(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{
+		respond(t, w, `{
 			"id": "release-multi",
 			"title": "Double Album",
 			"artist-credit": [{"artist": {"id": "a1", "name": "Artist"}}],
@@ -547,7 +566,7 @@ func TestLookupRelease_MultiDisc(t *testing.T) {
 					]
 				}
 			]
-		}`))
+		}`)
 	}))
 	defer srv.Close()
 
@@ -571,11 +590,11 @@ func TestResolveAlbum_ReturnsBestMatchingTracklist(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/release", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"releases": [{"id": "r1", "title": "LP!", "date": "2021-10-22", "artist-credit": [{"artist": {"id": "a1", "name": "JPEGMAFIA"}}], "release-group": {"primary-type": "Album", "secondary-types": []}}]}`))
+		respond(t, w, `{"releases": [{"id": "r1", "title": "LP!", "date": "2021-10-22", "artist-credit": [{"artist": {"id": "a1", "name": "JPEGMAFIA"}}], "release-group": {"primary-type": "Album", "secondary-types": []}}]}`)
 	})
 	mux.HandleFunc("/release/r1", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"id": "r1", "title": "LP!", "artist-credit": [{"artist": {"id": "a1", "name": "JPEGMAFIA"}}], "media": [{"position": 1, "tracks": [{"number": "1", "position": 1, "title": "TRUST!", "recording": {"id": "rec-1"}}]}]}`))
+		respond(t, w, `{"id": "r1", "title": "LP!", "artist-credit": [{"artist": {"id": "a1", "name": "JPEGMAFIA"}}], "media": [{"position": 1, "tracks": [{"number": "1", "position": 1, "title": "TRUST!", "recording": {"id": "rec-1"}}]}]}`)
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -599,7 +618,7 @@ func TestResolveAlbum_ReturnsBestMatchingTracklist(t *testing.T) {
 func TestResolveAlbum_NotFound(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"releases": []}`))
+		respond(t, w, `{"releases": []}`)
 	}))
 	defer srv.Close()
 
@@ -616,14 +635,14 @@ func TestResolveAlbum_NotFound(t *testing.T) {
 func TestReleaseIDsForRecording_ReturnsIDs(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{
+		respond(t, w, `{
 			"id": "rec-1",
 			"title": "TRUST!",
 			"releases": [
 				{"id": "rel-lp", "title": "LP!"},
 				{"id": "rel-offline", "title": "LP! OFFLINE"}
 			]
-		}`))
+		}`)
 	}))
 	defer srv.Close()
 
@@ -643,7 +662,7 @@ func TestReleaseIDsForRecording_ReturnsIDs(t *testing.T) {
 func TestReleaseIDsForRecording_NoReleases(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"id": "rec-x", "title": "Unknown", "releases": []}`))
+		respond(t, w, `{"id": "rec-x", "title": "Unknown", "releases": []}`)
 	}))
 	defer srv.Close()
 
@@ -660,7 +679,7 @@ func TestReleaseIDsForRecording_NoReleases(t *testing.T) {
 func TestLookupTracklist_DelegatesToLookupRelease(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{
+		respond(t, w, `{
 			"id": "rel-lp",
 			"title": "LP!",
 			"artist-credit": [{"artist": {"id": "a1", "name": "JPEGMAFIA"}}],
@@ -670,7 +689,7 @@ func TestLookupTracklist_DelegatesToLookupRelease(t *testing.T) {
 					{"number": "1", "position": 1, "title": "TRUST!", "recording": {"id": "rec-1"}}
 				]
 			}]
-		}`))
+		}`)
 	}))
 	defer srv.Close()
 

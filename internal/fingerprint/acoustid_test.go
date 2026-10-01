@@ -10,6 +10,15 @@ import (
 	"ytmusic/internal/fingerprint"
 )
 
+// respondJSON encodes v as the fake server's reply. t.Errorf rather than Fatal:
+// it runs on the handler's goroutine.
+func respondJSON(t *testing.T, w http.ResponseWriter, v any) {
+	t.Helper()
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		t.Errorf("encoding fake response: %v", err)
+	}
+}
+
 func TestAcoustIDClient_Lookup_Found(t *testing.T) {
 	payload := map[string]any{
 		"status": "ok",
@@ -29,7 +38,7 @@ func TestAcoustIDClient_Lookup_Found(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(payload)
+		respondJSON(t, w, payload)
 	}))
 	defer srv.Close()
 
@@ -49,7 +58,7 @@ func TestAcoustIDClient_Lookup_Found(t *testing.T) {
 func TestAcoustIDClient_Lookup_NoResults(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"status": "ok", "results": []any{}})
+		respondJSON(t, w, map[string]any{"status": "ok", "results": []any{}})
 	}))
 	defer srv.Close()
 
@@ -76,7 +85,7 @@ func TestAcoustIDClient_Lookup_NoRecordings(t *testing.T) {
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(payload)
+		respondJSON(t, w, payload)
 	}))
 	defer srv.Close()
 
