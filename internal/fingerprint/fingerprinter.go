@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"ytmusic/internal/memo"
 	"ytmusic/internal/metadata"
 )
 
@@ -29,6 +30,17 @@ type Fingerprinter struct {
 	fpcalc     fpcalcGenerator
 	acoustid   acoustidLookup
 	mbidLookup func(ctx context.Context, mbid, preferAlbum string) (metadata.TrackInfo, error)
+
+	// The batch phase fingerprints whole album groups and the per-file phase
+	// looks the same files up again: fpcalc and AcoustID run once per file.
+	recordings memo.Cache[string, recordingMatch]
+}
+
+// recordingMatch is what AcoustID made of one file. Not finding a recording
+// is an answer too, and is remembered like one.
+type recordingMatch struct {
+	mbid  string
+	found bool
 }
 
 // New creates a production Fingerprinter with real dependencies.
@@ -66,11 +78,7 @@ func (f *Fingerprinter) BatchLookupByFiles(ctx context.Context, paths []string) 
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			fp, err := f.fpcalc.Generate(ctx, path)
-			if err != nil {
-				return
-			}
-			mbid, found, err := f.acoustid.Lookup(ctx, fp)
+			mbid, found, err := f.recordingID(ctx, path)
 			if err != nil || !found {
 				return
 			}
@@ -92,12 +100,7 @@ func (f *Fingerprinter) BatchLookupByFiles(ctx context.Context, paths []string) 
 // preferAlbum is passed to MusicBrainz to break ties when a recording appears in multiple releases.
 // Returns (zero, false, nil) when no match is found; errors are non-fatal (logged by caller).
 func (f *Fingerprinter) LookupByFile(ctx context.Context, path, preferAlbum string) (metadata.TrackInfo, bool, error) {
-	fp, err := f.fpcalc.Generate(ctx, path)
-	if err != nil {
-		return metadata.TrackInfo{}, false, nil
-	}
-
-	mbid, found, err := f.acoustid.Lookup(ctx, fp)
+	mbid, found, err := f.recordingID(ctx, path)
 	if err != nil || !found {
 		return metadata.TrackInfo{}, false, nil
 	}
@@ -109,4 +112,21 @@ func (f *Fingerprinter) LookupByFile(ctx context.Context, path, preferAlbum stri
 
 	info.Confidence = 1.0
 	return info, true, nil
+}
+
+// recordingID fingerprints the file and asks AcoustID for its recording, once
+// per file for the run.
+func (f *Fingerprinter) recordingID(ctx context.Context, path string) (string, bool, error) {
+	m, err := f.recordings.Do(path, func() (recordingMatch, error) {
+		fp, err := f.fpcalc.Generate(ctx, path)
+		if err != nil {
+			return recordingMatch{}, err
+		}
+		mbid, found, err := f.acoustid.Lookup(ctx, fp)
+		if err != nil {
+			return recordingMatch{}, err
+		}
+		return recordingMatch{mbid: mbid, found: found}, nil
+	})
+	return m.mbid, m.found, err
 }
