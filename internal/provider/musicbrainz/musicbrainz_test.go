@@ -47,7 +47,6 @@ func TestSearch_ParsesResponse(t *testing.T) {
 			t.Errorf("User-Agent = %q, want %q", ua, buildinfo.UserAgent())
 		}
 		w.Header().Set("Content-Type", "application/json")
-		// artwork URL will be rewritten to point to this test server
 		respond(t, w, `{
 			"recordings": [{
 				"id": "rec-1",
@@ -65,15 +64,11 @@ func TestSearch_ParsesResponse(t *testing.T) {
 			}]
 		}`)
 	})
-	mux.HandleFunc("/release/", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
 
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	// Override artwork base URL to point to test server
 	c.artworkBaseURL = srv.URL + "/release"
 	results, err := c.Search(context.Background(), metadata.SearchQuery{
 		Title:  "Bohemian Rhapsody",

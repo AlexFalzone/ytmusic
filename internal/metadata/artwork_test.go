@@ -1,0 +1,119 @@
+package metadata
+
+import (
+	"bytes"
+	"context"
+	"image"
+	"image/color"
+	"image/png"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"ytmusic/internal/logger"
+
+	"go.senan.xyz/taglib"
+)
+
+// pngOf returns a one-pixel PNG of the given shade, so two images can be told
+// apart once embedded.
+func pngOf(t *testing.T, shade uint8) []byte {
+	t.Helper()
+	img := image.NewGray(image.Rect(0, 0, 1, 1))
+	img.SetGray(0, 0, color.Gray{Y: shade})
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("encode png: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// artworkServer serves /a and /b as two different images and 404s the rest.
+func artworkServer(t *testing.T) (srv *httptest.Server, a, b []byte) {
+	t.Helper()
+	a, b = pngOf(t, 0), pngOf(t, 255)
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var img []byte
+		switch r.URL.Path {
+		case "/a":
+			img = a
+		case "/b":
+			img = b
+		default:
+			http.NotFound(w, r)
+			return
+		}
+		if _, err := w.Write(img); err != nil {
+			t.Errorf("write image: %v", err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, a, b
+}
+
+func readTestImage(t *testing.T, path string) []byte {
+	t.Helper()
+	img, err := taglib.ReadImage(path)
+	if err != nil {
+		t.Fatalf("read image: %v", err)
+	}
+	return img
+}
+
+// MusicBrainz hands out Cover Art Archive URLs without checking them. When the
+// primary's artwork cannot be had, gap filling supplies another.
+func TestResolveFile_FallsBackToFillerArtwork(t *testing.T) {
+	srv, _, b := artworkServer(t)
+	path := newTestMP3(t)
+	tagTestFile(t, path, "Song", "Artist")
+
+	primary := &mockProvider{name: "primary", results: []TrackInfo{
+		{Title: "Song", Artist: "Artist", Album: "Album", ArtworkURL: srv.URL + "/missing"},
+	}}
+	filler := &mockProvider{name: "filler", results: []TrackInfo{
+		{Title: "Song", Artist: "Artist", Album: "Album", Genre: "Rock", ArtworkURL: srv.URL + "/b"},
+	}}
+	resolveOne(t, path, primary, filler)
+
+	if got := readTestImage(t, path); !bytes.Equal(got, b) {
+		t.Errorf("embedded image is %d bytes, want the filler's %d", len(got), len(b))
+	}
+}
+
+func TestResolveFile_KeepsPrimaryArtwork(t *testing.T) {
+	srv, a, _ := artworkServer(t)
+	path := newTestMP3(t)
+	tagTestFile(t, path, "Song", "Artist")
+
+	primary := &mockProvider{name: "primary", results: []TrackInfo{
+		{Title: "Song", Artist: "Artist", Album: "Album", ArtworkURL: srv.URL + "/a"},
+	}}
+	filler := &mockProvider{name: "filler", results: []TrackInfo{
+		{Title: "Song", Artist: "Artist", Album: "Album", Genre: "Rock", ArtworkURL: srv.URL + "/b"},
+	}}
+	resolveOne(t, path, primary, filler)
+
+	if got := readTestImage(t, path); !bytes.Equal(got, a) {
+		t.Errorf("embedded image is %d bytes, want the primary's %d", len(got), len(a))
+	}
+}
+
+// A fingerprint match comes from MusicBrainz too, with the same unchecked URL.
+func TestResolveFile_FingerprintMatchFallsBackToFillerArtwork(t *testing.T) {
+	srv, _, b := artworkServer(t)
+	path := newTestMP3(t)
+	tagTestFile(t, path, "Song", "Artist")
+
+	fp := &stubFingerprinter{info: TrackInfo{Title: "Song", Artist: "Artist", Album: "Album", ArtworkURL: srv.URL + "/missing"}, found: true}
+	filler := &mockProvider{name: "filler", results: []TrackInfo{
+		{Title: "Song", Artist: "Artist", Album: "Album", ArtworkURL: srv.URL + "/b"},
+	}}
+	r := NewResolver([]Provider{filler}, logger.New(false), 0).WithFingerprinter(fp)
+	if err := r.Resolve(context.Background(), []string{path}); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	if got := readTestImage(t, path); !bytes.Equal(got, b) {
+		t.Errorf("embedded image is %d bytes, want the filler's %d", len(got), len(b))
+	}
+}

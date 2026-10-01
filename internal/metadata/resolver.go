@@ -170,8 +170,8 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 	if r.fingerprinter != nil {
 		if info, found, err := r.fingerprinter.LookupByFile(ctx, path, query.Album); err == nil && found {
 			r.logger.Debug("  Fingerprint match: %q by %q", info.Title, info.Artist)
-			info = r.fillGaps(ctx, src, match{info: info, providerIdx: -1})
-			return r.writeResolved(ctx, path, info)
+			info, art := r.complete(ctx, src, match{info: info, providerIdx: -1})
+			return r.writeResolved(path, info, art)
 		}
 	}
 
@@ -184,11 +184,37 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 		return nil
 	}
 
-	info := r.fillGaps(ctx, src, m)
+	info, art := r.complete(ctx, src, m)
 	if m.donor {
 		info = asVariant(info, m.base, src.version)
 	}
-	return r.writeResolved(ctx, path, info)
+	return r.writeResolved(path, info, art)
+}
+
+// complete fills the match's gaps and fetches its artwork. The primary's
+// artwork is fetched before gap filling: MusicBrainz hands out Cover Art
+// Archive URLs unchecked, and a URL that yields no image is dropped so that
+// another provider can supply one. A filler's broken URL has no such second
+// chance.
+func (r *Resolver) complete(ctx context.Context, src source, m match) (TrackInfo, []byte) {
+	var art []byte
+	if m.info.ArtworkURL != "" {
+		var err error
+		if art, err = r.downloadArtwork(ctx, m.info.ArtworkURL); err != nil {
+			r.logger.Debug("  dropping artwork %s: %v", m.info.ArtworkURL, err)
+			m.info.ArtworkURL = ""
+		}
+	}
+
+	info := r.fillGaps(ctx, src, m)
+
+	if art == nil && info.ArtworkURL != "" {
+		var err error
+		if art, err = r.downloadArtwork(ctx, info.ArtworkURL); err != nil {
+			r.logger.Warn("  Failed to fetch artwork: %v", err)
+		}
+	}
+	return info, art
 }
 
 // fileDuration reads the file's own length. Zero means unknown, which disables
@@ -203,16 +229,14 @@ func (r *Resolver) fileDuration(path string) time.Duration {
 }
 
 // writeResolved writes the resolved metadata, keeping the track and disc
-// numbers the file already had, then embeds the artwork.
-func (r *Resolver) writeResolved(ctx context.Context, path string, info TrackInfo) error {
+// numbers the file already had, then embeds the artwork if there is one.
+func (r *Resolver) writeResolved(path string, info TrackInfo, art []byte) error {
 	info = mergeWithExisting(path, info)
 	if err := WriteTags(path, info); err != nil {
 		return fmt.Errorf("failed to write tags: %w", err)
 	}
-	if info.ArtworkURL != "" {
-		if err := r.downloadAndEmbedArtwork(ctx, path, info.ArtworkURL); err != nil {
-			r.logger.Warn("  Failed to embed artwork: %v", err)
-		}
+	if err := WriteArtwork(path, art); err != nil {
+		r.logger.Warn("  Failed to embed artwork: %v", err)
 	}
 	if err := ensureAlbumArtist(path); err != nil {
 		r.logger.Warn("  %v", err)
@@ -368,29 +392,33 @@ func ensureAlbumArtist(path string) error {
 	return nil
 }
 
-func (r *Resolver) downloadAndEmbedArtwork(ctx context.Context, filePath, artworkURL string) error {
+// downloadArtwork fetches the image at artworkURL. An empty body counts as a
+// failure: it is no more an image than a 404.
+func (r *Resolver) downloadArtwork(ctx context.Context, artworkURL string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, artworkURL, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create artwork request: %w", err)
+		return nil, fmt.Errorf("failed to create artwork request: %w", err)
 	}
 
 	resp, err := r.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to download artwork: %w", err)
+		return nil, fmt.Errorf("failed to download artwork: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("artwork download returned %d", resp.StatusCode)
+		return nil, fmt.Errorf("artwork download returned %d", resp.StatusCode)
 	}
 
 	const maxArtworkSize = 10 << 20 // 10 MB
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxArtworkSize))
 	if err != nil {
-		return fmt.Errorf("failed to read artwork data: %w", err)
+		return nil, fmt.Errorf("failed to read artwork data: %w", err)
 	}
-
-	return WriteArtwork(filePath, data)
+	if len(data) == 0 {
+		return nil, fmt.Errorf("artwork download returned no data")
+	}
+	return data, nil
 }
 
 const trackMatchThreshold = 0.6

@@ -91,7 +91,7 @@ func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]meta
 		return nil, fmt.Errorf("failed to decode musicbrainz response: %w", err)
 	}
 
-	return c.parseRecordings(ctx, searchResp.Recordings, query.Album), nil
+	return parseRecordings(searchResp.Recordings, query.Album, c.artworkBaseURL), nil
 }
 
 // LookupByMBID fetches a single recording by its MusicBrainz recording ID.
@@ -102,7 +102,7 @@ func (c *Client) LookupByMBID(ctx context.Context, mbid, preferAlbum string) (me
 		return metadata.TrackInfo{}, err
 	}
 
-	results := c.parseRecordings(ctx, []recording{rec}, preferAlbum)
+	results := parseRecordings([]recording{rec}, preferAlbum, c.artworkBaseURL)
 	if len(results) == 0 {
 		return metadata.TrackInfo{}, fmt.Errorf("no parseable data in musicbrainz recording %s", mbid)
 	}
@@ -190,7 +190,11 @@ func buildQuery(query metadata.SearchQuery) string {
 	return strings.Join(parts, " AND ")
 }
 
-func (c *Client) parseRecordings(ctx context.Context, recordings []recording, preferAlbum string) []metadata.TrackInfo {
+// parseRecordings turns recordings into candidates. The artwork URL is the
+// release's Cover Art Archive front image, not checked here: probing every
+// candidate cost a request each, and the resolver downloads the one it keeps,
+// falling back to another provider's artwork when that fails.
+func parseRecordings(recordings []recording, preferAlbum, artworkBaseURL string) []metadata.TrackInfo {
 	var results []metadata.TrackInfo
 	for _, rec := range recordings {
 		info := metadata.TrackInfo{
@@ -212,10 +216,7 @@ func (c *Client) parseRecordings(ctx context.Context, recordings []recording, pr
 			info.Year = parseYear(rel.Date)
 			info.ReleaseDate = rel.Date
 
-			artworkURL := fmt.Sprintf("%s/%s/front-500", c.artworkBaseURL, rel.ID)
-			if c.hasArtwork(ctx, artworkURL) {
-				info.ArtworkURL = artworkURL
-			}
+			info.ArtworkURL = fmt.Sprintf("%s/%s/front-500", artworkBaseURL, rel.ID)
 
 			if len(rel.Media) > 0 && len(rel.Media[0].Track) > 0 {
 				m := rel.Media[0]
@@ -236,20 +237,6 @@ func (c *Client) parseRecordings(ctx context.Context, recordings []recording, pr
 		results = append(results, info)
 	}
 	return results
-}
-
-// hasArtwork checks if artwork exists at the given URL via a HEAD request.
-func (c *Client) hasArtwork(ctx context.Context, artworkURL string) bool {
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, artworkURL, nil)
-	if err != nil {
-		return false
-	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return false
-	}
-	resp.Body.Close()
-	return resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusTemporaryRedirect
 }
 
 func joinArtistCredits(credits []artistCredit) string {
