@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"ytmusic/internal/buildinfo"
+	"ytmusic/internal/memo"
 	"ytmusic/internal/metadata"
 	"ytmusic/internal/throttle"
 )
@@ -28,6 +29,13 @@ type Client struct {
 	apiURL         string
 	artworkBaseURL string
 	throttle       *throttle.Throttle
+
+	// The three phases of a run ask for the same recordings and releases:
+	// phase A for the releases of each fingerprinted recording, the
+	// fingerprint path for the same recordings' metadata, phase B for an
+	// album phase A may already have fetched.
+	recordings memo.Cache[string, recording]
+	releases   memo.Cache[string, metadata.Tracklist]
 }
 
 // New creates a new MusicBrainz client.
@@ -89,28 +97,9 @@ func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]meta
 // LookupByMBID fetches a single recording by its MusicBrainz recording ID.
 // preferAlbum, if non-empty, is used to break ties when the recording appears in multiple releases.
 func (c *Client) LookupByMBID(ctx context.Context, mbid, preferAlbum string) (metadata.TrackInfo, error) {
-	reqURL := fmt.Sprintf("%s/recording/%s?inc=artists+releases+isrcs+artist-credits&fmt=json", c.apiURL, mbid)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	rec, err := c.lookupRecording(ctx, mbid)
 	if err != nil {
-		return metadata.TrackInfo{}, fmt.Errorf("failed to create musicbrainz lookup request: %w", err)
-	}
-	req.Header.Set("User-Agent", buildinfo.UserAgent())
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.doWithRetry(ctx, req)
-	if err != nil {
-		return metadata.TrackInfo{}, fmt.Errorf("musicbrainz lookup failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return metadata.TrackInfo{}, fmt.Errorf("musicbrainz lookup returned %d: %s", resp.StatusCode, body)
-	}
-
-	var rec recording
-	if err := json.NewDecoder(resp.Body).Decode(&rec); err != nil {
-		return metadata.TrackInfo{}, fmt.Errorf("failed to decode musicbrainz recording: %w", err)
+		return metadata.TrackInfo{}, err
 	}
 
 	results := c.parseRecordings(ctx, []recording{rec}, preferAlbum)
@@ -118,6 +107,37 @@ func (c *Client) LookupByMBID(ctx context.Context, mbid, preferAlbum string) (me
 		return metadata.TrackInfo{}, fmt.Errorf("no parseable data in musicbrainz recording %s", mbid)
 	}
 	return results[0], nil
+}
+
+// lookupRecording fetches a recording with everything both of its callers
+// need, once per run.
+func (c *Client) lookupRecording(ctx context.Context, mbid string) (recording, error) {
+	return c.recordings.Do(mbid, func() (recording, error) {
+		reqURL := fmt.Sprintf("%s/recording/%s?inc=artists+releases+isrcs+artist-credits&fmt=json", c.apiURL, mbid)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+		if err != nil {
+			return recording{}, fmt.Errorf("failed to create recording lookup request: %w", err)
+		}
+		req.Header.Set("User-Agent", buildinfo.UserAgent())
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := c.doWithRetry(ctx, req)
+		if err != nil {
+			return recording{}, fmt.Errorf("recording lookup failed: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return recording{}, fmt.Errorf("recording lookup returned %d: %s", resp.StatusCode, body)
+		}
+
+		var rec recording
+		if err := json.NewDecoder(resp.Body).Decode(&rec); err != nil {
+			return recording{}, fmt.Errorf("failed to decode musicbrainz recording: %w", err)
+		}
+		return rec, nil
+	})
 }
 
 // doWithRetry waits for the throttle and executes the request, retrying once
@@ -441,8 +461,15 @@ func (c *Client) searchRelease(ctx context.Context, album, artist string) ([]rel
 	return result.Releases, nil
 }
 
-// lookupRelease fetches the full tracklist for a release by its MusicBrainz ID.
+// lookupRelease returns the full tracklist for a release by its MusicBrainz
+// ID, fetched once per run.
 func (c *Client) lookupRelease(ctx context.Context, releaseID string) (metadata.Tracklist, error) {
+	return c.releases.Do(releaseID, func() (metadata.Tracklist, error) {
+		return c.fetchRelease(ctx, releaseID)
+	})
+}
+
+func (c *Client) fetchRelease(ctx context.Context, releaseID string) (metadata.Tracklist, error) {
 	reqURL := fmt.Sprintf("%s/release/%s?inc=recordings+artist-credits&fmt=json", c.apiURL, releaseID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
@@ -495,28 +522,9 @@ func (c *Client) lookupRelease(ctx context.Context, releaseID string) (metadata.
 // ReleaseIDsForRecording returns all release IDs that contain the given recording MBID.
 // Implements metadata.ReleaseResolver.
 func (c *Client) ReleaseIDsForRecording(ctx context.Context, mbid string) ([]string, error) {
-	reqURL := fmt.Sprintf("%s/recording/%s?inc=releases&fmt=json", c.apiURL, mbid)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	rec, err := c.lookupRecording(ctx, mbid)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create recording lookup request: %w", err)
-	}
-	req.Header.Set("User-Agent", buildinfo.UserAgent())
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.doWithRetry(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("recording lookup failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("recording lookup returned %d: %s", resp.StatusCode, body)
-	}
-
-	var rec recording
-	if err := json.NewDecoder(resp.Body).Decode(&rec); err != nil {
-		return nil, fmt.Errorf("failed to decode recording: %w", err)
+		return nil, err
 	}
 
 	ids := make([]string, 0, len(rec.Releases))
