@@ -401,3 +401,32 @@ func TestDefaultConfigReadsNoBrowserCookies(t *testing.T) {
 		t.Errorf("CookiesBrowser default = %q, want empty", got)
 	}
 }
+
+func TestDefaultLogDirIsUnderHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	want := filepath.Join(home, ".local", "share", "ytmusic", "logs")
+	if got := DefaultConfig().LogDir; got != want {
+		t.Errorf("LogDir default = %q, want %q", got, want)
+	}
+}
+
+// In Docker the log directory has to be the mounted volume, not somewhere under
+// HOME that dies with the container.
+func TestLoadConfigFileReadsLogDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("log_dir: ~/ytlogs\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfigFile(path)
+	if err != nil {
+		t.Fatalf("LoadConfigFile() error: %v", err)
+	}
+	if want := filepath.Join(home, "ytlogs"); cfg.LogDir != want {
+		t.Errorf("LogDir = %q, want %q", cfg.LogDir, want)
+	}
+}

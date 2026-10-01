@@ -60,9 +60,10 @@ func main() {
 
 	// Setup logger with file logging
 	l := logger.New(false)
-	logDir := config.GetDefaultLogPath()
-	if err := os.MkdirAll(logDir, 0755); err == nil {
-		logPath := filepath.Join(logDir, fmt.Sprintf("ytmusic-web-%d.log", time.Now().Unix()))
+	if err := os.MkdirAll(cfg.LogDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to create log directory: %v\n", err)
+	} else {
+		logPath := filepath.Join(cfg.LogDir, fmt.Sprintf("ytmusic-web-%d.log", time.Now().Unix()))
 		if err := l.SetFileLog(logPath); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to setup file logging: %v\n", err)
 		}

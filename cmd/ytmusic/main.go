@@ -29,7 +29,7 @@ func main() {
 	defer log.Close()
 
 	if !cfg.Verbose {
-		logDir := config.GetDefaultLogPath()
+		logDir := cfg.LogDir
 		if err := os.MkdirAll(logDir, 0755); err != nil {
 			fmt.Fprintf(os.Stderr, "[WARN] Failed to create log directory: %v\n", err)
 		} else {

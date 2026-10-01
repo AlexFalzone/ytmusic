@@ -94,6 +94,7 @@ type Config struct {
 	LyricsOnly          string     `yaml:"-"`
 	ImportOnly          string     `yaml:"-"`
 	OutputDir           string     `yaml:"output_dir"`
+	LogDir              string     `yaml:"log_dir"`
 }
 
 // DefaultConfig returns the default configuration
@@ -105,6 +106,7 @@ func DefaultConfig() Config {
 		AudioFormat:         "mp3",
 		ConfidenceThreshold: 0.7,
 		OutputDir:           filepath.Join(homeDir(), "Music"),
+		LogDir:              filepath.Join(homeDir(), ".local", "share", "ytmusic", "logs"),
 		MaxConcurrentJobs:   1,
 		Auth: AuthConfig{
 			Enabled:    true,
@@ -138,6 +140,7 @@ func LoadConfigFile(path string) (Config, error) {
 	}
 
 	cfg.OutputDir = ExpandHome(cfg.OutputDir)
+	cfg.LogDir = ExpandHome(cfg.LogDir)
 
 	return cfg, nil
 }
@@ -196,11 +199,6 @@ func SaveConfigFile(cfg Config, path string) error {
 // GetDefaultConfigPath returns the default config file path
 func GetDefaultConfigPath() string {
 	return filepath.Join(homeDir(), ".config", "ytmusic", "config.yaml")
-}
-
-// GetDefaultLogPath returns the default log directory path
-func GetDefaultLogPath() string {
-	return filepath.Join(homeDir(), ".local", "share", "ytmusic", "logs")
 }
 
 func homeDir() string {

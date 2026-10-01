@@ -56,6 +56,11 @@ acoustid_api_key: ""
 # Output directory for downloaded and tagged files
 output_dir: "~/Music"
 
+# Directory for log files
+# In Docker, set it to /logs, the mounted volume (as output_dir to /music):
+# anywhere else inside the container the logs are lost with it
+# log_dir: "~/.local/share/ytmusic/logs"
+
 # --- Web interface only (ytmusic-web); ignored by the CLI ---
 
 # Authentication. Single user.
