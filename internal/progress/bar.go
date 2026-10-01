@@ -2,6 +2,7 @@ package progress
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -75,18 +76,18 @@ func (b *Bar) render() {
 	barWidth := 40
 	filled := int(float64(barWidth) * float64(b.current) / float64(b.total))
 
-	bar := ""
-	for i := 0; i < barWidth; i++ {
+	var bar strings.Builder
+	for i := range barWidth {
 		if i < filled {
-			bar += "█"
+			bar.WriteString("█")
 		} else {
-			bar += "░"
+			bar.WriteString("░")
 		}
 	}
 
 	// Format output
 	fmt.Printf("\r[%s] %d/%d (%.1f%%) - Elapsed: %s - ETA: %s   ",
-		bar,
+		bar.String(),
 		b.current,
 		b.total,
 		percentage,

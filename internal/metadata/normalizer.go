@@ -123,7 +123,7 @@ func cleanTitle(raw string) (string, Version) {
 
 		var suffixKeys, suffixLabels []string
 		markersOnly := true
-		for _, part := range strings.Split(m[2], ";") {
+		for part := range strings.SplitSeq(m[2], ";") {
 			part = strings.TrimSpace(part)
 			if key, ok := versionKey(part); ok {
 				suffixKeys = append(suffixKeys, key)
