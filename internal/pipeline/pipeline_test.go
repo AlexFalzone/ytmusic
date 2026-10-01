@@ -66,3 +66,19 @@ func TestCheckImportToolsNeedsNoDownloader(t *testing.T) {
 		t.Errorf("import never downloads, yet yt-dlp is required: %v", err)
 	}
 }
+
+// A dry run only lists the playlist through yt-dlp: it never converts audio or
+// fingerprints, so it must not demand the tools for that.
+func TestCheckToolsDryRunNeedsOnlyYtdlp(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	err := CheckTools(config.Config{DryRun: true, AcoustIDAPIKey: "key"})
+	if err == nil || !strings.Contains(err.Error(), "yt-dlp") {
+		t.Fatalf("want yt-dlp required, got: %v", err)
+	}
+	for _, tool := range []string{"ffmpeg", "ffprobe", "fpcalc"} {
+		if strings.Contains(err.Error(), tool) {
+			t.Errorf("dry run requires %s, which it never runs: %v", tool, err)
+		}
+	}
+}
