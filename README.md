@@ -73,13 +73,16 @@ setting one makes every download fail.
 | Spotify     | Required | Token-based |
 | MusicBrainz | No       | 1 req/s     |
 | Deezer      | No       | None        |
-| iTunes      | No       | None        |
+| iTunes      | No       | ~20 req/min |
+
+The limits are enforced by the client, so they hold however many files are resolved at once. AcoustID
+lookups (fingerprinting) are kept to 3 per second the same way.
 
 Metadata resolution runs in three phases:
 
 1. **Batch fingerprint** (requires `fpcalc` + AcoustID API key): all files in an album group are fingerprinted in parallel. If a single MusicBrainz release accounts for ≥ 50% of the matched recordings, its tracklist is used to assign track and disc numbers.
 2. **Album-first lookup** (MusicBrainz): for files not resolved by phase 1, the album name is searched once and the full tracklist is matched by title similarity.
-3. **Per-file text search**: each file is searched individually across all configured providers in order. The first result above the confidence threshold wins; remaining providers fill missing fields (genre, artwork, ISRC, etc.).
+3. **Per-file text search**: each file is searched individually across all configured providers in order. The first result above the confidence threshold wins; remaining providers fill missing fields (genre, artwork, ISRC, etc.). Files are resolved `metadata_workers` at a time (default 4). If the winning result's artwork cannot be downloaded, another provider's is used.
 
 Track and disc numbers written by phases 1 and 2 are never overwritten by phase 3.
 
@@ -94,6 +97,8 @@ Before any candidate is scored, it has to pass two checks:
 - **Length.** A recording that runs longer than the file by more than 10% (or by more than 3 seconds, for
   short tracks) is a different cut and is skipped. A longer file is accepted up to twice the recording's length, since music
   videos often wrap the song in an intro and an outro.
+
+A candidate with neither a length nor an album is skipped too: there is nothing to check it against.
 
 When comparing titles, remaster notes and featuring credits are ignored on both sides, accented letters are
 folded (`Perché` = `Perche`) and `&` reads as `and`.
