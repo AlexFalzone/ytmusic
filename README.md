@@ -22,14 +22,16 @@ from multiple providers.
 - FFmpeg (`ffmpeg` and `ffprobe`)
 - Chromaprint (`fpcalc`), only when `acoustid_api_key` is set
 
-Both `ytmusic` and `ytmusic-web` check for these at startup and refuse to run if one is missing, naming
-every missing program at once.
+Both `ytmusic` and `ytmusic-web` check at startup for the programs the run will use, and refuse to start if
+one is missing, naming every missing program at once. A download needs all of them; `--dry-run` only yt-dlp;
+`--import-only` only `fpcalc`, and only with an AcoustID key.
 
 ## Build
 
 ```
 make local   // Build both CLI and web
 make test    // Run tests
+make lint    // Run golangci-lint (fetched on first use, pinned in the Makefile)
 ```
 
 ## Usage

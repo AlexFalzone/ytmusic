@@ -1,6 +1,7 @@
 .PHONY: help build build-web up down logs clean local test lint
 
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+# Exported so docker compose passes it to the image build as well.
+export VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -X ytmusic/internal/buildinfo.Version=$(VERSION)
 # Pinned here only: CI runs `make lint` too.
 GOLANGCI_LINT_VERSION := v2.14.0
@@ -22,10 +23,10 @@ help:
 	@echo "  make lint       - Run golangci-lint"
 
 build:
-	docker compose build --build-arg VERSION=$(VERSION) ytmusic-cli
+	docker compose build ytmusic-cli
 
 build-web:
-	docker compose build --build-arg VERSION=$(VERSION) ytmusic-web
+	docker compose build ytmusic-web
 
 up:
 	docker compose up -d ytmusic-web

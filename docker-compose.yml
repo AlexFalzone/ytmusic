@@ -5,6 +5,8 @@ services:
       context: .
       dockerfile: Dockerfile
       target: cli
+      args:
+        - VERSION=${VERSION:-dev}
     image: ytmusic:cli
     container_name: ytmusic-cli
     user: "1000:1000"
@@ -26,6 +28,8 @@ services:
       context: .
       dockerfile: Dockerfile
       target: web
+      args:
+        - VERSION=${VERSION:-dev}
     image: ytmusic:web
     container_name: ytmusic-web
     ports:

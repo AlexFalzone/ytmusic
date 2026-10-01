@@ -12,8 +12,8 @@ RUN go mod download
 
 COPY . .
 
-# .git is not in the build context, so the version comes from the caller
-# (make build / make build-web pass git describe).
+# .git is not in the build context, so the version comes from the caller:
+# docker compose passes the VERSION the Makefile exports (git describe).
 ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X ytmusic/internal/buildinfo.Version=${VERSION}" -a -installsuffix cgo -o ytmusic ./cmd/ytmusic
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X ytmusic/internal/buildinfo.Version=${VERSION}" -a -installsuffix cgo -o ytmusic-web ./cmd/ytmusic-web
@@ -92,7 +92,6 @@ COPY --from=builder /build/ytmusic-web /usr/local/bin/ytmusic-web
 COPY config.example.yaml /etc/ytmusic/config.example.yaml
 
 USER 1000:1000
-WORKDIR /app
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
