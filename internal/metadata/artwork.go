@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"ytmusic/internal/buildinfo"
 )
 
 // complete fills the match's gaps and downloads its artwork. A URL that
@@ -40,6 +42,7 @@ func (r *Resolver) downloadArtwork(ctx context.Context, artworkURL string) ([]by
 	if err != nil {
 		return nil, fmt.Errorf("failed to create artwork request: %w", err)
 	}
+	req.Header.Set("User-Agent", buildinfo.UserAgent())
 
 	resp, err := r.httpClient.Do(req)
 	if err != nil {

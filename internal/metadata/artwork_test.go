@@ -8,8 +8,10 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
+	"ytmusic/internal/buildinfo"
 	"ytmusic/internal/logger"
 
 	"go.senan.xyz/taglib"
@@ -29,10 +31,19 @@ func pngOf(t *testing.T, shade uint8) []byte {
 }
 
 // artworkServer serves /a and /b as two different images and 404s the rest.
-func artworkServer(t *testing.T) (srv *httptest.Server, a, b []byte) {
+// hits reports how many requests a path received.
+func artworkServer(t *testing.T) (srv *httptest.Server, a, b []byte, hits func(path string) int) {
 	t.Helper()
 	a, b = pngOf(t, 0), pngOf(t, 255)
+	var mu sync.Mutex
+	counts := make(map[string]int)
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		counts[r.URL.Path]++
+		mu.Unlock()
+		if got := r.Header.Get("User-Agent"); got != buildinfo.UserAgent() {
+			t.Errorf("User-Agent = %q, want %q", got, buildinfo.UserAgent())
+		}
 		var img []byte
 		switch r.URL.Path {
 		case "/a":
@@ -48,7 +59,11 @@ func artworkServer(t *testing.T) (srv *httptest.Server, a, b []byte) {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	return srv, a, b
+	return srv, a, b, func(path string) int {
+		mu.Lock()
+		defer mu.Unlock()
+		return counts[path]
+	}
 }
 
 func readTestImage(t *testing.T, path string) []byte {
@@ -63,7 +78,7 @@ func readTestImage(t *testing.T, path string) []byte {
 // MusicBrainz hands out Cover Art Archive URLs without checking them. When the
 // primary's artwork cannot be had, gap filling supplies another.
 func TestResolveFile_FallsBackToFillerArtwork(t *testing.T) {
-	srv, _, b := artworkServer(t)
+	srv, _, b, _ := artworkServer(t)
 	path := newTestMP3(t)
 	tagTestFile(t, path, "Song", "Artist")
 
@@ -81,7 +96,7 @@ func TestResolveFile_FallsBackToFillerArtwork(t *testing.T) {
 }
 
 func TestResolveFile_KeepsPrimaryArtwork(t *testing.T) {
-	srv, a, _ := artworkServer(t)
+	srv, a, _, hits := artworkServer(t)
 	path := newTestMP3(t)
 	tagTestFile(t, path, "Song", "Artist")
 
@@ -96,11 +111,14 @@ func TestResolveFile_KeepsPrimaryArtwork(t *testing.T) {
 	if got := readTestImage(t, path); !bytes.Equal(got, a) {
 		t.Errorf("embedded image is %d bytes, want the primary's %d", len(got), len(a))
 	}
+	if n := hits("/b"); n != 0 {
+		t.Errorf("filler artwork downloaded %d times, want never: the primary's worked", n)
+	}
 }
 
 // A fingerprint match comes from MusicBrainz too, with the same unchecked URL.
 func TestResolveFile_FingerprintMatchFallsBackToFillerArtwork(t *testing.T) {
-	srv, _, b := artworkServer(t)
+	srv, _, b, _ := artworkServer(t)
 	path := newTestMP3(t)
 	tagTestFile(t, path, "Song", "Artist")
 
@@ -122,7 +140,7 @@ func TestResolveFile_FingerprintMatchFallsBackToFillerArtwork(t *testing.T) {
 // finds the same recording on the same release: as a filler it offers the very
 // URL that just failed. It must not keep a later provider's artwork out.
 func TestResolveFile_DroppedArtworkOfferedAgainIsSkipped(t *testing.T) {
-	srv, _, b := artworkServer(t)
+	srv, _, b, _ := artworkServer(t)
 	path := newTestMP3(t)
 	tagTestFile(t, path, "Song", "Artist")
 
@@ -147,7 +165,7 @@ func TestResolveFile_DroppedArtworkOfferedAgainIsSkipped(t *testing.T) {
 // filling would stop there, and the next provider's artwork must still be
 // reached.
 func TestResolveFile_BrokenFillerArtworkFallsBackToTheNext(t *testing.T) {
-	srv, _, b := artworkServer(t)
+	srv, _, b, _ := artworkServer(t)
 	path := newTestMP3(t)
 	tagTestFile(t, path, "Song", "Artist")
 
