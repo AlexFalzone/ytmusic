@@ -57,6 +57,10 @@ func main() {
 	}
 
 	if cfg.ImportOnly != "" {
+		if err := cfg.ValidateBase(); err != nil {
+			log.Error("Configuration error: %v", err)
+			os.Exit(1)
+		}
 		if err := pipeline.CheckImportTools(cfg); err != nil {
 			log.Error("Dependency check failed: %v", err)
 			os.Exit(1)

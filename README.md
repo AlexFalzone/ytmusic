@@ -25,6 +25,8 @@ from multiple providers.
 Both `ytmusic` and `ytmusic-web` check at startup for the programs the run will use, and refuse to start if
 one is missing, naming every missing program at once. A download needs all of them; `--dry-run` only yt-dlp;
 `--import-only` only `fpcalc`, and only with an AcoustID key.
+`--import-only` also validates the configuration the way a download does (provider names, Spotify credentials,
+`metadata_workers`, `confidence_threshold`) before it touches a file.
 
 ## Build
 
