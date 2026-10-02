@@ -1,4 +1,3 @@
-# Binaries (only in root directory)
 /ytmusic
 /ytmusic-web
 *.exe
@@ -6,28 +5,22 @@
 *.so
 *.dylib
 
-# Go
 vendor/
 *.test
 *.out
 go.work
 
-# IDE
 .vscode/
-*.idea/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS
 .DS_Store
 Thumbs.db
 
-# Temporary
 *.tmp
 *.log
 tmp/
 
-# Git worktrees
 .worktrees/

@@ -5,9 +5,7 @@ linters:
   settings:
     errcheck:
       exclude-functions:
-        # Closing a response body that was only read, and printing to the
-        # terminal: no caller could act on the error. Anything else, closing a
-        # written file included, has to handle it or say why not.
+        # Read-only Close and terminal printing only: closing a written file must be handled.
         - (io.Closer).Close
         - fmt.Fprint
 

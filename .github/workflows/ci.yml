@@ -15,8 +15,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      # The tagging tests build their audio fixtures with ffmpeg and skip
-      # without it, which would leave them silently unrun.
+      # Without ffmpeg the tagging tests skip silently.
       - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: make test
