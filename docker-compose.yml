@@ -1,57 +1,38 @@
+x-build: &build
+  context: .
+  args:
+    - VERSION=${VERSION:-dev}
+
+x-service: &service
+  user: "1000:1000"
+  # :z: SELinux hosts deny bind mounts without it.
+  volumes:
+    - ./config/config.yaml:/config/config.yaml:ro,z
+    - ./music:/music:z
+    - ./logs:/logs:z
+    - ytmusic-cache:/tmp/.cache
+
 services:
-  # CLI
   ytmusic-cli:
+    <<: *service
     build:
-      context: .
-      dockerfile: Dockerfile
+      <<: *build
       target: cli
-      args:
-        - VERSION=${VERSION:-dev}
     image: ytmusic:cli
     container_name: ytmusic-cli
-    user: "1000:1000"
-    # :z lets SELinux hosts share the bind mounts with the container; elsewhere
-    # it is ignored.
-    volumes:
-      - ./config/config.yaml:/config/config.yaml:ro,z
-      - ./music:/music:z
-      - ./logs:/logs:z
-      - ytmusic-cache:/tmp/.cache
-    environment:
-      - HOME=/tmp
     profiles:
       - cli
 
-  # Web interface
   ytmusic-web:
+    <<: *service
     build:
-      context: .
-      dockerfile: Dockerfile
+      <<: *build
       target: web
-      args:
-        - VERSION=${VERSION:-dev}
     image: ytmusic:web
     container_name: ytmusic-web
     ports:
       - "8080:8080"
-    user: "1000:1000"
-    # :z lets SELinux hosts share the bind mounts with the container; elsewhere
-    # it is ignored.
-    volumes:
-      - ./config/config.yaml:/config/config.yaml:ro,z
-      - ./music:/music:z
-      - ./logs:/logs:z
-      - ytmusic-cache:/tmp/.cache
-    environment:
-      - HOME=/tmp
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
 
 volumes:
   ytmusic-cache:
-    driver: local
