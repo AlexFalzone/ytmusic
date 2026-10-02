@@ -19,7 +19,7 @@ func (r *Resolver) resolveGroup(ctx context.Context, album string, files []strin
 	artist := ""
 	if len(files) > 0 {
 		if tags, err := r.tags.read(files[0]); err == nil {
-			artist = firstTag(tags, taglib.Artist)
+			artist = FirstTag(tags, taglib.Artist)
 		}
 	}
 
@@ -82,7 +82,7 @@ func (r *Resolver) writeTrackPositions(files []string, tl Tracklist, phase strin
 		if err != nil {
 			continue
 		}
-		title := firstTag(tags, taglib.Title)
+		title := FirstTag(tags, taglib.Title)
 		if title == "" {
 			continue
 		}
@@ -159,7 +159,7 @@ func (r *Resolver) groupByAlbum(files []string) map[string][]string {
 		if err != nil {
 			continue
 		}
-		album := firstTag(tags, taglib.Album)
+		album := FirstTag(tags, taglib.Album)
 		groups[album] = append(groups[album], path)
 	}
 	return groups

@@ -29,7 +29,7 @@ func createTestAudioFile(t *testing.T, dir string) string {
 	return path
 }
 
-func TestWriteTags(t *testing.T) {
+func TestWriteTagMap(t *testing.T) {
 	dir := t.TempDir()
 	path := createTestAudioFile(t, dir)
 
@@ -44,8 +44,9 @@ func TestWriteTags(t *testing.T) {
 		Genre:       "Pop",
 	}
 
-	if err := WriteTags(path, info); err != nil {
-		t.Fatalf("WriteTags failed: %v", err)
+	var s tagStore
+	if err := s.write(path, tagMap(info)); err != nil {
+		t.Fatalf("write: %v", err)
 	}
 
 	// Verify written tags
@@ -106,20 +107,22 @@ func TestWriteArtworkEmpty(t *testing.T) {
 	}
 }
 
-func TestWriteTagsNonexistentFile(t *testing.T) {
-	err := WriteTags("/nonexistent/file.mp3", TrackInfo{Title: "x"})
+func TestWriteTagMapNonexistentFile(t *testing.T) {
+	var s tagStore
+	err := s.write("/nonexistent/file.mp3", tagMap(TrackInfo{Title: "x"}))
 	if err == nil {
 		t.Error("expected error for nonexistent file")
 	}
 }
 
-func TestWriteTagsEmptyInfo(t *testing.T) {
+func TestWriteTagMapEmptyInfo(t *testing.T) {
 	dir := t.TempDir()
 	path := createTestAudioFile(t, dir)
 
 	// Writing empty info should not error (just writes nothing)
-	if err := WriteTags(path, TrackInfo{}); err != nil {
-		t.Fatalf("WriteTags with empty info failed: %v", err)
+	var s tagStore
+	if err := s.write(path, tagMap(TrackInfo{})); err != nil {
+		t.Fatalf("write with empty info failed: %v", err)
 	}
 
 	// Verify file still readable
@@ -188,9 +191,7 @@ func TestSubDirFromTagsCannotEscapeOutputDir(t *testing.T) {
 	dir := t.TempDir()
 	path := createTestAudioFile(t, dir)
 
-	if err := WriteTags(path, TrackInfo{Artist: "..", Album: "..", AlbumArtist: ".."}); err != nil {
-		t.Fatalf("WriteTags: %v", err)
-	}
+	writeTestTags(t, path, tagMap(TrackInfo{Artist: "..", Album: "..", AlbumArtist: ".."}))
 
 	sub := SubDirFromTags(path)
 	joined := filepath.Join("/music", sub)

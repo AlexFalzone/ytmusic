@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"context"
+	"strconv"
 	"time"
 )
 
@@ -21,6 +22,19 @@ type TrackInfo struct {
 	ArtworkURL  string
 	Duration    time.Duration
 	Confidence  float64 // 0.0-1.0, how confident we are in the match
+}
+
+// ParseYear returns the year a date such as "2020-03-20" starts with, or 0
+// when it does not start with one.
+func ParseYear(date string) int {
+	if len(date) < 4 {
+		return 0
+	}
+	year, err := strconv.Atoi(date[:4])
+	if err != nil {
+		return 0
+	}
+	return year
 }
 
 // SearchQuery represents a cleaned-up query for searching metadata providers.

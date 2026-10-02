@@ -213,7 +213,7 @@ func parseRecordings(recordings []recording, preferAlbum, artworkBaseURL string)
 			if len(rel.ArtistCredit) > 0 {
 				info.AlbumArtist = rel.ArtistCredit[0].Artist.Name
 			}
-			info.Year = parseYear(rel.Date)
+			info.Year = metadata.ParseYear(rel.Date)
 			info.ReleaseDate = rel.Date
 
 			info.ArtworkURL = fmt.Sprintf("%s/%s/front-500", artworkBaseURL, rel.ID)
@@ -305,15 +305,6 @@ func releaseScore(rel release) int {
 	}
 
 	return score
-}
-
-func parseYear(date string) int {
-	if len(date) >= 4 {
-		if y, err := strconv.Atoi(date[:4]); err == nil {
-			return y
-		}
-	}
-	return 0
 }
 
 // MusicBrainz API response types

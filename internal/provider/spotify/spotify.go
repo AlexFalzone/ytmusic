@@ -286,7 +286,7 @@ func parseSearchResults(resp searchResponse) []metadata.TrackInfo {
 			TrackNumber: item.TrackNumber,
 			TotalTracks: item.Album.TotalTracks,
 			DiscNumber:  item.DiscNumber,
-			Year:        parseYear(item.Album.ReleaseDate),
+			Year:        metadata.ParseYear(item.Album.ReleaseDate),
 			ReleaseDate: item.Album.ReleaseDate,
 			ISRC:        item.ExternalIDs.ISRC,
 			ArtworkURL:  artworkURL,
@@ -295,15 +295,6 @@ func parseSearchResults(resp searchResponse) []metadata.TrackInfo {
 		results = append(results, info)
 	}
 	return results
-}
-
-func parseYear(releaseDate string) int {
-	if len(releaseDate) >= 4 {
-		if y, err := strconv.Atoi(releaseDate[:4]); err == nil {
-			return y
-		}
-	}
-	return 0
 }
 
 // Spotify API response types

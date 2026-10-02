@@ -11,14 +11,6 @@ import (
 	"go.senan.xyz/taglib"
 )
 
-// WriteTags writes the given TrackInfo metadata to an audio file.
-func WriteTags(path string, info TrackInfo) error {
-	if err := taglib.WriteTags(path, tagMap(info), 0); err != nil {
-		return fmt.Errorf("failed to write tags to %s: %w", path, err)
-	}
-	return nil
-}
-
 // tagMap turns the non-empty fields of info into tags.
 func tagMap(info TrackInfo) map[string][]string {
 	tags := make(map[string][]string)
@@ -63,14 +55,14 @@ func SubDirFromTags(path string) string {
 		return ""
 	}
 
-	artist := firstTag(tags, taglib.AlbumArtist)
+	artist := FirstTag(tags, taglib.AlbumArtist)
 	if artist == "" || strings.EqualFold(artist, "Various Artists") {
-		artist = firstTag(tags, taglib.Artist)
+		artist = FirstTag(tags, taglib.Artist)
 		if i := strings.Index(artist, ","); i > 0 {
 			artist = strings.TrimSpace(artist[:i])
 		}
 	}
-	album := firstTag(tags, taglib.Album)
+	album := FirstTag(tags, taglib.Album)
 
 	if artist == "" {
 		artist = "Unknown Artist"
@@ -164,11 +156,11 @@ func WriteArtwork(path string, imageData []byte) error {
 // artist under an entry of its own. artist is the artist about to be written,
 // empty when none is.
 func albumArtistFallback(existing map[string][]string, artist string) string {
-	if firstTag(existing, taglib.AlbumArtist) != "" {
+	if FirstTag(existing, taglib.AlbumArtist) != "" {
 		return ""
 	}
 	if artist == "" {
-		artist = firstTag(existing, taglib.Artist)
+		artist = FirstTag(existing, taglib.Artist)
 	}
 	if i := strings.Index(artist, ","); i > 0 {
 		artist = strings.TrimSpace(artist[:i])
@@ -192,7 +184,7 @@ func mergeWithExisting(tags map[string][]string, info TrackInfo) TrackInfo {
 
 // parseTagInt reads a tag value as an integer. Returns 0 if absent or non-numeric.
 func parseTagInt(tags map[string][]string, key string) int {
-	s := firstTag(tags, key)
+	s := FirstTag(tags, key)
 	if s == "" {
 		return 0
 	}
@@ -207,7 +199,8 @@ func parseTagInt(tags map[string][]string, key string) int {
 	return n
 }
 
-func firstTag(tags map[string][]string, key string) string {
+// FirstTag returns the first value of key in tags, or "" when there is none.
+func FirstTag(tags map[string][]string, key string) string {
 	if vals, ok := tags[key]; ok && len(vals) > 0 {
 		return vals[0]
 	}

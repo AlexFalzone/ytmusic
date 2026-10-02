@@ -203,22 +203,3 @@ func TestBuildSearchQuery(t *testing.T) {
 		})
 	}
 }
-
-func TestParseYear(t *testing.T) {
-	tests := []struct {
-		input string
-		want  int
-	}{
-		{"2020-03-20", 2020},
-		{"2020-03", 2020},
-		{"2020", 2020},
-		{"", 0},
-		{"abc", 0},
-	}
-
-	for _, tt := range tests {
-		if got := parseYear(tt.input); got != tt.want {
-			t.Errorf("parseYear(%q) = %d, want %d", tt.input, got, tt.want)
-		}
-	}
-}

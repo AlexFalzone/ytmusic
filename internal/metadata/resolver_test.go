@@ -80,7 +80,7 @@ func readTestTag(t *testing.T, path, key string) string {
 	if err != nil {
 		t.Fatalf("read tags: %v", err)
 	}
-	return firstTag(tags, key)
+	return FirstTag(tags, key)
 }
 
 func resolveOne(t *testing.T, path string, providers ...Provider) {
@@ -149,7 +149,7 @@ func TestResolve_PhaseA_RunsBeforePhaseB(t *testing.T) {
 
 	// Phase A wrote correct positions; Phase B should have been skipped for these files
 	tags1, _ := taglib.ReadTags(p1)
-	if got := firstTag(tags1, taglib.TrackNumber); got != "1" {
+	if got := FirstTag(tags1, taglib.TrackNumber); got != "1" {
 		t.Errorf("p1 TrackNumber = %q, want 1 (Phase A must win over Phase B)", got)
 	}
 }

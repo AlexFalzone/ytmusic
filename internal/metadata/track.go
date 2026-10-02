@@ -15,9 +15,9 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 		return fmt.Errorf("failed to read existing tags: %w", err)
 	}
 
-	rawTitle := firstTag(existing, taglib.Title)
-	rawArtist := firstTag(existing, taglib.Artist)
-	rawAlbum := firstTag(existing, taglib.Album)
+	rawTitle := FirstTag(existing, taglib.Title)
+	rawArtist := FirstTag(existing, taglib.Artist)
+	rawAlbum := FirstTag(existing, taglib.Album)
 
 	if rawTitle == "" {
 		r.logger.Debug("  Skipping: no title metadata")

@@ -361,7 +361,7 @@ func TestResolveFile_PreservesYtdlpTrackNumber(t *testing.T) {
 		t.Fatalf("read tags: %v", err)
 	}
 
-	got := firstTag(tags, taglib.TrackNumber)
+	got := FirstTag(tags, taglib.TrackNumber)
 	if got != "1" {
 		t.Errorf("TrackNumber = %q, want %q (yt-dlp value must be preserved)", got, "1")
 	}

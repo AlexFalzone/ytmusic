@@ -25,7 +25,7 @@ func TestTagStoreServesRepeatedReadsFromMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if got := firstTag(tags, taglib.Title); got != "Before" {
+	if got := FirstTag(tags, taglib.Title); got != "Before" {
 		t.Errorf("Title = %q, want %q from memory", got, "Before")
 	}
 }
@@ -46,10 +46,10 @@ func TestTagStoreReadsAgainAfterAWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if got := firstTag(tags, taglib.Title); got != "After" {
+	if got := FirstTag(tags, taglib.Title); got != "After" {
 		t.Errorf("Title = %q, want %q", got, "After")
 	}
-	if got := firstTag(tags, taglib.Artist); got != "Artist" {
+	if got := FirstTag(tags, taglib.Artist); got != "Artist" {
 		t.Errorf("Artist = %q: a write must leave the other tags alone", got)
 	}
 }
@@ -109,10 +109,10 @@ func TestWritePositionalTags_WritesTrackAndDisc(t *testing.T) {
 	}
 
 	tags, _ := taglib.ReadTags(p)
-	if got := firstTag(tags, taglib.TrackNumber); got != "5" {
+	if got := FirstTag(tags, taglib.TrackNumber); got != "5" {
 		t.Errorf("TrackNumber = %q, want %q", got, "5")
 	}
-	if got := firstTag(tags, taglib.DiscNumber); got != "2" {
+	if got := FirstTag(tags, taglib.DiscNumber); got != "2" {
 		t.Errorf("DiscNumber = %q, want %q", got, "2")
 	}
 }
@@ -127,10 +127,10 @@ func TestWritePositionalTags_SkipsZeroValues(t *testing.T) {
 	}
 
 	tags, _ := taglib.ReadTags(p)
-	if got := firstTag(tags, taglib.TrackNumber); got != "4" {
+	if got := FirstTag(tags, taglib.TrackNumber); got != "4" {
 		t.Errorf("TrackNumber = %q, want %q", got, "4")
 	}
-	if got := firstTag(tags, taglib.DiscNumber); got != "" {
+	if got := FirstTag(tags, taglib.DiscNumber); got != "" {
 		t.Errorf("DiscNumber = %q, want empty (zero not written)", got)
 	}
 }

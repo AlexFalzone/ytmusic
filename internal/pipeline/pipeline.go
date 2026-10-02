@@ -236,9 +236,9 @@ func ResolveLyrics(ctx context.Context, dir string, log *logger.Logger) {
 			continue
 		}
 
-		title := firstTag(tags, taglib.Title)
-		artist := firstTag(tags, taglib.Artist)
-		album := firstTag(tags, taglib.Album)
+		title := metadata.FirstTag(tags, taglib.Title)
+		artist := metadata.FirstTag(tags, taglib.Artist)
+		album := metadata.FirstTag(tags, taglib.Album)
 		if title == "" || artist == "" {
 			continue
 		}
@@ -284,11 +284,4 @@ func ResolveLyrics(ctx context.Context, dir string, log *logger.Logger) {
 	}
 
 	wg.Wait()
-}
-
-func firstTag(tags map[string][]string, key string) string {
-	if vals, ok := tags[key]; ok && len(vals) > 0 {
-		return vals[0]
-	}
-	return ""
 }

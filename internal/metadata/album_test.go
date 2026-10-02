@@ -222,15 +222,15 @@ func TestResolveGroupByFingerprint_WritesPositionalTags(t *testing.T) {
 	}
 
 	tags1, _ := taglib.ReadTags(p1)
-	if got := firstTag(tags1, taglib.TrackNumber); got != "1" {
+	if got := FirstTag(tags1, taglib.TrackNumber); got != "1" {
 		t.Errorf("p1 TrackNumber = %q, want 1", got)
 	}
-	if got := firstTag(tags1, taglib.DiscNumber); got != "1" {
+	if got := FirstTag(tags1, taglib.DiscNumber); got != "1" {
 		t.Errorf("p1 DiscNumber = %q, want 1", got)
 	}
 
 	tags2, _ := taglib.ReadTags(p2)
-	if got := firstTag(tags2, taglib.TrackNumber); got != "2" {
+	if got := FirstTag(tags2, taglib.TrackNumber); got != "2" {
 		t.Errorf("p2 TrackNumber = %q, want 2", got)
 	}
 }
@@ -263,7 +263,7 @@ func TestResolveGroupByFingerprint_TooFewFingerprinted_DoesNothing(t *testing.T)
 	}
 
 	tags1, _ := taglib.ReadTags(p1)
-	if got := firstTag(tags1, taglib.TrackNumber); got != "" {
+	if got := FirstTag(tags1, taglib.TrackNumber); got != "" {
 		t.Errorf("TrackNumber should not be written when coverage < 50%%, got %q", got)
 	}
 }
@@ -302,15 +302,15 @@ func TestResolveGroup_WritesPositionalTags(t *testing.T) {
 	}
 
 	tags1, _ := taglib.ReadTags(p1)
-	if got := firstTag(tags1, taglib.TrackNumber); got != "1" {
+	if got := FirstTag(tags1, taglib.TrackNumber); got != "1" {
 		t.Errorf("p1 TrackNumber = %q, want %q", got, "1")
 	}
-	if got := firstTag(tags1, taglib.DiscNumber); got != "1" {
+	if got := FirstTag(tags1, taglib.DiscNumber); got != "1" {
 		t.Errorf("p1 DiscNumber = %q, want %q", got, "1")
 	}
 
 	tags2, _ := taglib.ReadTags(p2)
-	if got := firstTag(tags2, taglib.TrackNumber); got != "2" {
+	if got := FirstTag(tags2, taglib.TrackNumber); got != "2" {
 		t.Errorf("p2 TrackNumber = %q, want %q", got, "2")
 	}
 }
@@ -331,7 +331,7 @@ func TestResolveGroup_NotFound_DoesNothing(t *testing.T) {
 	}
 
 	tags, _ := taglib.ReadTags(p)
-	if got := firstTag(tags, taglib.TrackNumber); got != "" {
+	if got := FirstTag(tags, taglib.TrackNumber); got != "" {
 		t.Errorf("TrackNumber should not be written when not found, got %q", got)
 	}
 }
@@ -360,7 +360,7 @@ func TestResolveGroup_LowTitleMatch_DoesNotWriteTags(t *testing.T) {
 	}
 
 	tags, _ := taglib.ReadTags(p)
-	if got := firstTag(tags, taglib.TrackNumber); got != "" {
+	if got := FirstTag(tags, taglib.TrackNumber); got != "" {
 		t.Errorf("TrackNumber should not be written for low match, got %q", got)
 	}
 }
@@ -402,12 +402,12 @@ func TestResolve_AlbumFirstPhaseWritesPositionalTags(t *testing.T) {
 	}
 
 	tags1, _ := taglib.ReadTags(p1)
-	if got := firstTag(tags1, taglib.TrackNumber); got != "1" {
+	if got := FirstTag(tags1, taglib.TrackNumber); got != "1" {
 		t.Errorf("p1 TrackNumber = %q, want %q", got, "1")
 	}
 
 	tags2, _ := taglib.ReadTags(p2)
-	if got := firstTag(tags2, taglib.TrackNumber); got != "2" {
+	if got := FirstTag(tags2, taglib.TrackNumber); got != "2" {
 		t.Errorf("p2 TrackNumber = %q, want %q", got, "2")
 	}
 }
