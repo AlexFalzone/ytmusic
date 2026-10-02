@@ -2,11 +2,10 @@ package metadata
 
 import (
 	"context"
-	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"ytmusic/internal/logger"
+	"ytmusic/internal/testaudio"
 
 	"go.senan.xyz/taglib"
 )
@@ -51,15 +50,7 @@ func newTestMP3(t *testing.T) string {
 // Skips the test if ffmpeg is not available.
 func newTestMP3Len(t *testing.T, seconds string) string {
 	t.Helper()
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		t.Skip("ffmpeg not available")
-	}
-	path := filepath.Join(t.TempDir(), "test.mp3")
-	cmd := exec.Command("ffmpeg", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", seconds, "-q:a", "9", path)
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("ffmpeg failed: %v", err)
-	}
-	return path
+	return testaudio.MP3(t, t.TempDir(), "test.mp3", seconds)
 }
 
 func tagTestFile(t *testing.T, path, title, artist string) {

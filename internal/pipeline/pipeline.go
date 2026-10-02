@@ -6,21 +6,15 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
-	"slices"
 	"strings"
 	"sync"
 
 	"ytmusic/internal/config"
 	"ytmusic/internal/downloader"
-	"ytmusic/internal/fingerprint"
 	"ytmusic/internal/importer"
 	"ytmusic/internal/logger"
 	"ytmusic/internal/lyrics"
 	"ytmusic/internal/metadata"
-	"ytmusic/internal/provider/deezer"
-	"ytmusic/internal/provider/itunes"
-	"ytmusic/internal/provider/musicbrainz"
-	"ytmusic/internal/provider/spotify"
 	"ytmusic/pkg/utils"
 
 	"go.senan.xyz/taglib"
@@ -73,25 +67,12 @@ func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 		return fmt.Errorf("failed to merge files: %w", err)
 	}
 
-	c := buildComponents(cfg, log)
-	if len(c.providers) > 0 || c.fingerprinter != nil {
-		imp := importer.New(cfg, log, c.providers, c.fingerprinter)
-		if c.albumResolver != nil {
-			imp.WithAlbumResolver(c.albumResolver)
+	if err := importer.New(cfg, log).Import(ctx, mergedDir); err != nil {
+		msg := fmt.Sprintf("metadata resolution failed: %v", err)
+		log.Warn("%s", msg)
+		if hooks.OnWarning != nil {
+			hooks.OnWarning(msg)
 		}
-		if c.fingerprinter != nil && c.releaseResolver != nil {
-			imp.WithBatchFingerprinter(c.fingerprinter)
-			imp.WithReleaseResolver(c.releaseResolver)
-		}
-		if err := imp.Import(ctx, mergedDir); err != nil {
-			msg := fmt.Sprintf("metadata resolution failed: %v", err)
-			log.Warn("%s", msg)
-			if hooks.OnWarning != nil {
-				hooks.OnWarning(msg)
-			}
-		}
-	} else {
-		log.Info("No metadata providers configured, skipping metadata resolution")
 	}
 
 	if !cfg.SkipLyrics {
@@ -116,21 +97,8 @@ func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 
 // RunImportOnly resolves metadata and lyrics for existing audio files in dir.
 func RunImportOnly(ctx context.Context, cfg config.Config, log *logger.Logger, dir string) error {
-	c := buildComponents(cfg, log)
-	if len(c.providers) > 0 || c.fingerprinter != nil {
-		imp := importer.New(cfg, log, c.providers, c.fingerprinter)
-		if c.albumResolver != nil {
-			imp.WithAlbumResolver(c.albumResolver)
-		}
-		if c.fingerprinter != nil && c.releaseResolver != nil {
-			imp.WithBatchFingerprinter(c.fingerprinter)
-			imp.WithReleaseResolver(c.releaseResolver)
-		}
-		if err := imp.Import(ctx, dir); err != nil {
-			return fmt.Errorf("metadata resolution failed: %w", err)
-		}
-	} else {
-		log.Info("No metadata providers configured, skipping metadata resolution")
+	if err := importer.New(cfg, log).Import(ctx, dir); err != nil {
+		return fmt.Errorf("metadata resolution failed: %w", err)
 	}
 
 	if !cfg.SkipLyrics {
@@ -138,72 +106,6 @@ func RunImportOnly(ctx context.Context, cfg config.Config, log *logger.Logger, d
 	}
 
 	return nil
-}
-
-// fingerprinter is what AcoustID identification provides: single-file and
-// batch lookups.
-type fingerprinter interface {
-	metadata.Fingerprinter
-	metadata.BatchFingerprinter
-}
-
-type components struct {
-	providers       []metadata.Provider
-	fingerprinter   fingerprinter            // nil if AcoustID not configured
-	albumResolver   metadata.AlbumResolver   // nil if musicbrainz not in providers
-	releaseResolver metadata.ReleaseResolver // nil if musicbrainz not in providers
-}
-
-// buildComponents creates all metadata-related components, sharing a single
-// MusicBrainz client so its rate limiter is coordinated across all usages.
-func buildComponents(cfg config.Config, log *logger.Logger) components {
-	var mbClient *musicbrainz.Client
-	if slices.Contains(cfg.MetadataProviders, "musicbrainz") {
-		mbClient = musicbrainz.New()
-	}
-	// Also need a MusicBrainz client for fingerprint MBID lookups even when the
-	// musicbrainz search provider is not in the provider list.
-	if mbClient == nil && cfg.AcoustIDAPIKey != "" {
-		mbClient = musicbrainz.New()
-	}
-
-	var providers []metadata.Provider
-	for _, name := range cfg.MetadataProviders {
-		switch name {
-		case "spotify":
-			providers = append(providers, spotify.New(cfg.SpotifyClientID, cfg.SpotifyClientSecret))
-		case "musicbrainz":
-			providers = append(providers, mbClient)
-		case "deezer":
-			providers = append(providers, deezer.New())
-		case "itunes":
-			providers = append(providers, itunes.New())
-		}
-	}
-
-	// Declared as the interface, not *fingerprint.Fingerprinter: a nil pointer
-	// converted to an interface is not nil and would crash the resolver.
-	var fp fingerprinter
-	if cfg.AcoustIDAPIKey != "" {
-		acoustid := fingerprint.NewAcoustIDClient(cfg.AcoustIDAPIKey, "")
-		fp = fingerprint.New(acoustid, func(ctx context.Context, mbid, preferAlbum string) (metadata.TrackInfo, error) {
-			return mbClient.LookupByMBID(ctx, mbid, preferAlbum)
-		})
-	}
-
-	var ar metadata.AlbumResolver
-	var rr metadata.ReleaseResolver
-	if mbClient != nil {
-		ar = mbClient
-		rr = mbClient
-	}
-
-	return components{
-		providers:       providers,
-		fingerprinter:   fp,
-		albumResolver:   ar,
-		releaseResolver: rr,
-	}
 }
 
 // ResolveLyrics fetches lyrics from LRCLib for each audio file in dir.

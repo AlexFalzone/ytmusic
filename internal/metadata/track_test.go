@@ -3,8 +3,6 @@ package metadata
 import (
 	"context"
 	"fmt"
-	"os/exec"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -14,19 +12,7 @@ import (
 )
 
 func TestResolveFile(t *testing.T) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		t.Skip("ffmpeg not available")
-	}
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.mp3")
-
-	cmd := exec.Command("ffmpeg", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "0.1", "-q:a", "9", path)
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("failed to create test file: %v", err)
-	}
+	path := newTestMP3(t)
 
 	err := taglib.WriteTags(path, map[string][]string{
 		taglib.Title:  {"Blinding Lights (Official Video)"},
@@ -82,18 +68,7 @@ func TestResolveFile(t *testing.T) {
 }
 
 func TestResolveFileLowConfidence(t *testing.T) {
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		t.Skip("ffmpeg not available")
-	}
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.mp3")
-	cmd := exec.Command("ffmpeg", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "0.1", "-q:a", "9", path)
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("failed to create test file: %v", err)
-	}
+	path := newTestMP3(t)
 
 	err := taglib.WriteTags(path, map[string][]string{
 		taglib.Title:  {"My Song"},
