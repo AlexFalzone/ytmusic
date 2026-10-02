@@ -1,16 +1,18 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"ytmusic/internal/config"
 	"ytmusic/internal/logger"
 	"ytmusic/internal/pipeline"
 	"ytmusic/internal/progress"
-	"ytmusic/internal/shutdown"
 	"ytmusic/pkg/utils"
 )
 
@@ -21,8 +23,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	sh := shutdown.New()
-	sh.Listen()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	log := logger.New(cfg.Verbose)
 	defer func() {
@@ -50,7 +52,7 @@ func main() {
 	}
 
 	if cfg.LyricsOnly != "" {
-		pipeline.ResolveLyrics(sh.Context(), cfg.LyricsOnly, log)
+		pipeline.ResolveLyrics(ctx, cfg.LyricsOnly, log)
 		log.Info("=== Lyrics fetch completed ===")
 		return
 	}
@@ -64,7 +66,7 @@ func main() {
 			log.Error("Dependency check failed: %v", err)
 			os.Exit(1)
 		}
-		if err := pipeline.RunImportOnly(sh.Context(), cfg, log, cfg.ImportOnly); err != nil {
+		if err := pipeline.RunImportOnly(ctx, cfg, log, cfg.ImportOnly); err != nil {
 			log.Error("%v", err)
 			os.Exit(1)
 		}
@@ -77,13 +79,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := run(sh, cfg, log); err != nil {
+	if err := run(ctx, cfg, log); err != nil {
 		log.Error("%v", err)
 		os.Exit(1)
 	}
 }
 
-func run(sh *shutdown.Handler, cfg config.Config, log *logger.Logger) error {
+func run(ctx context.Context, cfg config.Config, log *logger.Logger) error {
 	log.Debug("Checking dependencies...")
 	if err := pipeline.CheckTools(cfg); err != nil {
 		return fmt.Errorf("dependency check failed: %w", err)
@@ -95,12 +97,11 @@ func run(sh *shutdown.Handler, cfg config.Config, log *logger.Logger) error {
 	}
 	log.Debug("Temporary folder: %s", tmpDir)
 
-	sh.AddCleanup(func() {
-		log.Debug("Cleaning up...")
+	defer func() {
 		if err := utils.Cleanup(tmpDir); err != nil {
 			log.Warn("Error during cleanup: %v", err)
 		}
-	})
+	}()
 
 	var bar *progress.Bar
 	hooks := pipeline.Hooks{
@@ -117,7 +118,7 @@ func run(sh *shutdown.Handler, cfg config.Config, log *logger.Logger) error {
 		},
 	}
 
-	err = pipeline.Run(sh.Context(), cfg, log, tmpDir, hooks)
+	err = pipeline.Run(ctx, cfg, log, tmpDir, hooks)
 
 	if bar != nil {
 		bar.Finish()
