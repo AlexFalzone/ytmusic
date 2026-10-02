@@ -2,16 +2,14 @@ package musicbrainz
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
-	"ytmusic/internal/buildinfo"
+	"ytmusic/internal/httpjson"
 	"ytmusic/internal/memo"
 	"ytmusic/internal/metadata"
 	"ytmusic/internal/throttle"
@@ -25,10 +23,9 @@ const requestInterval = time.Second
 // Its throttle covers every request it sends, which is why a run must share
 // one Client rather than create several.
 type Client struct {
-	httpClient     *http.Client
+	api            *httpjson.Client
 	apiURL         string
 	artworkBaseURL string
-	throttle       *throttle.Throttle
 
 	// The three phases of a run ask for the same recordings and releases:
 	// phase A for the releases of each fingerprinted recording, the
@@ -40,21 +37,19 @@ type Client struct {
 
 // New creates a new MusicBrainz client.
 func New() *Client {
-	return &Client{
-		httpClient:     &http.Client{Timeout: 10 * time.Second},
-		apiURL:         "https://musicbrainz.org/ws/2",
-		artworkBaseURL: "https://coverartarchive.org/release",
-		throttle:       throttle.New(requestInterval),
-	}
+	return NewWithURL("https://musicbrainz.org/ws/2", "https://coverartarchive.org/release")
 }
 
 // NewWithURL creates a client with custom API and artwork base URLs (used in tests).
 func NewWithURL(apiURL, artworkBaseURL string) *Client {
 	return &Client{
-		httpClient:     &http.Client{Timeout: 10 * time.Second},
+		api: &httpjson.Client{
+			HTTP:     &http.Client{Timeout: 10 * time.Second},
+			Throttle: throttle.New(requestInterval),
+			Retry:    true,
+		},
 		apiURL:         apiURL,
 		artworkBaseURL: artworkBaseURL,
-		throttle:       throttle.New(requestInterval),
 	}
 }
 
@@ -67,28 +62,10 @@ func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]meta
 		return nil, nil
 	}
 
-	reqURL := fmt.Sprintf("%s/recording?query=%s&fmt=json&limit=5", c.apiURL, url.QueryEscape(q))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create musicbrainz request: %w", err)
-	}
-	req.Header.Set("User-Agent", buildinfo.UserAgent())
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.doWithRetry(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("musicbrainz search request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("musicbrainz search returned %d: %s", resp.StatusCode, body)
-	}
-
 	var searchResp searchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
-		return nil, fmt.Errorf("failed to decode musicbrainz response: %w", err)
+	reqURL := fmt.Sprintf("%s/recording?query=%s&fmt=json&limit=5", c.apiURL, url.QueryEscape(q))
+	if err := c.api.Get(ctx, reqURL, nil, &searchResp); err != nil {
+		return nil, fmt.Errorf("musicbrainz search: %w", err)
 	}
 
 	return parseRecordings(searchResp.Recordings, query.Album, c.artworkBaseURL), nil
@@ -113,67 +90,13 @@ func (c *Client) LookupByMBID(ctx context.Context, mbid, preferAlbum string) (me
 // need, once per run.
 func (c *Client) lookupRecording(ctx context.Context, mbid string) (recording, error) {
 	return c.recordings.Do(mbid, func() (recording, error) {
-		reqURL := fmt.Sprintf("%s/recording/%s?inc=artists+releases+isrcs+artist-credits&fmt=json", c.apiURL, mbid)
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-		if err != nil {
-			return recording{}, fmt.Errorf("failed to create recording lookup request: %w", err)
-		}
-		req.Header.Set("User-Agent", buildinfo.UserAgent())
-		req.Header.Set("Accept", "application/json")
-
-		resp, err := c.doWithRetry(ctx, req)
-		if err != nil {
-			return recording{}, fmt.Errorf("recording lookup failed: %w", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			return recording{}, fmt.Errorf("recording lookup returned %d: %s", resp.StatusCode, body)
-		}
-
 		var rec recording
-		if err := json.NewDecoder(resp.Body).Decode(&rec); err != nil {
-			return recording{}, fmt.Errorf("failed to decode musicbrainz recording: %w", err)
+		reqURL := fmt.Sprintf("%s/recording/%s?inc=artists+releases+isrcs+artist-credits&fmt=json", c.apiURL, mbid)
+		if err := c.api.Get(ctx, reqURL, nil, &rec); err != nil {
+			return recording{}, fmt.Errorf("musicbrainz recording %s: %w", mbid, err)
 		}
 		return rec, nil
 	})
-}
-
-// doWithRetry waits for the throttle and executes the request, retrying once
-// on 429/503 after the server's Retry-After.
-func (c *Client) doWithRetry(ctx context.Context, req *http.Request) (*http.Response, error) {
-	if err := c.throttle.Wait(ctx); err != nil {
-		return nil, err
-	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
-		resp.Body.Close()
-		retryAfter := 2
-		if ra := resp.Header.Get("Retry-After"); ra != "" {
-			if parsed, err := strconv.Atoi(ra); err == nil {
-				retryAfter = parsed
-			}
-		}
-
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(time.Duration(retryAfter) * time.Second):
-		}
-
-		if err := c.throttle.Wait(ctx); err != nil {
-			return nil, err
-		}
-		retry := req.Clone(ctx)
-		return c.httpClient.Do(retry)
-	}
-
-	return resp, nil
 }
 
 func buildQuery(query metadata.SearchQuery) string {
@@ -393,28 +316,10 @@ func (c *Client) searchRelease(ctx context.Context, album, artist string) ([]rel
 		q += fmt.Sprintf(" AND artist:%q", artist)
 	}
 
-	reqURL := fmt.Sprintf("%s/release?query=%s&fmt=json&limit=5", c.apiURL, url.QueryEscape(q))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create release search request: %w", err)
-	}
-	req.Header.Set("User-Agent", buildinfo.UserAgent())
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.doWithRetry(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("release search request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("release search returned %d: %s", resp.StatusCode, body)
-	}
-
 	var result releaseListResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode release search response: %w", err)
+	reqURL := fmt.Sprintf("%s/release?query=%s&fmt=json&limit=5", c.apiURL, url.QueryEscape(q))
+	if err := c.api.Get(ctx, reqURL, nil, &result); err != nil {
+		return nil, fmt.Errorf("musicbrainz release search: %w", err)
 	}
 	return result.Releases, nil
 }
@@ -428,28 +333,10 @@ func (c *Client) lookupRelease(ctx context.Context, releaseID string) (metadata.
 }
 
 func (c *Client) fetchRelease(ctx context.Context, releaseID string) (metadata.Tracklist, error) {
-	reqURL := fmt.Sprintf("%s/release/%s?inc=recordings+artist-credits&fmt=json", c.apiURL, releaseID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return metadata.Tracklist{}, fmt.Errorf("failed to create release lookup request: %w", err)
-	}
-	req.Header.Set("User-Agent", buildinfo.UserAgent())
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.doWithRetry(ctx, req)
-	if err != nil {
-		return metadata.Tracklist{}, fmt.Errorf("release lookup request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return metadata.Tracklist{}, fmt.Errorf("release lookup returned %d: %s", resp.StatusCode, body)
-	}
-
 	var result releaseLookupResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return metadata.Tracklist{}, fmt.Errorf("failed to decode release lookup response: %w", err)
+	reqURL := fmt.Sprintf("%s/release/%s?inc=recordings+artist-credits&fmt=json", c.apiURL, releaseID)
+	if err := c.api.Get(ctx, reqURL, nil, &result); err != nil {
+		return metadata.Tracklist{}, fmt.Errorf("musicbrainz release %s: %w", releaseID, err)
 	}
 
 	tl := metadata.Tracklist{

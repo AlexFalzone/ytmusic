@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"ytmusic/internal/buildinfo"
 	"ytmusic/internal/metadata"
 )
 
@@ -24,6 +25,9 @@ func TestSearch(t *testing.T) {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/api/token", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("User-Agent"); got != buildinfo.UserAgent() {
+			t.Errorf("User-Agent = %q, want %q", got, buildinfo.UserAgent())
+		}
 		if r.Method != http.MethodPost {
 			t.Errorf("token: expected POST, got %s", r.Method)
 		}
@@ -40,6 +44,9 @@ func TestSearch(t *testing.T) {
 	})
 
 	mux.HandleFunc("/v1/search", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("User-Agent"); got != buildinfo.UserAgent() {
+			t.Errorf("User-Agent = %q, want %q", got, buildinfo.UserAgent())
+		}
 		if r.Header.Get("Authorization") != "Bearer test-token" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -201,5 +208,37 @@ func TestBuildSearchQuery(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSearchAddsTheArtistsGenres(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/token", func(w http.ResponseWriter, r *http.Request) {
+		respondJSON(t, w, tokenResponse{AccessToken: "test-token", ExpiresIn: 3600})
+	})
+	mux.HandleFunc("/v1/search", func(w http.ResponseWriter, r *http.Request) {
+		resp := searchResponse{}
+		resp.Tracks.Items = []trackItem{{Name: "Song", Artists: []artist{{ID: "a1", Name: "Artist"}}}}
+		respondJSON(t, w, resp)
+	})
+	mux.HandleFunc("/v1/artists/a1", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
+			t.Errorf("Authorization = %q", got)
+		}
+		respondJSON(t, w, artistResponse{Genres: []string{"hip hop", "pop rap", "trap", "rap"}})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	client := New("id", "secret")
+	client.tokenURL = server.URL + "/api/token"
+	client.apiURL = server.URL + "/v1"
+
+	results, err := client.Search(context.Background(), metadata.SearchQuery{Title: "Song"})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(results) != 1 || results[0].Genre != "Hip Hop, Pop Rap, Trap" {
+		t.Errorf("results = %+v, want one with genre %q", results, "Hip Hop, Pop Rap, Trap")
 	}
 }

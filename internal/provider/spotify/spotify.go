@@ -7,12 +7,13 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"unicode"
 
+	"ytmusic/internal/buildinfo"
+	"ytmusic/internal/httpjson"
 	"ytmusic/internal/metadata"
 )
 
@@ -20,7 +21,7 @@ import (
 type Client struct {
 	clientID     string
 	clientSecret string
-	httpClient   *http.Client
+	api          *httpjson.Client
 
 	mu          sync.Mutex
 	accessToken string
@@ -39,7 +40,7 @@ func New(clientID, clientSecret string) *Client {
 	return &Client{
 		clientID:     clientID,
 		clientSecret: clientSecret,
-		httpClient:   &http.Client{Timeout: 10 * time.Second},
+		api:          &httpjson.Client{HTTP: &http.Client{Timeout: 10 * time.Second}, Retry: true},
 		genreCache:   make(map[string][]string),
 		tokenURL:     "https://accounts.spotify.com/api/token",
 		apiURL:       "https://api.spotify.com/v1",
@@ -60,27 +61,10 @@ func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]meta
 		return nil, fmt.Errorf("spotify auth failed: %w", err)
 	}
 
-	reqURL := fmt.Sprintf("%s/search?type=track&limit=5&q=%s", c.apiURL, url.QueryEscape(q))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create search request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := c.doWithRetry(req)
-	if err != nil {
-		return nil, fmt.Errorf("spotify search request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("spotify search returned %d: %s", resp.StatusCode, body)
-	}
-
 	var searchResp searchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
-		return nil, fmt.Errorf("failed to decode spotify response: %w", err)
+	reqURL := fmt.Sprintf("%s/search?type=track&limit=5&q=%s", c.apiURL, url.QueryEscape(q))
+	if err := c.api.Get(ctx, reqURL, bearer(token), &searchResp); err != nil {
+		return nil, fmt.Errorf("spotify search: %w", err)
 	}
 
 	results := parseSearchResults(searchResp)
@@ -127,26 +111,10 @@ func (c *Client) getArtistGenres(ctx context.Context, artistID string) ([]string
 		return nil, err
 	}
 
-	reqURL := fmt.Sprintf("%s/artists/%s", c.apiURL, url.PathEscape(artistID))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-
-	resp, err := c.doWithRetry(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("artist request returned %d", resp.StatusCode)
-	}
-
 	var artistResp artistResponse
-	if err := json.NewDecoder(resp.Body).Decode(&artistResp); err != nil {
-		return nil, err
+	reqURL := fmt.Sprintf("%s/artists/%s", c.apiURL, url.PathEscape(artistID))
+	if err := c.api.Get(ctx, reqURL, bearer(token), &artistResp); err != nil {
+		return nil, fmt.Errorf("spotify artist %s: %w", artistID, err)
 	}
 
 	c.cacheMu.Lock()
@@ -210,9 +178,10 @@ func (c *Client) getToken(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("failed to create token request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", buildinfo.UserAgent())
 	req.SetBasicAuth(c.clientID, c.clientSecret)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.api.HTTP.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("token request failed: %w", err)
 	}
@@ -235,29 +204,9 @@ func (c *Client) getToken(ctx context.Context) (string, error) {
 	return c.accessToken, nil
 }
 
-// doWithRetry executes the request, retrying once on 429.
-// Clones the request before retry to avoid issues with consumed bodies.
-func (c *Client) doWithRetry(req *http.Request) (*http.Response, error) {
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode == http.StatusTooManyRequests {
-		resp.Body.Close()
-		retryAfter := 1
-		if ra := resp.Header.Get("Retry-After"); ra != "" {
-			if parsed, err := strconv.Atoi(ra); err == nil {
-				retryAfter = parsed
-			}
-		}
-		time.Sleep(time.Duration(retryAfter) * time.Second)
-
-		retry := req.Clone(req.Context())
-		return c.httpClient.Do(retry)
-	}
-
-	return resp, nil
+// bearer is the header that authorises a Web API request.
+func bearer(token string) http.Header {
+	return http.Header{"Authorization": {"Bearer " + token}}
 }
 
 func parseSearchResults(resp searchResponse) []metadata.TrackInfo {

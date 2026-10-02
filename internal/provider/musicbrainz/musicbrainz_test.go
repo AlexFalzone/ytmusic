@@ -33,11 +33,9 @@ func respondJSON(t *testing.T, w http.ResponseWriter, v any) {
 }
 
 func newTestClient(url string) *Client {
-	return &Client{
-		httpClient: &http.Client{Timeout: 5 * time.Second},
-		apiURL:     url,
-		throttle:   throttle.New(0),
-	}
+	c := NewWithURL(url, "")
+	c.api.Throttle = throttle.New(0)
+	return c
 }
 
 func TestSearch_ParsesResponse(t *testing.T) {
@@ -128,7 +126,7 @@ func TestRequestsWaitForTheThrottle(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	c.throttle = throttle.New(100 * time.Millisecond)
+	c.api.Throttle = throttle.New(100 * time.Millisecond)
 	start := time.Now()
 	for range 3 {
 		if _, err := c.Search(context.Background(), metadata.SearchQuery{Title: "Song"}); err != nil {
