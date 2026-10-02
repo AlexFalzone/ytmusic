@@ -31,28 +31,7 @@ func (r *Resolver) resolveGroup(ctx context.Context, album string, files []strin
 		return nil
 	}
 
-	for _, path := range files {
-		tags, err := r.tags.read(path)
-		if err != nil {
-			continue
-		}
-		title := firstTag(tags, taglib.Title)
-		if title == "" {
-			continue
-		}
-
-		track, matchScore := matchTrackByTitle(title, tl.Tracks)
-		if matchScore < trackMatchThreshold {
-			r.logger.Debug("  album-first: low match %.2f for %q, skipping", matchScore, title)
-			continue
-		}
-
-		r.logger.Debug("  album-first: %q → track %d disc %d (score %.2f)", title, track.TrackNumber, track.DiscNumber, matchScore)
-		if err := r.tags.writePositional(path, track.TrackNumber, track.DiscNumber); err != nil {
-			r.logger.Warn("  album-first: failed to write positional tags for %q: %v", path, err)
-		}
-	}
-
+	r.writeTrackPositions(files, tl, "album-first")
 	return nil
 }
 
@@ -90,12 +69,14 @@ func (r *Resolver) resolveGroupByFingerprint(ctx context.Context, files []string
 
 	r.logger.Debug("  batch fingerprint: dominant release %q (%s)", tl.Title, dominantID)
 
-	pathToMBID := make(map[string]string, len(matches))
-	for _, m := range matches {
-		pathToMBID[m.Path] = m.MBID
-	}
+	return r.writeTrackPositions(files, tl, "batch fingerprint")
+}
 
-	var resolved []string
+// writeTrackPositions writes the track and disc number of each file whose
+// title matches an entry of tl, and returns the files it wrote. phase names
+// the caller in the log.
+func (r *Resolver) writeTrackPositions(files []string, tl Tracklist, phase string) []string {
+	var written []string
 	for _, path := range files {
 		tags, err := r.tags.read(path)
 		if err != nil {
@@ -108,19 +89,18 @@ func (r *Resolver) resolveGroupByFingerprint(ctx context.Context, files []string
 
 		track, matchScore := matchTrackByTitle(title, tl.Tracks)
 		if matchScore < trackMatchThreshold {
-			r.logger.Debug("  batch fingerprint: low match %.2f for %q, skipping", matchScore, title)
+			r.logger.Debug("  %s: low match %.2f for %q, skipping", phase, matchScore, title)
 			continue
 		}
 
-		r.logger.Debug("  batch fingerprint: %q → track %d disc %d (score %.2f)", title, track.TrackNumber, track.DiscNumber, matchScore)
+		r.logger.Debug("  %s: %q → track %d disc %d (score %.2f)", phase, title, track.TrackNumber, track.DiscNumber, matchScore)
 		if err := r.tags.writePositional(path, track.TrackNumber, track.DiscNumber); err != nil {
-			r.logger.Warn("  batch fingerprint: failed to write positional tags for %q: %v", path, err)
+			r.logger.Warn("  %s: failed to write positional tags for %q: %v", phase, path, err)
 			continue
 		}
-		resolved = append(resolved, path)
+		written = append(written, path)
 	}
-
-	return resolved
+	return written
 }
 
 // findDominantRelease fetches the release IDs for each recording MBID and returns
