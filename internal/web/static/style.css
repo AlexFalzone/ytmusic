@@ -23,11 +23,6 @@ h1 {
     color: #1a1a1a;
 }
 
-.subtitle {
-    color: #666;
-    margin-bottom: 40px;
-}
-
 h2 {
     font-size: 1.5rem;
     margin: 40px 0 20px;
@@ -40,8 +35,8 @@ h2 {
     margin-bottom: 20px;
 }
 
-#url-input {
-    flex: 1;
+#url-input,
+.login-form input {
     padding: 12px 16px;
     border: 2px solid #ddd;
     border-radius: 8px;
@@ -49,9 +44,14 @@ h2 {
     transition: border-color 0.2s;
 }
 
-#url-input:focus {
+#url-input:focus,
+.login-form input:focus {
     outline: none;
     border-color: #0066cc;
+}
+
+#url-input {
+    flex: 1;
 }
 
 button {
@@ -114,7 +114,7 @@ button:disabled {
     margin-bottom: 16px;
 }
 
-#job-url {
+.job-url {
     font-size: 0.9rem;
     color: #666;
     overflow: hidden;
@@ -228,17 +228,7 @@ button:disabled {
 }
 
 .login-form input {
-    padding: 12px 16px;
-    border: 2px solid #ddd;
-    border-radius: 8px;
-    font-size: 1rem;
-    transition: border-color 0.2s;
     margin-bottom: 8px;
-}
-
-.login-form input:focus {
-    outline: none;
-    border-color: #0066cc;
 }
 
 .header-bar {

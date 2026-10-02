@@ -1,8 +1,6 @@
 let currentJobId = null;
-let ws = null;
 
-// A 401 means the session is gone. Go back to the login page instead of
-// surfacing an error for every request, including the 10s history refresh.
+// A 401 means the session is gone: back to login, not an error on every refresh.
 async function apiFetch(url, options) {
     const response = await fetch(url, options);
     if (response.status === 401) {
@@ -19,15 +17,14 @@ async function logout() {
             headers: { 'Content-Type': 'application/json' },
         });
     } catch (error) {
-        // Send the user to the login page either way.
+        // Back to the login page either way.
     }
     window.location.href = '/login.html';
 }
 
-// Load job history on page load
 document.addEventListener('DOMContentLoaded', () => {
     loadJobHistory();
-    setInterval(loadJobHistory, 10000); // Refresh every 10 seconds
+    setInterval(loadJobHistory, 10000);
 });
 
 async function startDownload() {
@@ -41,16 +38,13 @@ async function startDownload() {
         return;
     }
 
-    // Disable button
     downloadBtn.disabled = true;
     errorMsg.classList.add('hidden');
 
     try {
         const response = await apiFetch('/api/download', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url }),
         });
 
@@ -61,16 +55,9 @@ async function startDownload() {
 
         const job = await response.json();
         currentJobId = job.id;
-
-        // Clear input
         urlInput.value = '';
-
-        // Show current job
         displayCurrentJob(job);
-
-        // Connect WebSocket
         connectWebSocket(job.id);
-
     } catch (error) {
         showError(error.message);
         downloadBtn.disabled = false;
@@ -81,13 +68,12 @@ function connectWebSocket(jobId) {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws?job_id=${jobId}`;
 
-    ws = new WebSocket(wsUrl);
+    const ws = new WebSocket(wsUrl);
 
     ws.onmessage = (event) => {
         const job = JSON.parse(event.data);
         updateCurrentJob(job);
 
-        // Auto-reload history when job completes
         if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
             loadJobHistory();
             setTimeout(() => {
@@ -128,7 +114,6 @@ function updateCurrentJob(job) {
         document.getElementById('job-time').textContent = `Started: ${job.created_at}`;
     }
 
-    // Show cancel button only for pending/running jobs
     const cancelBtn = document.getElementById('cancel-btn');
     if (job.status === 'pending' || job.status === 'running') {
         cancelBtn.classList.remove('hidden');
@@ -176,10 +161,6 @@ function displayJobHistory(jobs) {
         return;
     }
 
-    // Sort by created_at descending
-    jobs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
-    // Filter out current job and limit to 10
     const history = jobs
         .filter(job => job.id !== currentJobId)
         .slice(0, 10);
@@ -189,7 +170,7 @@ function displayJobHistory(jobs) {
         return `
             <div class="job-list-item">
                 <div class="job-header">
-                    <span style="font-size: 0.9rem; color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; margin-right: 12px;">${escapeHTML(job.url)}</span>
+                    <span class="job-url">${escapeHTML(job.url)}</span>
                     <span class="status ${job.status}">${job.status}</span>
                 </div>
                 ${job.total > 0 ? `
