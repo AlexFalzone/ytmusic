@@ -171,7 +171,7 @@ func (d *Downloader) DownloadSingle(ctx context.Context, url string) error {
 // Under --ignore-errors yt-dlp can exit 0 having downloaded nothing.
 func verifyProduced(url, report string) error {
 	var produced int
-	for _, line := range strings.Split(report, "\n") {
+	for line := range strings.SplitSeq(report, "\n") {
 		path := strings.TrimSpace(line)
 		if path == "" {
 			continue
