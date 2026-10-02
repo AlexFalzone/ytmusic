@@ -2,6 +2,9 @@ package fingerprint
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"runtime/debug"
 	"sync"
 
 	"ytmusic/internal/memo"
@@ -59,12 +62,15 @@ func NewFingerprinter(fp fpcalcGenerator, ac acoustidLookup, mbidLookup func(ctx
 }
 
 // BatchLookupByFiles fingerprints all paths in parallel (max 4 concurrent) and
-// returns FileMatch entries only for files whose AcoustID lookup returned a recording MBID.
+// returns FileMatch entries only for files whose AcoustID lookup returned a
+// recording MBID. A file that is not found, or whose lookup fails, is left
+// out; a panic fails its file too and is returned, joined with the others.
 // The mbidLookup step is intentionally skipped here; callers use the MBID directly.
-func (f *Fingerprinter) BatchLookupByFiles(ctx context.Context, paths []string) []metadata.FileMatch {
+func (f *Fingerprinter) BatchLookupByFiles(ctx context.Context, paths []string) ([]metadata.FileMatch, error) {
 	type slot struct {
 		match metadata.FileMatch
 		ok    bool
+		panic error
 	}
 
 	slots := make([]slot, len(paths))
@@ -77,6 +83,13 @@ func (f *Fingerprinter) BatchLookupByFiles(ctx context.Context, paths []string) 
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			// Off any handler stack: a panic here would take down the whole
+			// process, and with it every job of the web server.
+			defer func() {
+				if p := recover(); p != nil {
+					slots[i].panic = fmt.Errorf("panic fingerprinting %s: %v\n%s", path, p, debug.Stack())
+				}
+			}()
 
 			mbid, found, err := f.recordingID(ctx, path)
 			if err != nil || !found {
@@ -88,12 +101,16 @@ func (f *Fingerprinter) BatchLookupByFiles(ctx context.Context, paths []string) 
 	wg.Wait()
 
 	var matches []metadata.FileMatch
+	var panics []error
 	for _, s := range slots {
 		if s.ok {
 			matches = append(matches, s.match)
 		}
+		if s.panic != nil {
+			panics = append(panics, s.panic)
+		}
 	}
-	return matches
+	return matches, errors.Join(panics...)
 }
 
 // LookupByFile identifies the audio file at path via its acoustic fingerprint.

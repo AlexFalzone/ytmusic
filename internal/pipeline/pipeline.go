@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -253,7 +254,7 @@ func ResolveLyrics(ctx context.Context, dir string, log *logger.Logger) {
 			// the whole process, mid-download, for a lyrics lookup.
 			defer func() {
 				if r := recover(); r != nil {
-					log.Error("panic while fetching lyrics for %q: %v", title, r)
+					log.Error("panic while fetching lyrics for %q: %v\n%s", title, r, debug.Stack())
 				}
 			}()
 

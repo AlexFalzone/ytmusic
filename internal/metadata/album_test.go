@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"ytmusic/internal/logger"
@@ -86,10 +87,11 @@ func TestGroupByAlbum_FilesWithNoAlbumGetOwnGroup(t *testing.T) {
 
 type mockBatchFingerprinter struct {
 	matches []FileMatch
+	err     error
 }
 
-func (m *mockBatchFingerprinter) BatchLookupByFiles(_ context.Context, _ []string) []FileMatch {
-	return m.matches
+func (m *mockBatchFingerprinter) BatchLookupByFiles(_ context.Context, _ []string) ([]FileMatch, error) {
+	return m.matches, m.err
 }
 
 type mockReleaseResolver struct {
@@ -409,5 +411,29 @@ func TestResolve_AlbumFirstPhaseWritesPositionalTags(t *testing.T) {
 	tags2, _ := taglib.ReadTags(p2)
 	if got := FirstTag(tags2, taglib.TrackNumber); got != "2" {
 		t.Errorf("p2 TrackNumber = %q, want %q", got, "2")
+	}
+}
+
+// A panic on one file must not cost the group the files that were matched.
+func TestResolveGroupByFingerprint_KeepsMatchesBesideAFailure(t *testing.T) {
+	p1, p2 := newTestMP3(t), newTestMP3(t)
+	writeTestTags(t, p1, map[string][]string{taglib.Title: {"TRUST!"}, taglib.Album: {"LP!"}})
+	writeTestTags(t, p2, map[string][]string{taglib.Title: {"DIRTY!"}, taglib.Album: {"LP!"}})
+
+	bf := &mockBatchFingerprinter{
+		matches: []FileMatch{{Path: p1, MBID: "mbid-1"}},
+		err:     errors.New("panic fingerprinting p2"),
+	}
+	rr := &mockReleaseResolver{
+		releaseIDs: map[string][]string{"mbid-1": {"rel-lp"}},
+		tracklists: map[string]Tracklist{"rel-lp": {Tracks: []ReleaseTrack{
+			{TrackNumber: 1, DiscNumber: 1, Title: "TRUST!"},
+			{TrackNumber: 2, DiscNumber: 1, Title: "DIRTY!"},
+		}}},
+	}
+	r := NewResolver(nil, logger.New(false), 0).WithBatchFingerprinter(bf).WithReleaseResolver(rr)
+
+	if got := r.resolveGroupByFingerprint(context.Background(), []string{p1, p2}); len(got) != 2 {
+		t.Errorf("resolved %d files, want 2: coverage is 50%%, the tracklist covers both", len(got))
 	}
 }

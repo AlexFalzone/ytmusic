@@ -3,6 +3,7 @@ package fingerprint_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"ytmusic/internal/fingerprint"
@@ -113,7 +114,10 @@ func TestBatchLookupByFiles_CollectsMBIDs(t *testing.T) {
 	)
 
 	paths := []string{"/a.mp3", "/b.mp3", "/c.mp3"}
-	matches := fp.BatchLookupByFiles(context.Background(), paths)
+	matches, err := fp.BatchLookupByFiles(context.Background(), paths)
+	if err != nil {
+		t.Fatalf("BatchLookupByFiles: %v", err)
+	}
 
 	if len(matches) != 3 {
 		t.Fatalf("got %d matches, want 3", len(matches))
@@ -132,7 +136,10 @@ func TestBatchLookupByFiles_FpcalcFails_Skipped(t *testing.T) {
 		makeMBIDLookup(metadata.TrackInfo{}, nil),
 	)
 
-	matches := fp.BatchLookupByFiles(context.Background(), []string{"/a.mp3", "/b.mp3"})
+	matches, err := fp.BatchLookupByFiles(context.Background(), []string{"/a.mp3", "/b.mp3"})
+	if err != nil {
+		t.Fatalf("BatchLookupByFiles: %v", err)
+	}
 	if len(matches) != 0 {
 		t.Errorf("expected 0 matches when fpcalc fails, got %d", len(matches))
 	}
@@ -145,7 +152,10 @@ func TestBatchLookupByFiles_AcoustIDNotFound_Skipped(t *testing.T) {
 		makeMBIDLookup(metadata.TrackInfo{}, nil),
 	)
 
-	matches := fp.BatchLookupByFiles(context.Background(), []string{"/a.mp3"})
+	matches, err := fp.BatchLookupByFiles(context.Background(), []string{"/a.mp3"})
+	if err != nil {
+		t.Fatalf("BatchLookupByFiles: %v", err)
+	}
 	if len(matches) != 0 {
 		t.Errorf("expected 0 matches when AcoustID finds nothing, got %d", len(matches))
 	}
@@ -158,8 +168,39 @@ func TestBatchLookupByFiles_EmptyPaths(t *testing.T) {
 		makeMBIDLookup(metadata.TrackInfo{}, nil),
 	)
 
-	matches := fp.BatchLookupByFiles(context.Background(), nil)
+	matches, err := fp.BatchLookupByFiles(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("BatchLookupByFiles: %v", err)
+	}
 	if len(matches) != 0 {
 		t.Errorf("expected 0 matches for empty paths, got %d", len(matches))
+	}
+}
+
+// panickingFpcalc panics on one path and fingerprints the others.
+type panickingFpcalc struct{ on string }
+
+func (p panickingFpcalc) Generate(_ context.Context, path string) (fingerprint.Result, error) {
+	if path == p.on {
+		panic("fpcalc bug")
+	}
+	return fingerprint.Result{Duration: 200, Fingerprint: "AQx"}, nil
+}
+
+// The batch goroutines run off any handler stack: a panic there would take
+// the web server down with every job on it.
+func TestBatchLookupByFiles_PanicFailsOnlyItsFile(t *testing.T) {
+	fp := fingerprint.NewFingerprinter(
+		panickingFpcalc{on: "/b.mp3"},
+		&stubAcoustID{mbid: "mbid-1", found: true},
+		makeMBIDLookup(metadata.TrackInfo{}, nil),
+	)
+
+	matches, err := fp.BatchLookupByFiles(context.Background(), []string{"/a.mp3", "/b.mp3"})
+	if len(matches) != 1 || matches[0].Path != "/a.mp3" {
+		t.Errorf("matches = %+v, want only /a.mp3", matches)
+	}
+	if err == nil || !strings.Contains(err.Error(), "/b.mp3") {
+		t.Errorf("err = %v, want the panic on /b.mp3", err)
 	}
 }

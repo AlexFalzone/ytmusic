@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 
@@ -251,7 +252,7 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadSt
 			// count.
 			defer func() {
 				if r := recover(); r != nil {
-					d.Logger.Error("panic while downloading %s: %v", u, r)
+					d.Logger.Error("panic while downloading %s: %v\n%s", u, r, debug.Stack())
 					failedMu.Lock()
 					failed = append(failed, u)
 					failedMu.Unlock()

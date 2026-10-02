@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -91,7 +92,7 @@ func (s *Server) StartSessionGC(ctx context.Context) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				s.logger.Error("session GC panic: %v", r)
+				s.logger.Error("session GC panic: %v\n%s", r, debug.Stack())
 			}
 		}()
 

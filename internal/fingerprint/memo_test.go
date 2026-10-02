@@ -35,8 +35,8 @@ func TestFingerprinter_FingerprintsEachFileOnce(t *testing.T) {
 	fc, ac := &countingFpcalc{}, &countingAcoustID{}
 	fp := fingerprint.NewFingerprinter(fc, ac, makeMBIDLookup(metadata.TrackInfo{Title: "Song"}, nil))
 
-	if got := fp.BatchLookupByFiles(context.Background(), []string{"/a.mp3", "/b.mp3"}); len(got) != 2 {
-		t.Fatalf("batch matched %d files, want 2", len(got))
+	if got, err := fp.BatchLookupByFiles(context.Background(), []string{"/a.mp3", "/b.mp3"}); err != nil || len(got) != 2 {
+		t.Fatalf("batch matched %d files (err %v), want 2", len(got), err)
 	}
 	if _, found, err := fp.LookupByFile(context.Background(), "/a.mp3", ""); err != nil || !found {
 		t.Fatalf("LookupByFile = %v, %v, want found", found, err)

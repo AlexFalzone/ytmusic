@@ -40,7 +40,10 @@ func (r *Resolver) resolveGroup(ctx context.Context, album string, files []strin
 // tags for each file whose title matches a tracklist entry with sufficient confidence.
 // Returns the paths of files that were successfully resolved.
 func (r *Resolver) resolveGroupByFingerprint(ctx context.Context, files []string) []string {
-	matches := r.batchFingerprinter.BatchLookupByFiles(ctx, files)
+	matches, err := r.batchFingerprinter.BatchLookupByFiles(ctx, files)
+	if err != nil {
+		r.logger.Error("batch fingerprint: %v", err)
+	}
 	if len(files) == 0 {
 		return nil
 	}

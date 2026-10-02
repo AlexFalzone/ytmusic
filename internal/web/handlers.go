@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"runtime/debug"
 	"strconv"
 	"strings"
 
@@ -190,7 +191,7 @@ func (s *Server) processJob(job Job) {
 
 	defer func() {
 		if r := recover(); r != nil {
-			jobLog.Error("panic: %v", r)
+			jobLog.Error("panic: %v\n%s", r, debug.Stack())
 			s.updateJob(job.ID, func(j *Job) {
 				j.Status = StatusFailed
 				j.Error = fmt.Sprintf("internal error: %v", r)

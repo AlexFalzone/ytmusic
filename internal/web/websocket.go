@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -44,7 +45,7 @@ func (s *Server) readPump(conn wsReader, done chan<- struct{}) {
 	defer close(done)
 	defer func() {
 		if r := recover(); r != nil {
-			s.logger.Error("websocket read pump panic: %v", r)
+			s.logger.Error("websocket read pump panic: %v\n%s", r, debug.Stack())
 		}
 	}()
 

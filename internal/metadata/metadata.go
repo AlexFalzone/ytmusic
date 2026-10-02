@@ -85,9 +85,10 @@ type FileMatch struct {
 }
 
 // BatchFingerprinter fingerprints multiple files in parallel and returns
-// only the files for which an AcoustID recording MBID was found.
+// only the files for which an AcoustID recording MBID was found. The error
+// reports panics, each of which failed only its own file.
 type BatchFingerprinter interface {
-	BatchLookupByFiles(ctx context.Context, paths []string) []FileMatch
+	BatchLookupByFiles(ctx context.Context, paths []string) ([]FileMatch, error)
 }
 
 // ReleaseResolver looks up which releases contain a recording and fetches

@@ -3,6 +3,7 @@ package metadata
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 )
@@ -62,7 +63,7 @@ func (r *Resolver) forFile(i, n int) *Resolver {
 func (r *Resolver) resolveSafely(ctx context.Context, path string) (err error) {
 	defer func() {
 		if p := recover(); p != nil {
-			r.logger.Error("panic while resolving %s: %v", path, p)
+			r.logger.Error("panic while resolving %s: %v\n%s", path, p, debug.Stack())
 			err = fmt.Errorf("panic while resolving %s: %v", path, p)
 		}
 	}()
