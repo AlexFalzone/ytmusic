@@ -26,8 +26,22 @@ type Hooks struct {
 	OnWarning       func(msg string)
 }
 
+// dirImporter resolves the metadata of the audio files in a directory.
+type dirImporter interface {
+	Import(ctx context.Context, dir string) error
+}
+
+// lyricsFetcher looks up the lyrics of one track.
+type lyricsFetcher interface {
+	Fetch(ctx context.Context, artist, title, album string) (lyrics.Result, error)
+}
+
 // Run executes the full download pipeline: extract URLs → download → merge → resolve metadata → move.
 func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir string, hooks Hooks) error {
+	return run(ctx, cfg, log, tmpDir, hooks, importer.New(cfg, log), lyrics.NewClient())
+}
+
+func run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir string, hooks Hooks, imp dirImporter, lf lyricsFetcher) error {
 	dl := downloader.New(cfg, log, tmpDir)
 	if hooks.OnProgress != nil {
 		dl.OnProgress = hooks.OnProgress
@@ -67,7 +81,7 @@ func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 		return fmt.Errorf("failed to merge files: %w", err)
 	}
 
-	if err := importer.New(cfg, log).Import(ctx, mergedDir); err != nil {
+	if err := imp.Import(ctx, mergedDir); err != nil {
 		msg := fmt.Sprintf("metadata resolution failed: %v", err)
 		log.Warn("%s", msg)
 		if hooks.OnWarning != nil {
@@ -76,7 +90,7 @@ func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 	}
 
 	if !cfg.SkipLyrics {
-		ResolveLyrics(ctx, mergedDir, log)
+		resolveLyrics(ctx, mergedDir, log, lf)
 	}
 
 	log.Info("moving files to %s", cfg.OutputDir)
@@ -102,7 +116,7 @@ func RunImportOnly(ctx context.Context, cfg config.Config, log *logger.Logger, d
 	}
 
 	if !cfg.SkipLyrics {
-		ResolveLyrics(ctx, dir, log)
+		resolveLyrics(ctx, dir, log, lyrics.NewClient())
 	}
 
 	return nil
@@ -111,13 +125,16 @@ func RunImportOnly(ctx context.Context, cfg config.Config, log *logger.Logger, d
 // ResolveLyrics fetches lyrics from LRCLib for each audio file in dir.
 // Synced lyrics are saved as .lrc sidecar files; plain lyrics are embedded in tags.
 func ResolveLyrics(ctx context.Context, dir string, log *logger.Logger) {
+	resolveLyrics(ctx, dir, log, lyrics.NewClient())
+}
+
+func resolveLyrics(ctx context.Context, dir string, log *logger.Logger, lf lyricsFetcher) {
 	files, err := utils.FindAudioFiles(dir)
 	if err != nil || len(files) == 0 {
 		return
 	}
 
 	log.Info("fetching lyrics for %d files", len(files))
-	client := lyrics.NewClient()
 
 	const workers = 3
 	sem := make(chan struct{}, workers)
@@ -160,7 +177,7 @@ func ResolveLyrics(ctx context.Context, dir string, log *logger.Logger) {
 				}
 			}()
 
-			result, err := client.Fetch(ctx, artist, title, album)
+			result, err := lf.Fetch(ctx, artist, title, album)
 			if err != nil {
 				log.Debug("lyrics fetch failed for %q: %v", title, err)
 				return
