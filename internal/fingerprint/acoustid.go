@@ -2,13 +2,13 @@ package fingerprint
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
 
+	"ytmusic/internal/httpjson"
 	"ytmusic/internal/throttle"
 )
 
@@ -20,10 +20,9 @@ const requestInterval = time.Second / 3
 
 // AcoustIDClient queries the AcoustID API to resolve a fingerprint to a MusicBrainz recording ID.
 type AcoustIDClient struct {
-	apiKey     string
-	baseURL    string
-	httpClient *http.Client
-	throttle   *throttle.Throttle
+	apiKey  string
+	baseURL string
+	api     *httpjson.Client
 }
 
 // NewAcoustIDClient creates a new client. baseURL overrides the default endpoint (used in tests).
@@ -32,16 +31,23 @@ func NewAcoustIDClient(apiKey, baseURL string) *AcoustIDClient {
 		baseURL = defaultAcoustIDURL
 	}
 	return &AcoustIDClient{
-		apiKey:     apiKey,
-		baseURL:    baseURL,
-		httpClient: &http.Client{Timeout: 10 * time.Second},
-		throttle:   throttle.New(requestInterval),
+		apiKey:  apiKey,
+		baseURL: baseURL,
+		api: &httpjson.Client{
+			HTTP:     &http.Client{Timeout: 10 * time.Second},
+			Throttle: throttle.New(requestInterval),
+		},
 	}
 }
 
 type acoustidResponse struct {
 	Status  string           `json:"status"`
+	Error   *acoustidError   `json:"error"`
 	Results []acoustidResult `json:"results"`
+}
+
+type acoustidError struct {
+	Message string `json:"message"`
 }
 
 type acoustidResult struct {
@@ -57,35 +63,22 @@ type acoustidRecording struct {
 // Lookup submits a fingerprint to AcoustID and returns the first MusicBrainz recording ID found.
 // Returns (mbid, true, nil) on success, ("", false, nil) when no match is found.
 func (c *AcoustIDClient) Lookup(ctx context.Context, fp Result) (string, bool, error) {
-	if err := c.throttle.Wait(ctx); err != nil {
-		return "", false, fmt.Errorf("waiting for acoustid rate limit: %w", err)
-	}
-
 	params := url.Values{}
 	params.Set("client", c.apiKey)
 	params.Set("duration", strconv.Itoa(fp.Duration))
 	params.Set("fingerprint", fp.Fingerprint)
 	params.Set("meta", "recordingids")
 
-	reqURL := c.baseURL + "?" + params.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return "", false, fmt.Errorf("failed to build acoustid request: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return "", false, fmt.Errorf("acoustid request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", false, fmt.Errorf("acoustid returned %d", resp.StatusCode)
-	}
-
 	var result acoustidResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", false, fmt.Errorf("failed to decode acoustid response: %w", err)
+	if err := c.api.Get(ctx, c.baseURL+"?"+params.Encode(), nil, &result); err != nil {
+		return "", false, fmt.Errorf("acoustid lookup: %w", err)
+	}
+	if result.Status != "ok" {
+		msg := "no message"
+		if result.Error != nil {
+			msg = result.Error.Message
+		}
+		return "", false, fmt.Errorf("acoustid lookup: status %q: %s", result.Status, msg)
 	}
 
 	for _, r := range result.Results {

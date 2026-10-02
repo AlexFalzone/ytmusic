@@ -114,3 +114,17 @@ func TestFetchQueryParams(t *testing.T) {
 		t.Fatalf("Fetch: %v", err)
 	}
 }
+
+// Fetch retries network errors only: they must still be recognised once the
+// request goes through httpjson.
+func TestNetworkErrorsAreTransient(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	c := NewClient()
+	c.apiURL = srv.URL
+	srv.Close()
+
+	_, err := c.doFetch(context.Background(), "Artist", "Title", "Album")
+	if err == nil || !isTransient(err) {
+		t.Errorf("err = %v, want a transient error", err)
+	}
+}

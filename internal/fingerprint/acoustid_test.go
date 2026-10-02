@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"ytmusic/internal/buildinfo"
 	"ytmusic/internal/fingerprint"
 )
 
@@ -119,5 +121,49 @@ func TestAcoustIDClient_SpacesRequests(t *testing.T) {
 	// Three requests at three per second: the last goes two thirds of a second in.
 	if elapsed := time.Since(start); elapsed < 600*time.Millisecond {
 		t.Errorf("three lookups took %v, want at least 600ms", elapsed)
+	}
+}
+
+func TestAcoustIDClient_Lookup_IdentifiesItself(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("User-Agent"); got != buildinfo.UserAgent() {
+			t.Errorf("User-Agent = %q, want %q", got, buildinfo.UserAgent())
+		}
+		respondJSON(t, w, map[string]any{"status": "ok", "results": []any{}})
+	}))
+	defer srv.Close()
+
+	client := fingerprint.NewAcoustIDClient("key", srv.URL)
+	if _, _, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"}); err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+}
+
+// Remembered as "no match", an error would stop the per-file phase from
+// trying the file again.
+func TestAcoustIDClient_Lookup_ErrorStatusIsAnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		respondJSON(t, w, map[string]any{"status": "error", "error": map[string]any{"code": 4, "message": "invalid API key"}})
+	}))
+	defer srv.Close()
+
+	client := fingerprint.NewAcoustIDClient("key", srv.URL)
+	_, _, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"})
+	if err == nil || !strings.Contains(err.Error(), "invalid API key") {
+		t.Errorf("err = %v, want one naming AcoustID's message", err)
+	}
+}
+
+func TestAcoustIDClient_Lookup_HTTPErrorKeepsTheMessage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		respondJSON(t, w, map[string]any{"status": "error", "error": map[string]any{"code": 3, "message": "invalid fingerprint"}})
+	}))
+	defer srv.Close()
+
+	client := fingerprint.NewAcoustIDClient("key", srv.URL)
+	_, _, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"})
+	if err == nil || !strings.Contains(err.Error(), "invalid fingerprint") {
+		t.Errorf("err = %v, want one naming AcoustID's message", err)
 	}
 }

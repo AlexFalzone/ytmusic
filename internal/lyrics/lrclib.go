@@ -2,7 +2,6 @@ package lyrics
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -10,7 +9,7 @@ import (
 	"net/url"
 	"time"
 
-	"ytmusic/internal/buildinfo"
+	"ytmusic/internal/httpjson"
 )
 
 type Result struct {
@@ -19,14 +18,14 @@ type Result struct {
 }
 
 type Client struct {
-	httpClient *http.Client
-	apiURL     string
+	api    *httpjson.Client
+	apiURL string
 }
 
 func NewClient() *Client {
 	return &Client{
-		httpClient: &http.Client{Timeout: 10 * time.Second},
-		apiURL:     "https://lrclib.net/api/get",
+		api:    &httpjson.Client{HTTP: &http.Client{Timeout: 10 * time.Second}},
+		apiURL: "https://lrclib.net/api/get",
 	}
 }
 
@@ -64,35 +63,16 @@ func (c *Client) doFetch(ctx context.Context, artist, title, album string) (Resu
 	params.Set("track_name", title)
 	params.Set("album_name", album)
 
-	reqURL := fmt.Sprintf("%s?%s", c.apiURL, params.Encode())
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return Result{}, fmt.Errorf("failed to create lrclib request: %w", err)
-	}
-	req.Header.Set("User-Agent", buildinfo.UserAgent())
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return Result{}, fmt.Errorf("lrclib request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
+	var apiResp apiResponse
+	err := c.api.Get(ctx, c.apiURL+"?"+params.Encode(), nil, &apiResp)
+	var se *httpjson.StatusError
+	if errors.As(err, &se) && se.Code == http.StatusNotFound {
 		return Result{}, nil
 	}
-	if resp.StatusCode != http.StatusOK {
-		return Result{}, fmt.Errorf("lrclib returned status %d", resp.StatusCode)
+	if err != nil {
+		return Result{}, fmt.Errorf("lrclib: %w", err)
 	}
-
-	var apiResp apiResponse
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-		return Result{}, fmt.Errorf("failed to decode lrclib response: %w", err)
-	}
-
-	return Result{
-		Synced: apiResp.SyncedLyrics,
-		Plain:  apiResp.PlainLyrics,
-	}, nil
+	return Result{Synced: apiResp.SyncedLyrics, Plain: apiResp.PlainLyrics}, nil
 }
 
 type apiResponse struct {
