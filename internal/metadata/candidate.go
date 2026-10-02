@@ -62,9 +62,8 @@ func better(a, b match, queryAlbum string) bool {
 		return a.info.Confidence > b.info.Confidence
 	}
 	if queryAlbum != "" && a.info.Album != "" && b.info.Album != "" {
-		q := normalize(queryAlbum)
-		simA := similarity(q, normalize(a.info.Album))
-		simB := similarity(q, normalize(b.info.Album))
+		simA := Similarity(queryAlbum, a.info.Album)
+		simB := Similarity(queryAlbum, b.info.Album)
 		if simA != simB {
 			return simA > simB
 		}
@@ -77,8 +76,8 @@ func better(a, b match, queryAlbum string) bool {
 
 // score computes a similarity score (0.0-1.0) between the query and a result.
 func score(query SearchQuery, result TrackInfo) float64 {
-	titleScore := similarity(normalize(query.Title), normalize(result.Title))
-	artistScore := similarity(normalize(query.Artist), normalize(result.Artist))
+	titleScore := Similarity(query.Title, result.Title)
+	artistScore := Similarity(query.Artist, result.Artist)
 
 	var s float64
 	if query.Artist == "" {
@@ -90,7 +89,7 @@ func score(query SearchQuery, result TrackInfo) float64 {
 
 	// Boost results that match the existing album tag from yt-dlp
 	if query.Album != "" && result.Album != "" {
-		albumScore := similarity(normalize(query.Album), normalize(result.Album))
+		albumScore := Similarity(query.Album, result.Album)
 		if albumScore > 0.8 {
 			s *= 1.1
 		}

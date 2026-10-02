@@ -279,34 +279,14 @@ func pickBestRelease(releases []release, preferAlbum string) release {
 	return best
 }
 
-// releaseAlbumSim returns a rough similarity score between a release title and
-// the preferred album name. Used only as a tiebreaker in pickBestRelease.
+// releaseAlbumSim is how close a release title is to the album the file
+// declares, 0 when it declares none: two empty strings are perfectly alike,
+// and would hand every tie to a release without a title.
 func releaseAlbumSim(releaseTitle, preferAlbum string) float64 {
 	if preferAlbum == "" {
 		return 0
 	}
-	a := strings.ToLower(strings.TrimSpace(releaseTitle))
-	b := strings.ToLower(strings.TrimSpace(preferAlbum))
-	if a == b {
-		return 1.0
-	}
-	at := strings.Fields(a)
-	bt := strings.Fields(b)
-	if len(at) == 0 || len(bt) == 0 {
-		return 0
-	}
-	set := make(map[string]bool, len(bt))
-	for _, t := range bt {
-		set[t] = true
-	}
-	matches := 0
-	for _, t := range at {
-		if set[t] {
-			matches++
-		}
-	}
-	maxLen := max(len(bt), len(at))
-	return float64(matches) / float64(maxLen)
+	return metadata.Similarity(releaseTitle, preferAlbum)
 }
 
 func releaseScore(rel release) int {

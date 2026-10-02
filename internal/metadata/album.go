@@ -169,9 +169,9 @@ func (r *Resolver) groupByAlbum(files []string) map[string][]string {
 // Returns the best match and its similarity score (0.0–1.0).
 func matchTrackByTitle(fileTitle string, tracks []ReleaseTrack) (ReleaseTrack, float64) {
 	best := tracks[0]
-	bestScore := similarity(normalize(fileTitle), normalize(tracks[0].Title))
+	bestScore := Similarity(fileTitle, tracks[0].Title)
 	for _, t := range tracks[1:] {
-		s := similarity(normalize(fileTitle), normalize(t.Title))
+		s := Similarity(fileTitle, t.Title)
 		if s > bestScore {
 			bestScore = s
 			best = t

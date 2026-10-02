@@ -42,6 +42,13 @@ func normalize(s string) string {
 	return strings.Join(strings.Fields(b.String()), " ")
 }
 
+// Similarity returns how alike two titles are (0.0-1.0), compared the way the
+// resolver compares them: normalized, token by token, near-identical words
+// counting as the same.
+func Similarity(a, b string) float64 {
+	return similarity(normalize(a), normalize(b))
+}
+
 // similarity returns how alike two normalized strings are (0.0-1.0): the share
 // of tokens they have in common, where near-identical tokens count as shared.
 // Comparing without spaces first handles "theweeknd" vs "the weeknd".

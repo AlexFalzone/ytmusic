@@ -723,3 +723,25 @@ func TestLookupTracklist_DelegatesToLookupRelease(t *testing.T) {
 		t.Errorf("unexpected tracks: %+v", tl.Tracks)
 	}
 }
+
+// The release tie-break compares album titles the way the resolver compares
+// titles: an accent or a parenthesised edition must not hide the match.
+func TestPickBestRelease_TieBreakFoldsAccents(t *testing.T) {
+	releases := []release{
+		{ID: "deluxe", Title: "Héroes (Deluxe)", Status: "Official", Date: "1977-01-01",
+			ReleaseGroup: releaseGroup{PrimaryType: "Album"}},
+		{ID: "plain", Title: "Heroes", Status: "Official", Date: "1999-01-01",
+			ReleaseGroup: releaseGroup{PrimaryType: "Album"}},
+	}
+	if got := pickBestRelease(releases, "Héroes"); got.ID != "plain" {
+		t.Errorf("picked %q, want %q: its title is the album the file declares", got.ID, "plain")
+	}
+}
+
+// Similarity of two empty strings is 1: without the guard, a release with no
+// title would win every tie when the file declares no album.
+func TestReleaseAlbumSim_NoPreferredAlbum(t *testing.T) {
+	if got := releaseAlbumSim("", ""); got != 0 {
+		t.Errorf("releaseAlbumSim(\"\", \"\") = %v, want 0", got)
+	}
+}

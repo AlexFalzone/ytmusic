@@ -110,3 +110,9 @@ func TestSimilarity(t *testing.T) {
 		}
 	}
 }
+
+func TestSimilarityNormalizesBothSides(t *testing.T) {
+	if got := Similarity("Héroes!", "heroes"); got != 1 {
+		t.Errorf("Similarity = %v, want 1", got)
+	}
+}
