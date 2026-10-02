@@ -1,103 +1,60 @@
-# ytmusic configuration file
-# This file can be placed in one of these locations:
-#   - ./ytmusic.yaml (current directory)
-#   - ~/.config/ytmusic/config.yaml (XDG config directory)
-#   - ~/.ytmusic.yaml (home directory)
-#
-# Or specify a custom location with: ytmusic --config /path/to/config.yaml
+# Looked up in ./ytmusic.yaml, ~/.config/ytmusic/config.yaml, ~/.ytmusic.yaml, or --config.
 
-# Number of parallel downloads (1-10)
-# YouTube may rate-limit if too many parallel connections are made
+# 1-10. Too many and YouTube rate-limits.
 parallel_jobs: 4
 
-# How many files are matched against the metadata providers at once (1-10)
-# MusicBrainz still answers one request per second and iTunes about one every
-# three, however high this is set: more workers only let the other providers
-# and the artwork downloads run during those waits.
+# 1-10. MusicBrainz and iTunes stay throttled however high this is.
 metadata_workers: 4
 
-# Browser to extract cookies from (empty = no cookies)
-# Supported: chrome, firefox, brave, edge, safari, opera, etc.
-# Cookies are needed to download age-restricted or private videos.
-# Only for the CLI on a desktop: a container has no browser, and setting this
-# in Docker makes every download fail.
+# chrome, firefox, brave, …; for age-restricted or private videos. Leave empty in Docker.
 cookies_browser: ""
 
-# Audio format for output files
-# Supported: mp3, m4a, opus, flac, wav, aac
+# mp3, m4a, opus, flac, wav, aac
 audio_format: mp3
 
 verbose: false
 
-# Skip lyrics fetching (synced .lrc and plain embedded)
 # skip_lyrics: false
 
-# Metadata providers to use, in order of priority
-# Supported: spotify, musicbrainz, deezer, itunes
-# The resolver tries each provider in order until one returns results
-# Missing fields are filled by subsequent providers (gap filling)
-# If empty or omitted, metadata resolution is skipped
+# Tried in list order. Supported: spotify, musicbrainz, deezer, itunes.
 metadata_providers:
   - spotify
   - deezer
   - musicbrainz
   - itunes
 
-# Spotify API credentials (required only if "spotify" is in metadata_providers)
-# Get yours at https://developer.spotify.com/dashboard
+# Needed only with spotify: https://developer.spotify.com/dashboard
 spotify_client_id: ""
 spotify_client_secret: ""
 
-# AcoustID API key for audio fingerprinting (optional but strongly recommended)
-# Without this, metadata matching relies solely on text search from yt-dlp tags,
-# which is often inaccurate for YouTube videos.
-# Register for a free key at https://acoustid.org/login
+# Strongly recommended, needs fpcalc: https://acoustid.org/login
 acoustid_api_key: ""
 
-# Minimum confidence threshold for metadata matching (0.0-1.0)
-# Results below this threshold are discarded, keeping original yt-dlp tags
-# Higher values = stricter matching, lower values = more aggressive tagging
+# 0.0-1.0. Below it, the yt-dlp tags stay.
 # confidence_threshold: 0.7
 
-# Output directory for downloaded and tagged files
+# Docker: /music
 output_dir: "~/Music"
 
-# Directory for log files
-# In Docker, set it to /logs, the mounted volume (as output_dir to /music):
-# anywhere else inside the container the logs are lost with it
+# Docker: /logs
 # log_dir: "~/.local/share/ytmusic/logs"
 
-# --- Web interface only (ytmusic-web); ignored by the CLI ---
+# --- ytmusic-web only ---
 
-# Authentication. Single user.
-# The server refuses to start with auth enabled and no password_hash: an
-# unauthenticated instance must be a deliberate choice, never an oversight.
-#
-# Generate the hash with:
-#   ytmusic-web -hash-password
-# then paste it below. The password itself is never stored.
+# password_hash from: ytmusic-web -hash-password
 auth:
   enabled: true
   username: ""
   password_hash: ""
-  # How long a session stays valid while unused. Refreshed on every request.
   session_ttl: "720h"
 
-# Set to true ONLY when a reverse proxy sits in front of the server.
-# It makes the server trust X-Forwarded-Proto (for the Secure cookie flag) and
-# X-Forwarded-For (to throttle failed logins per real client IP). Trusting those
-# headers without a proxy would let any client forge them.
+# Only with a reverse proxy in front: trusts X-Forwarded-Proto and X-Forwarded-For.
 behind_proxy: false
 
-# How many download jobs may run at the same time. Jobs beyond this wait in the
-# queue rather than being refused.
-# Each job already runs parallel_jobs downloads at once, so raising this
-# multiplies the load on YouTube and makes rate limiting more likely.
+# Jobs beyond this wait in the queue. Each runs parallel_jobs downloads.
 max_concurrent_jobs: 1
 
-# Restrict which sites can be handed to yt-dlp. Empty means no restriction.
-# yt-dlp supports well over a thousand sites, so an open instance is a
-# general-purpose downloader for anyone who can reach it.
+# Empty means any site yt-dlp supports.
 # allowed_hosts:
 #   - youtube.com
 #   - music.youtube.com

@@ -1,14 +1,13 @@
 # ytmusic
 
-Download YouTube Music as tagged audio files. Automatically resolves metadata (title, artist, album, artwork, lyrics)
-from multiple providers.
+Download YouTube Music playlists as tagged audio files, with metadata (title, artist, album, artwork, lyrics)
+resolved from several providers.
 
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)
 - [Build](#build)
 - [Usage](#usage)
-- [Options](#options)
 - [Configuration](#configuration)
 - [Metadata Providers](#metadata-providers)
 - [Web Interface](#web-interface)
@@ -22,29 +21,22 @@ from multiple providers.
 - FFmpeg (`ffmpeg` and `ffprobe`)
 - Chromaprint (`fpcalc`), only when `acoustid_api_key` is set
 
-Both `ytmusic` and `ytmusic-web` check at startup for the programs the run will use, and refuse to start if
-one is missing, naming every missing program at once. A download needs all of them; `--dry-run` only yt-dlp;
-`--import-only` only `fpcalc`, and only with an AcoustID key.
-`--import-only` also validates the configuration the way a download does (provider names, Spotify credentials,
-`metadata_workers`, `confidence_threshold`) before it touches a file.
+Both binaries refuse to start if a program the run needs is missing: a download needs all of them,
+`--dry-run` only yt-dlp, `--import-only` only `fpcalc` (with an AcoustID key).
 
 ## Build
 
 ```
-make local   // Build both CLI and web
-make test    // Run tests
-make lint    // Run golangci-lint (fetched on first use, pinned in the Makefile)
+make local   # both binaries
+make test
+make lint
 ```
 
 ## Usage
 
 ```
 ytmusic [options] <playlist_url>
-```
 
-## Options
-
-```
 -v, --verbose              Detailed output
 -n, --dry-run              Preview only (no download)
 -p, --parallel <n>         Parallel downloads (1-10, default: 4)
@@ -54,19 +46,17 @@ ytmusic [options] <playlist_url>
 -c, --config <path>        Config file path
     --no-lyrics            Skip lyrics fetching
     --lyrics-only <dir>    Fetch lyrics for existing audio files
-    --import-only <dir>    Resolve metadata for existing audio files (no download)
+    --import-only <dir>    Resolve metadata and lyrics for existing audio files (no download)
     --init-config          Create default config file
 -h, --help                 Help
 ```
 
 ## Configuration
 
-Look at `config.example.yaml` or just run `./ytmusic --init-config`
+See `config.example.yaml`, or run `ytmusic --init-config`.
 
-**Cookies.** Age-restricted and private videos need your YouTube cookies. On a desktop, point the CLI at
-the browser you are logged in with, either per run (`-b firefox`) or in the config
-(`cookies_browser: firefox`). Leave it empty in Docker: there is no browser inside the container, and
-setting one makes every download fail.
+Age-restricted and private videos need the cookies of a browser you are logged in with: `-b firefox` or
+`cookies_browser: firefox`. Leave it empty in Docker, where there is no browser.
 
 ## Metadata Providers
 
@@ -77,53 +67,33 @@ setting one makes every download fail.
 | Deezer      | No       | None        |
 | iTunes      | No       | ~20 req/min |
 
-The limits are enforced by the client, so they hold however many files are resolved at once. AcoustID
-lookups (fingerprinting) are kept to 3 per second the same way.
+AcoustID is limited to 3 requests per second. Resolution runs in three phases:
 
-Metadata resolution runs in three phases:
+1. **Batch fingerprint** (`fpcalc` + AcoustID key): if one MusicBrainz release holds ≥ 50% of an album
+   group's recordings, its tracklist sets track and disc numbers.
+2. **Album-first lookup** (MusicBrainz): the album is searched once and its tracklist matched by title.
+3. **Per-file search**: providers in order, `metadata_workers` files at a time. The first result above
+   `confidence_threshold` wins; later providers fill missing fields and replace artwork that fails to download.
 
-1. **Batch fingerprint** (requires `fpcalc` + AcoustID API key): all files in an album group are fingerprinted in parallel. If a single MusicBrainz release accounts for ≥ 50% of the matched recordings, its tracklist is used to assign track and disc numbers.
-2. **Album-first lookup** (MusicBrainz): for files not resolved by phase 1, the album name is searched once and the full tracklist is matched by title similarity.
-3. **Per-file text search**: each file is searched individually across all configured providers in order. The first result above the confidence threshold wins; remaining providers fill missing fields (genre, artwork, ISRC, etc.). Files are resolved `metadata_workers` at a time (default 4). If the winning result's artwork cannot be downloaded, another provider's is used.
-
-Track and disc numbers written by phases 1 and 2 are never overwritten by phase 3.
+Phase 3 never overwrites the track and disc numbers of phases 1 and 2.
 
 ### Matching rules
 
-Before any candidate is scored, it has to pass two checks:
-
-- **Version.** A title that declares a variant — `(Live)`, `(Sped Up)`, `- Radio Edit`, `(Skrillex Remix)` —
-  only matches the same variant, and a plain title never matches a variant. When no provider carries the
-  variant, the original recording lends its artist, album, artwork, year and genre, and the title keeps the variant:
-  `Blinding Lights (Sped Up)`. Its ISRC and track number are not copied: they identify the original.
-- **Length.** A recording that runs longer than the file by more than 10% (or by more than 3 seconds, for
-  short tracks) is a different cut and is skipped. A longer file is accepted up to twice the recording's length, since music
-  videos often wrap the song in an intro and an outro.
-
-A candidate with neither a length nor an album is skipped too: there is nothing to check it against.
-
-When comparing titles, remaster notes and featuring credits are ignored on both sides, accented letters are
-folded (`Perché` = `Perche`) and `&` reads as `and`.
+- A title declaring a variant (`(Live)`, `(Sped Up)`, `- Radio Edit`, `(Skrillex Remix)`) only matches the
+  same variant. When no provider has it, the original lends artist, album, artwork, year and genre, but not
+  ISRC or track number.
+- A recording longer than the file by more than 10% (at least 3 s) is skipped; a file up to twice the
+  recording's length is accepted (music videos add intros and outros).
+- A candidate with neither a length nor an album is skipped.
+- Titles are compared ignoring remaster notes and featuring credits, with accents folded and `&` read as `and`.
 
 ## Web Interface
 
-`ytmusic-web` serves the browser UI and requires a username and password.
-
-> **Upgrading?** Authentication is on by default, so a `config.yaml` written before this change has no
-> `auth` section and the server will refuse to start. That is deliberate: the web server used to be open
-> to anyone who could reach the port. Follow the two steps below to get running again.
-
-**1. Generate a password hash**
+`ytmusic-web` requires a username and a bcrypt password hash:
 
 ```bash
-ytmusic-web -hash-password
+ytmusic-web -hash-password          # prompts, prints the hash
 ```
-
-It prompts for the password (twice, without echoing it) and prints a bcrypt hash. Only the hash is stored;
-the password is never written anywhere. Do not pass the password as an argument — it would land in your
-shell history and be visible in `ps`.
-
-**2. Put it in your config**
 
 ```yaml
 auth:
@@ -133,21 +103,10 @@ auth:
   session_ttl: "720h"
 ```
 
-In Docker, generate the hash inside the container:
+`auth.enabled: false` is only for an authenticating proxy in front (Authelia, oauth2-proxy).
 
-```bash
-docker compose run --rm ytmusic-web -hash-password
-```
-
-**Turning authentication off**
-
-`auth.enabled: false` is supported for one case: something else in front already authenticates, such as
-Authelia or oauth2-proxy. The server prints a warning at every startup. Anyone who can reach the port can
-control it, so never do this on an instance reachable beyond localhost.
-
-**Restricting what can be downloaded**
-
-yt-dlp supports well over a thousand sites. To keep the instance to the ones you actually use:
+To restrict what can be downloaded (subdomains match on label boundaries: `youtube.com` accepts
+`www.youtube.com`, not `notyoutube.com`):
 
 ```yaml
 allowed_hosts:
@@ -155,18 +114,11 @@ allowed_hosts:
   - music.youtube.com
 ```
 
-Subdomains are matched on label boundaries: `youtube.com` accepts `www.youtube.com` but not
-`notyoutube.com`. Leave the list out for no restriction.
-
 ## Reverse Proxy
 
-Set `behind_proxy: true` **only** when a proxy really is in front. It makes the server trust
-`X-Forwarded-Proto` (so the session cookie gets its `Secure` flag over HTTPS) and `X-Forwarded-For` (so
-failed logins are throttled per real client IP instead of all appearing to come from the proxy). Trusting
-those headers with no proxy in front would let any client forge them.
-
-**Subpaths are not supported.** Use a dedicated host or subdomain: the frontend requests its assets from
-absolute paths, so a `location /ytmusic/` mapping serves a blank page with no visible error.
+Set `behind_proxy: true` only when a proxy is in front: the server then trusts `X-Forwarded-Proto` (Secure
+cookie) and `X-Forwarded-For` (login throttling per client). Subpaths are not supported: use a dedicated host
+or subdomain.
 
 Caddy:
 
@@ -188,7 +140,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 
-        # The job progress stream needs an upgrade to WebSocket.
+        # WebSocket for job progress
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -198,29 +150,20 @@ server {
 
 ## Docker
 
-Uses a multi-stage Dockerfile (Go builder + python-slim runtime with yt-dlp and FFmpeg static).
-
 ```bash
-make build                         # Build cli image
-make build-web                     # Build web image
+make build        # cli image
+make build-web    # web image
 ```
 
-Volumes mounted from `docker-compose.yml`:
+| Container path        | Host path              | Content              |
+|-----------------------|------------------------|----------------------|
+| `/config/config.yaml` | `./config/config.yaml` | Config, read-only    |
+| `/music`              | `./music`              | Output audio files   |
+| `/logs`               | `./logs`               | Log files            |
+| `/tmp/.cache`         | volume `ytmusic-cache` | yt-dlp cache         |
 
-| Container path | Host path | Content |
-|---------------|-----------|---------|
-| `/config/config.yaml` | `./config/config.yaml` | Config YAML, read-only |
-| `/music`      | `./music` | Output audio files |
-| `/logs`       | `./logs`  | Log files |
-| `/tmp/.cache` | volume `ytmusic-cache` | yt-dlp cache |
-
-The containers run as UID and GID 1000, not as root, so everything they write on the host belongs to that
-user. Inside the container `HOME` is `/tmp`. The bind mounts carry `:z`, which on SELinux hosts (Fedora,
-openSUSE, RHEL) relabels them so the container may read them; without SELinux it does nothing.
-
-**First run.** Create the directories and the config file before starting, as the host user with UID 1000.
-Docker creates a missing bind-mount path itself, owned by root (the container then cannot write to it), and
-a missing `config/config.yaml` as a directory:
+The containers run as UID/GID 1000. Create the directories and the config first, as that user, or Docker
+creates them owned by root (and `config.yaml` as a directory):
 
 ```bash
 mkdir -p config music logs
@@ -228,17 +171,9 @@ cp config.example.yaml config/config.yaml
 chmod 600 config/config.yaml
 ```
 
-In that config, use the container paths: `output_dir: /music` and `log_dir: /logs`. Leave
-`cookies_browser` empty.
-
-**Upgrading from a root container.** Images built before this change ran as root, so the existing files
-belong to root and the new user cannot add to them:
+In the config set `output_dir: /music`, `log_dir: /logs` and leave `cookies_browser` empty. Then:
 
 ```bash
-docker compose down
-sudo chown -R 1000:1000 config music logs
-docker volume rm ytmusic_ytmusic-cache   # only yt-dlp's cache, rebuilt on the next run
+docker compose run --rm ytmusic-web -hash-password   # paste it into the config
+make up
 ```
-
-The volume name starts with the compose project name, which is the directory name unless you changed it:
-`docker volume ls` shows it.
