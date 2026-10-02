@@ -202,3 +202,59 @@ func TestSubDirFromTagsCannotEscapeOutputDir(t *testing.T) {
 		t.Errorf("SubDirFromTags returned %q, which escapes the output directory (rel = %q)", sub, rel)
 	}
 }
+
+func TestMergeWithExisting_HandlesSlashTrackNumberFormat(t *testing.T) {
+	tags := map[string][]string{
+		taglib.Title:       {"TRUST!"},
+		taglib.TrackNumber: {"5/12"},
+	}
+
+	// Provider returns track 3 (wrong release), existing tag is "5/12"
+	info := TrackInfo{Title: "TRUST!", TrackNumber: 3}
+	got := mergeWithExisting(tags, info)
+
+	if got.TrackNumber != 5 {
+		t.Errorf("TrackNumber = %d, want 5 (slash format must be parsed, not ignored)", got.TrackNumber)
+	}
+}
+
+func TestMergeWithExisting_PreservesNonZeroTrackNumber(t *testing.T) {
+	tags := map[string][]string{
+		taglib.Title:       {"TRUST!"},
+		taglib.TrackNumber: {"5"},
+	}
+
+	info := TrackInfo{Title: "TRUST!", TrackNumber: 3}
+	got := mergeWithExisting(tags, info)
+
+	if got.TrackNumber != 5 {
+		t.Errorf("TrackNumber = %d, want 5 (yt-dlp value preserved)", got.TrackNumber)
+	}
+}
+
+func TestMergeWithExisting_FillsZeroTrackNumber(t *testing.T) {
+	tags := map[string][]string{
+		taglib.Title: {"TRUST!"},
+	}
+
+	info := TrackInfo{Title: "TRUST!", TrackNumber: 5}
+	got := mergeWithExisting(tags, info)
+
+	if got.TrackNumber != 5 {
+		t.Errorf("TrackNumber = %d, want 5 (provider value used when no existing tag)", got.TrackNumber)
+	}
+}
+
+func TestMergeWithExisting_PreservesNonZeroDiscNumber(t *testing.T) {
+	tags := map[string][]string{
+		taglib.Title:      {"TRUST!"},
+		taglib.DiscNumber: {"1"},
+	}
+
+	info := TrackInfo{Title: "TRUST!", DiscNumber: 2}
+	got := mergeWithExisting(tags, info)
+
+	if got.DiscNumber != 1 {
+		t.Errorf("DiscNumber = %d, want 1 (yt-dlp value preserved)", got.DiscNumber)
+	}
+}

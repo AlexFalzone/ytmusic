@@ -100,3 +100,37 @@ func TestAlbumArtistFallback(t *testing.T) {
 		}
 	}
 }
+
+func TestWritePositionalTags_WritesTrackAndDisc(t *testing.T) {
+	p := newTestMP3(t)
+
+	if err := (&tagStore{}).writePositional(p, 5, 2); err != nil {
+		t.Fatalf("writePositional: %v", err)
+	}
+
+	tags, _ := taglib.ReadTags(p)
+	if got := firstTag(tags, taglib.TrackNumber); got != "5" {
+		t.Errorf("TrackNumber = %q, want %q", got, "5")
+	}
+	if got := firstTag(tags, taglib.DiscNumber); got != "2" {
+		t.Errorf("DiscNumber = %q, want %q", got, "2")
+	}
+}
+
+func TestWritePositionalTags_SkipsZeroValues(t *testing.T) {
+	p := newTestMP3(t)
+	writeTestTags(t, p, map[string][]string{taglib.TrackNumber: {"3"}})
+
+	// disc = 0 means "unknown", should not write
+	if err := (&tagStore{}).writePositional(p, 4, 0); err != nil {
+		t.Fatalf("writePositional: %v", err)
+	}
+
+	tags, _ := taglib.ReadTags(p)
+	if got := firstTag(tags, taglib.TrackNumber); got != "4" {
+		t.Errorf("TrackNumber = %q, want %q", got, "4")
+	}
+	if got := firstTag(tags, taglib.DiscNumber); got != "" {
+		t.Errorf("DiscNumber = %q, want empty (zero not written)", got)
+	}
+}

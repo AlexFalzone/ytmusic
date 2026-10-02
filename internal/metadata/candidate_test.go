@@ -192,3 +192,51 @@ func TestAsVariant(t *testing.T) {
 		t.Errorf("identity fields kept: ISRC=%q track=%d/%d disc=%d", got.ISRC, got.TrackNumber, got.TotalTracks, got.DiscNumber)
 	}
 }
+
+func TestScore(t *testing.T) {
+	tests := []struct {
+		name      string
+		query     SearchQuery
+		result    TrackInfo
+		wantAbove float64
+		wantBelow float64
+	}{
+		{
+			name:      "exact match",
+			query:     SearchQuery{Title: "Blinding Lights", Artist: "The Weeknd"},
+			result:    TrackInfo{Title: "Blinding Lights", Artist: "The Weeknd"},
+			wantAbove: 0.99,
+		},
+		{
+			name:      "title match different artist",
+			query:     SearchQuery{Title: "Blinding Lights", Artist: "The Weeknd"},
+			result:    TrackInfo{Title: "Blinding Lights", Artist: "Some Other Artist"},
+			wantAbove: 0.5,
+			wantBelow: 0.8,
+		},
+		{
+			name:      "completely different",
+			query:     SearchQuery{Title: "Blinding Lights", Artist: "The Weeknd"},
+			result:    TrackInfo{Title: "Bohemian Rhapsody", Artist: "Queen"},
+			wantBelow: 0.1,
+		},
+		{
+			name:      "no artist in query",
+			query:     SearchQuery{Title: "Blinding Lights"},
+			result:    TrackInfo{Title: "Blinding Lights", Artist: "The Weeknd"},
+			wantAbove: 0.99,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := score(tt.query, tt.result)
+			if tt.wantAbove > 0 && got < tt.wantAbove {
+				t.Errorf("score = %.4f, want above %.4f", got, tt.wantAbove)
+			}
+			if tt.wantBelow > 0 && got > tt.wantBelow {
+				t.Errorf("score = %.4f, want below %.4f", got, tt.wantBelow)
+			}
+		})
+	}
+}

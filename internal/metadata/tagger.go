@@ -157,3 +157,59 @@ func WriteArtwork(path string, imageData []byte) error {
 	}
 	return nil
 }
+
+// albumArtistFallback returns the album artist to write when the file would
+// otherwise be left without one: the primary artist, the first before a comma.
+// Music servers such as Navidrome otherwise file every track with a featured
+// artist under an entry of its own. artist is the artist about to be written,
+// empty when none is.
+func albumArtistFallback(existing map[string][]string, artist string) string {
+	if firstTag(existing, taglib.AlbumArtist) != "" {
+		return ""
+	}
+	if artist == "" {
+		artist = firstTag(existing, taglib.Artist)
+	}
+	if i := strings.Index(artist, ","); i > 0 {
+		artist = strings.TrimSpace(artist[:i])
+	}
+	return artist
+}
+
+// mergeWithExisting keeps the non-zero TrackNumber and DiscNumber the file
+// already has over whatever the provider returned. This prevents a wrong
+// release selection from overwriting correct positional data from yt-dlp or
+// from the album-first phases.
+func mergeWithExisting(tags map[string][]string, info TrackInfo) TrackInfo {
+	if n := parseTagInt(tags, taglib.TrackNumber); n > 0 {
+		info.TrackNumber = n
+	}
+	if n := parseTagInt(tags, taglib.DiscNumber); n > 0 {
+		info.DiscNumber = n
+	}
+	return info
+}
+
+// parseTagInt reads a tag value as an integer. Returns 0 if absent or non-numeric.
+func parseTagInt(tags map[string][]string, key string) int {
+	s := firstTag(tags, key)
+	if s == "" {
+		return 0
+	}
+	// Handle "5/12" format (track number / total tracks) written by some taggers.
+	if i := strings.Index(s, "/"); i > 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func firstTag(tags map[string][]string, key string) string {
+	if vals, ok := tags[key]; ok && len(vals) > 0 {
+		return vals[0]
+	}
+	return ""
+}

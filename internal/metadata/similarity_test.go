@@ -91,3 +91,22 @@ func TestSimilarityOnNormalizedTitles(t *testing.T) {
 		}
 	}
 }
+
+func TestSimilarity(t *testing.T) {
+	tests := []struct {
+		a, b string
+		want float64
+	}{
+		{"blinding lights", "blinding lights", 1.0},
+		{"", "", 1.0},
+		{"something", "", 0.0},
+		{"", "something", 0.0},
+	}
+
+	for _, tt := range tests {
+		got := similarity(tt.a, tt.b)
+		if got != tt.want {
+			t.Errorf("similarity(%q, %q) = %.4f, want %.4f", tt.a, tt.b, got, tt.want)
+		}
+	}
+}
