@@ -29,9 +29,13 @@ func TestFingerprinterWithAcoustID(t *testing.T) {
 }
 
 // One client per run: its throttle and its caches live in the instance, so a
-// second one would double the request rate MusicBrainz allows.
+// second one would double the request rate MusicBrainz allows. The AcoustID
+// key matters: fingerprint lookups are the only other way to build a client.
 func TestComponentsShareOneMusicBrainzClient(t *testing.T) {
-	c := buildComponents(config.Config{MetadataProviders: []string{"deezer", "musicbrainz"}})
+	c := buildComponents(config.Config{
+		MetadataProviders: []string{"deezer", "musicbrainz"},
+		AcoustIDAPIKey:    "key",
+	})
 
 	mb, ok := c.providers[1].(*musicbrainz.Client)
 	if !ok {

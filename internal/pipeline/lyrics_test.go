@@ -67,8 +67,8 @@ func TestResolveLyrics(t *testing.T) {
 	if got := metadata.FirstTag(tags, taglib.Lyrics); got != "words" {
 		t.Errorf("plain lyrics tag = %q, want %q", got, "words")
 	}
-	if got, _ := os.ReadFile(doneLRC); string(got) != "old" {
-		t.Errorf("done.lrc = %q, want it left alone", got)
+	if got, err := os.ReadFile(doneLRC); err != nil || string(got) != "old" {
+		t.Errorf("done.lrc = %q, %v; want it left alone", got, err)
 	}
 	if slices.Contains(f.asked, "Done") || slices.Contains(f.asked, "Lonely") {
 		t.Errorf("asked for %v: a track with lyrics already, or without an artist, needs no lookup", f.asked)
