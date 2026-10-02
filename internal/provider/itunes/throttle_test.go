@@ -24,7 +24,7 @@ func TestSearchWaitsForTheThrottle(t *testing.T) {
 
 	c := New()
 	c.apiURL = srv.URL
-	c.throttle = throttle.New(100 * time.Millisecond)
+	setThrottle(c, throttle.New(100*time.Millisecond))
 	start := time.Now()
 	for range 3 {
 		if _, err := c.Search(context.Background(), metadata.SearchQuery{Title: "Song"}); err != nil {

@@ -2,15 +2,13 @@ package itunes
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
-	"ytmusic/internal/buildinfo"
+	"ytmusic/internal/httpjson"
 	"ytmusic/internal/metadata"
 	"ytmusic/internal/throttle"
 )
@@ -22,17 +20,18 @@ const requestInterval = 3 * time.Second
 
 // Client is an iTunes Search API client that implements metadata.Provider.
 type Client struct {
-	httpClient *http.Client
-	apiURL     string
-	throttle   *throttle.Throttle
+	api    *httpjson.Client
+	apiURL string
 }
 
 // New creates a new iTunes client.
 func New() *Client {
 	return &Client{
-		httpClient: &http.Client{Timeout: 10 * time.Second},
-		apiURL:     "https://itunes.apple.com/search",
-		throttle:   throttle.New(requestInterval),
+		api: &httpjson.Client{
+			HTTP:     &http.Client{Timeout: 10 * time.Second},
+			Throttle: throttle.New(requestInterval),
+		},
+		apiURL: "https://itunes.apple.com/search",
 	}
 }
 
@@ -51,32 +50,10 @@ func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]meta
 	params.Set("entity", "song")
 	params.Set("limit", "5")
 
-	reqURL := fmt.Sprintf("%s?%s", c.apiURL, params.Encode())
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create itunes request: %w", err)
-	}
-	req.Header.Set("User-Agent", buildinfo.UserAgent())
-
-	if err := c.throttle.Wait(ctx); err != nil {
-		return nil, fmt.Errorf("waiting for itunes rate limit: %w", err)
-	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("itunes search request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("itunes search returned %d: %s", resp.StatusCode, body)
-	}
-
 	var searchResp searchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
-		return nil, fmt.Errorf("failed to decode itunes response: %w", err)
+	if err := c.api.Get(ctx, c.apiURL+"?"+params.Encode(), nil, &searchResp); err != nil {
+		return nil, fmt.Errorf("itunes search: %w", err)
 	}
-
 	return parseResults(searchResp.Results), nil
 }
 

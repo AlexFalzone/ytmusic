@@ -2,29 +2,27 @@ package deezer
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
-	"ytmusic/internal/buildinfo"
+	"ytmusic/internal/httpjson"
 	"ytmusic/internal/metadata"
 )
 
 // Client is a Deezer API client that implements metadata.Provider.
 type Client struct {
-	httpClient *http.Client
-	apiURL     string
+	api    *httpjson.Client
+	apiURL string
 }
 
 // New creates a new Deezer client.
 func New() *Client {
 	return &Client{
-		httpClient: &http.Client{Timeout: 10 * time.Second},
-		apiURL:     "https://api.deezer.com",
+		api:    &httpjson.Client{HTTP: &http.Client{Timeout: 10 * time.Second}},
+		apiURL: "https://api.deezer.com",
 	}
 }
 
@@ -37,33 +35,14 @@ func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]meta
 		return nil, nil
 	}
 
-	reqURL := fmt.Sprintf("%s/search?q=%s&limit=5", c.apiURL, url.QueryEscape(q))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create deezer request: %w", err)
-	}
-	req.Header.Set("User-Agent", buildinfo.UserAgent())
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("deezer search request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("deezer search returned %d: %s", resp.StatusCode, body)
-	}
-
 	var searchResp searchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
-		return nil, fmt.Errorf("failed to decode deezer response: %w", err)
+	reqURL := fmt.Sprintf("%s/search?q=%s&limit=5", c.apiURL, url.QueryEscape(q))
+	if err := c.api.Get(ctx, reqURL, nil, &searchResp); err != nil {
+		return nil, fmt.Errorf("deezer search: %w", err)
 	}
-
 	if searchResp.Error != nil {
 		return nil, fmt.Errorf("deezer API error: %s", searchResp.Error.Message)
 	}
-
 	return parseResults(searchResp.Data), nil
 }
 
