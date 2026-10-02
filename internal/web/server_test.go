@@ -7,9 +7,7 @@ import (
 	"testing"
 )
 
-// Tests run from internal/web, not the repo root: an asset that resolves
-// against the working directory would 404 here, as it did for any binary
-// started outside the repo root.
+// The test runs from internal/web: an asset resolved against the working directory would 404.
 func TestRouterServesLoginPageFromAnyWorkingDirectory(t *testing.T) {
 	s := newTestServer(t, nil)
 

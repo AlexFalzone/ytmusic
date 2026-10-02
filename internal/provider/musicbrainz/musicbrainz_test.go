@@ -2,7 +2,6 @@ package musicbrainz
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,24 +10,15 @@ import (
 
 	"ytmusic/internal/buildinfo"
 	"ytmusic/internal/metadata"
+	"ytmusic/internal/testhttp"
 	"ytmusic/internal/throttle"
 )
 
-// respond writes body as the fake server's reply. t.Errorf rather than Fatal:
-// it runs on the handler's goroutine.
+// Errorf, not Fatal: it runs on the handler's goroutine.
 func respond(t *testing.T, w http.ResponseWriter, body string) {
 	t.Helper()
 	if _, err := io.WriteString(w, body); err != nil {
 		t.Errorf("writing fake response: %v", err)
-	}
-}
-
-// respondJSON encodes v as the fake server's reply. t.Errorf rather than Fatal:
-// it runs on the handler's goroutine.
-func respondJSON(t *testing.T, w http.ResponseWriter, v any) {
-	t.Helper()
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		t.Errorf("encoding fake response: %v", err)
 	}
 }
 
@@ -116,8 +106,6 @@ func TestSearch_ParsesResponse(t *testing.T) {
 	}
 }
 
-// Every request waits for the client's throttle: MusicBrainz throttles clients
-// that exceed one request per second.
 func TestRequestsWaitForTheThrottle(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -295,12 +283,9 @@ func TestPickBestRelease(t *testing.T) {
 		{
 			name: "year-only date treated as Jan 1, not preferred over full earlier date",
 			releases: []release{
-				// "2020" means somewhere in 2020; "2020-03-15" is a known earlier-in-year date
-				// Both same score; the month-precision one should win (more precise and earlier)
 				{ID: "partial", Title: "A", Status: "Official", Date: "2020", ReleaseGroup: releaseGroup{PrimaryType: "Album"}},
 				{ID: "precise", Title: "B", Status: "Official", Date: "2020-03-15", ReleaseGroup: releaseGroup{PrimaryType: "Album"}},
 			},
-			// "2020" padded to "2020-01-01" < "2020-03-15" → partial wins as "earlier"
 			wantID: "partial",
 		},
 		{
@@ -309,7 +294,6 @@ func TestPickBestRelease(t *testing.T) {
 				{ID: "full", Title: "A", Status: "Official", Date: "2020-03-01", ReleaseGroup: releaseGroup{PrimaryType: "Album"}},
 				{ID: "yearmonth", Title: "B", Status: "Official", Date: "2020-01", ReleaseGroup: releaseGroup{PrimaryType: "Album"}},
 			},
-			// "2020-01" padded to "2020-01-01" < "2020-03-01" → yearmonth wins
 			wantID: "yearmonth",
 		},
 		{
@@ -318,7 +302,6 @@ func TestPickBestRelease(t *testing.T) {
 				{
 					ID: "regular", Title: "Album", Status: "Official", Date: "2020-01-01",
 					ReleaseGroup: releaseGroup{PrimaryType: "Album"},
-					// no Media: this recording is not on this release
 				},
 				{
 					ID: "deluxe", Title: "Album (Deluxe Edition)", Status: "Official", Date: "2020-06-01",
@@ -435,7 +418,7 @@ func TestLookupByMBID_Found(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		respondJSON(t, w, recording)
+		testhttp.JSON(t, w, recording)
 	}))
 	defer srv.Close()
 
@@ -517,7 +500,7 @@ func TestSearchRelease_EmptyResults(t *testing.T) {
 	}
 }
 
-func TestLookupRelease_ReturnsTracklist(t *testing.T) {
+func TestLookupTracklist_ReturnsTracklist(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		respond(t, w, `{
@@ -540,7 +523,7 @@ func TestLookupRelease_ReturnsTracklist(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	tl, err := c.lookupRelease(context.Background(), "release-lp")
+	tl, err := c.LookupTracklist(context.Background(), "release-lp")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -561,7 +544,7 @@ func TestLookupRelease_ReturnsTracklist(t *testing.T) {
 	}
 }
 
-func TestLookupRelease_MultiDisc(t *testing.T) {
+func TestLookupTracklist_MultiDisc(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		respond(t, w, `{
@@ -587,7 +570,7 @@ func TestLookupRelease_MultiDisc(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	tl, err := c.lookupRelease(context.Background(), "release-multi")
+	tl, err := c.LookupTracklist(context.Background(), "release-multi")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -692,38 +675,6 @@ func TestReleaseIDsForRecording_NoReleases(t *testing.T) {
 	}
 }
 
-func TestLookupTracklist_DelegatesToLookupRelease(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		respond(t, w, `{
-			"id": "rel-lp",
-			"title": "LP!",
-			"artist-credit": [{"artist": {"id": "a1", "name": "JPEGMAFIA"}}],
-			"media": [{
-				"position": 1,
-				"tracks": [
-					{"number": "1", "position": 1, "title": "TRUST!", "recording": {"id": "rec-1"}}
-				]
-			}]
-		}`)
-	}))
-	defer srv.Close()
-
-	c := newTestClient(srv.URL)
-	tl, err := c.LookupTracklist(context.Background(), "rel-lp")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if tl.ID != "rel-lp" {
-		t.Errorf("ID = %q, want rel-lp", tl.ID)
-	}
-	if len(tl.Tracks) != 1 || tl.Tracks[0].Title != "TRUST!" {
-		t.Errorf("unexpected tracks: %+v", tl.Tracks)
-	}
-}
-
-// The release tie-break compares album titles the way the resolver compares
-// titles: an accent or a parenthesised edition must not hide the match.
 func TestPickBestRelease_TieBreakFoldsAccents(t *testing.T) {
 	releases := []release{
 		{ID: "deluxe", Title: "Héroes (Deluxe)", Status: "Official", Date: "1977-01-01",
@@ -736,8 +687,7 @@ func TestPickBestRelease_TieBreakFoldsAccents(t *testing.T) {
 	}
 }
 
-// Similarity of two empty strings is 1: without the guard, a release with no
-// title would win every tie when the file declares no album.
+// Two empty strings are alike: without the guard an untitled release wins every tie.
 func TestReleaseAlbumSim_NoPreferredAlbum(t *testing.T) {
 	if got := releaseAlbumSim("", ""); got != 0 {
 		t.Errorf("releaseAlbumSim(\"\", \"\") = %v, want 0", got)

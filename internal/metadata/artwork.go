@@ -9,12 +9,7 @@ import (
 	"ytmusic/internal/buildinfo"
 )
 
-// complete fills the match's gaps and downloads its artwork. A URL that
-// yields no image is set aside and gap filling runs again without it, so the
-// next provider's artwork gets its chance: MusicBrainz hands out Cover Art
-// Archive URLs unchecked, and offers a failed one again as a filler when its
-// text search lands on the same release. Searches are remembered for the run,
-// so running again sends no request.
+// A failed URL is excluded and gap filling reruns: MusicBrainz offers the same unchecked URL again as a filler.
 func (r *Resolver) complete(ctx context.Context, src source, m match) (TrackInfo, []byte) {
 	failed := make(map[string]bool)
 	for {
@@ -35,8 +30,6 @@ func (r *Resolver) complete(ctx context.Context, src source, m match) (TrackInfo
 	}
 }
 
-// downloadArtwork fetches the image at artworkURL. An empty body counts as a
-// failure: it is no more an image than a 404.
 func (r *Resolver) downloadArtwork(ctx context.Context, artworkURL string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, artworkURL, nil)
 	if err != nil {
@@ -54,7 +47,7 @@ func (r *Resolver) downloadArtwork(ctx context.Context, artworkURL string) ([]by
 		return nil, fmt.Errorf("artwork download returned %d", resp.StatusCode)
 	}
 
-	const maxArtworkSize = 10 << 20 // 10 MB
+	const maxArtworkSize = 10 << 20
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxArtworkSize))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read artwork data: %w", err)

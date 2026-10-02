@@ -17,15 +17,13 @@ import (
 	"ytmusic/pkg/utils"
 )
 
-// Downloader handles downloading YouTube videos as audio files using yt-dlp
 type Downloader struct {
 	Config     config.Config
 	Logger     *logger.Logger
 	TmpDir     string
-	OnProgress func() // Callback for progress updates
+	OnProgress func()
 }
 
-// New creates a new Downloader instance
 func New(cfg config.Config, log *logger.Logger, tmpDir string) *Downloader {
 	return &Downloader{
 		Config: cfg,
@@ -34,7 +32,6 @@ func New(cfg config.Config, log *logger.Logger, tmpDir string) *Downloader {
 	}
 }
 
-// ExtractURLs extracts individual video URLs from a playlist
 func (d *Downloader) ExtractURLs(ctx context.Context) ([]string, error) {
 	d.Logger.Info("extracting urls from playlist")
 	d.Logger.Debug("Playlist URL: %s", d.Config.PlaylistURL)
@@ -73,7 +70,6 @@ func (d *Downloader) ExtractURLs(ctx context.Context) ([]string, error) {
 	return urls, nil
 }
 
-// FetchMetadata fetches video metadata without downloading (for dry-run)
 func (d *Downloader) FetchMetadata(ctx context.Context, urls []string) error {
 	d.Logger.Info("fetching video metadata (dry-run)")
 
@@ -104,8 +100,6 @@ func (d *Downloader) FetchMetadata(ctx context.Context, urls []string) error {
 	return nil
 }
 
-// buildYtdlpArgs constructs command-line arguments for yt-dlp. producedList is
-// the file yt-dlp writes the path of every finished file into.
 func (d *Downloader) buildYtdlpArgs(url, producedList string) []string {
 	outputTemplate := filepath.Join(d.TmpDir, "%(artist)s", "%(album)s", "%(title)s.%(ext)s")
 
@@ -120,18 +114,12 @@ func (d *Downloader) buildYtdlpArgs(url, producedList string) []string {
 		"--embed-thumbnail",
 		"--embed-metadata",
 		"-i",
-		// Verified against yt-dlp 2026.08.19: this writes the absolute path of
-		// every finished file, after the audio conversion (…/Title.mp3, not the
-		// downloaded .m4a), and writes nothing when the download produced no
-		// file. --print-to-file rather than --print because --print implies
-		// --quiet, which would silence the progress output verbose mode exists
-		// to show — and its own lines would then land on stdout among the paths.
+		// Not --print: it implies --quiet, silencing the progress verbose mode shows.
 		"--print-to-file", "after_move:filepath", producedList,
 		"-o", outputTemplate,
 		url,
 	}
 
-	// If empty yt-dlp will go to default (--no-cookies-from-browser)
 	if d.Config.CookiesBrowser != "" {
 		args = append(args, "--cookies-from-browser", d.Config.CookiesBrowser)
 	}
@@ -139,11 +127,7 @@ func (d *Downloader) buildYtdlpArgs(url, producedList string) []string {
 	return args
 }
 
-// DownloadSingle downloads a single video and converts it to audio
 func (d *Downloader) DownloadSingle(ctx context.Context, url string) error {
-	// yt-dlp reports what it produced into its own file rather than on stdout,
-	// which stays free for the progress output. One file per call, so parallel
-	// downloads never write to the same list.
 	list, err := os.CreateTemp(d.TmpDir, "produced-*.txt")
 	if err != nil {
 		return fmt.Errorf("creating the download report file for %s: %w", url, err)
@@ -152,8 +136,7 @@ func (d *Downloader) DownloadSingle(ctx context.Context, url string) error {
 	if err := list.Close(); err != nil {
 		return fmt.Errorf("closing the download report file for %s: %w", url, err)
 	}
-	// Best effort: the file lives in the job's temp dir, which is removed as a
-	// whole when the job ends.
+	// Best effort: the temp dir is removed as a whole anyway.
 	defer func() { _ = os.Remove(listPath) }()
 
 	args := d.buildYtdlpArgs(url, listPath)
@@ -185,9 +168,7 @@ func (d *Downloader) DownloadSingle(ctx context.Context, url string) error {
 	return verifyProduced(url, string(produced))
 }
 
-// verifyProduced checks that yt-dlp really wrote what it claims. Under
-// --ignore-errors it can exit 0 having downloaded nothing, which would
-// otherwise be counted as a success and reported to the user as one.
+// Under --ignore-errors yt-dlp can exit 0 having downloaded nothing.
 func verifyProduced(url, report string) error {
 	var produced int
 	for _, line := range strings.Split(report, "\n") {
@@ -207,14 +188,12 @@ func verifyProduced(url, report string) error {
 	return nil
 }
 
-// DownloadStats contains statistics about the download operation
 type DownloadStats struct {
 	Total      int
 	Successful int
 	Failed     int
 }
 
-// DownloadAll downloads all URLs in parallel using a worker pool
 func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadStats, error) {
 	stats := DownloadStats{Total: len(urls)}
 
@@ -230,7 +209,6 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadSt
 	var failed []string
 
 	for i, url := range urls {
-		// Check if context is cancelled
 		select {
 		case <-ctx.Done():
 			d.Logger.Warn("Downloads cancelled, waiting for active downloads to finish...")
@@ -245,11 +223,6 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadSt
 		go func(idx int, u string) {
 			defer wg.Done()
 
-			// This goroutine is not on a handler stack, so net/http would not
-			// catch a panic here: one would take down the whole process and
-			// every other job with it. A worker that panicked did not finish
-			// its work, so count it as failed rather than inflate the success
-			// count.
 			defer func() {
 				if r := recover(); r != nil {
 					d.Logger.Error("panic while downloading %s: %v\n%s", u, r, debug.Stack())
@@ -273,7 +246,6 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadSt
 				}
 			}
 
-			// Call progress callback
 			if d.OnProgress != nil {
 				d.OnProgress()
 			}
@@ -282,7 +254,6 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadSt
 
 	wg.Wait()
 
-	// Calculate statistics
 	stats.Failed = len(failed)
 	stats.Successful = stats.Total - stats.Failed
 
@@ -292,7 +263,6 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadSt
 			d.Logger.Debug("Failed URLs: %v", failed)
 		}
 
-		// If ALL downloads failed, return an error
 		if len(failed) == len(urls) {
 			return stats, fmt.Errorf("all %d videos failed to download (private, unavailable, or geo-restricted)", len(urls))
 		}
@@ -302,7 +272,6 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadSt
 	return stats, nil
 }
 
-// MergeFiles collects all audio files into a single flat directory for metadata resolution.
 func (d *Downloader) MergeFiles() (string, error) {
 	d.Logger.Info("merging audio files")
 

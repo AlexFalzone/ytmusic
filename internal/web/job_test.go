@@ -14,7 +14,6 @@ func TestCleanup(t *testing.T) {
 	jm := NewJobManager()
 	cfg := config.DefaultConfig()
 
-	// Create an old completed job (2 hours ago)
 	old, err := jm.CreateJob(context.Background(), "https://example.com/old", cfg)
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
@@ -24,13 +23,11 @@ func TestCleanup(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpdateJob: %v", err)
 	}
-	// Backdate CompletedAt
 	jm.mu.Lock()
 	past := time.Now().Add(-2 * time.Hour)
 	jm.jobs[old.ID].CompletedAt = &past
 	jm.mu.Unlock()
 
-	// Create a recent completed job (5 minutes ago)
 	recent, err := jm.CreateJob(context.Background(), "https://example.com/recent", cfg)
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
@@ -41,7 +38,6 @@ func TestCleanup(t *testing.T) {
 		t.Fatalf("UpdateJob: %v", err)
 	}
 
-	// Create a running job (should never be cleaned)
 	running, err := jm.CreateJob(context.Background(), "https://example.com/running", cfg)
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
@@ -103,7 +99,6 @@ func TestUpdateJobTimestamps(t *testing.T) {
 		t.Fatalf("CreateJob: %v", err)
 	}
 
-	// Pending → Running should set StartedAt
 	if err := jm.UpdateJob(job.ID, func(j *Job) {
 		j.Status = StatusRunning
 	}); err != nil {
@@ -114,7 +109,6 @@ func TestUpdateJobTimestamps(t *testing.T) {
 		t.Error("StartedAt should be set when status changes to running")
 	}
 
-	// Running → Completed should set CompletedAt
 	if err := jm.UpdateJob(job.ID, func(j *Job) {
 		j.Status = StatusCompleted
 	}); err != nil {
@@ -164,7 +158,6 @@ func TestSubscribeReceivesUpdates(t *testing.T) {
 	jm.Unsubscribe(job.ID, ch)
 }
 
-// A failing entropy source must surface as an error, not take down the request.
 func TestCreateJobReturnsErrorWhenRandomFails(t *testing.T) {
 	original := randRead
 	randRead = func([]byte) (int, error) { return 0, errors.New("entropy exhausted") }
@@ -176,8 +169,6 @@ func TestCreateJobReturnsErrorWhenRandomFails(t *testing.T) {
 	}
 }
 
-// A listener whose job is cleaned up must be released: without closing the
-// channel the WebSocket handler blocks on it forever and the goroutine leaks.
 func TestCleanupClosesListenerChannels(t *testing.T) {
 	jm := NewJobManager()
 
@@ -195,7 +186,6 @@ func TestCleanupClosesListenerChannels(t *testing.T) {
 
 	jm.cleanup()
 
-	// Drain any buffered updates, then the channel must report closure.
 	for {
 		select {
 		case _, ok := <-updates:
@@ -208,8 +198,6 @@ func TestCleanupClosesListenerChannels(t *testing.T) {
 	}
 }
 
-// A job owns its context from birth: cancelling can never arrive before the
-// cancel function exists, because there is no moment when it does not.
 func TestCreateJobArmsCancelImmediately(t *testing.T) {
 	jm := NewJobManager()
 
@@ -240,7 +228,6 @@ func TestCreateJobArmsCancelImmediately(t *testing.T) {
 	}
 }
 
-// Cancelling the parent must reach every job, so shutdown stops them all.
 func TestJobContextDerivesFromParent(t *testing.T) {
 	parent, cancelParent := context.WithCancel(context.Background())
 	jm := NewJobManager()
@@ -256,5 +243,29 @@ func TestJobContextDerivesFromParent(t *testing.T) {
 	case <-job.ctx.Done():
 	case <-time.After(time.Second):
 		t.Error("cancelling the parent did not reach the job")
+	}
+}
+
+// The frontend shows the list as it comes.
+func TestListJobsNewestFirst(t *testing.T) {
+	jm := NewJobManager()
+	var ids []string
+	for i := range 3 {
+		job, err := jm.CreateJob(context.Background(), "https://example.com", config.DefaultConfig())
+		if err != nil {
+			t.Fatal(err)
+		}
+		createdAt := time.Now().Add(time.Duration(i) * time.Minute)
+		if err := jm.UpdateJob(job.ID, func(j *Job) { j.CreatedAt = createdAt }); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, job.ID)
+	}
+
+	jobs := jm.ListJobs(0)
+	for i, job := range jobs {
+		if want := ids[len(ids)-1-i]; job.ID != want {
+			t.Errorf("jobs[%d] = %s, want %s", i, job.ID, want)
+		}
 	}
 }

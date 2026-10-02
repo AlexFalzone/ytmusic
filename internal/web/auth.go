@@ -13,8 +13,6 @@ const (
 	loginPath         = "/login.html"
 )
 
-// publicPaths are reachable without a session: the login page, the assets it
-// needs, and the health probe.
 var publicPaths = map[string]bool{
 	loginPath:     true,
 	"/login.js":   true,
@@ -23,10 +21,7 @@ var publicPaths = map[string]bool{
 	"/api/health": true,
 }
 
-// requireAuth gates every request that is not public. API and WebSocket paths
-// get a 401; browser navigation gets a redirect to the login page. Answering a
-// fetch() with a redirect to HTML would look like a corrupt response, not like
-// "you are logged out".
+// API paths get a 401, not a redirect: fetch() would read login HTML as a corrupt response.
 func (s *Server) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !s.config.Auth.Enabled || publicPaths[r.URL.Path] {
@@ -59,10 +54,6 @@ func isAPIPath(path string) bool {
 	return strings.HasPrefix(path, "/api/") || path == "/ws"
 }
 
-// isHTTPS reports whether the client connection is encrypted. Proxy headers are
-// trusted only when a proxy has been declared: honouring them unconditionally
-// would let any client claim an HTTPS connection and get a Secure cookie over
-// plaintext.
 func isHTTPS(r *http.Request, behindProxy bool) bool {
 	if r.TLS != nil {
 		return true
@@ -94,15 +85,12 @@ func (s *Server) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Login throttling. Generous enough not to bother a human who mistypes,
-
 type loginRequestBody struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
 
-// invalidCredentials is deliberately the same for a wrong username and a wrong
-// password: a different message would tell an attacker which half to keep.
+// One message for both: a different one would tell which half was wrong.
 const invalidCredentials = "Invalid credentials"
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -128,8 +116,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Both checks always run: returning early on a username mismatch would make
-	// a wrong username measurably faster than a wrong password.
+	// Both always run, or a wrong username would answer measurably faster.
 	userOK := subtle.ConstantTimeCompare([]byte(req.Username), []byte(s.config.Auth.Username)) == 1
 	passOK := checkPassword(s.config.Auth.PasswordHash, req.Password)
 
@@ -160,8 +147,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Revoke server-side too: clearing the cookie alone would leave a copied
-	// token valid until it expired.
+	// Clearing the cookie alone would leave a copied token valid.
 	if cookie, err := r.Cookie(sessionCookieName); err == nil {
 		s.sessions.revoke(cookie.Value)
 	}
@@ -178,9 +164,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// hasJSONContentType guards the endpoints that decode a body. Without it a
-// cross-origin form post with text/plain is a simple request: no preflight, no
-// protection.
+// A cross-origin text/plain post is a simple request: no preflight, no protection.
 func hasJSONContentType(r *http.Request) bool {
 	ct := r.Header.Get("Content-Type")
 	if i := strings.Index(ct, ";"); i >= 0 {
@@ -192,7 +176,6 @@ func hasJSONContentType(r *http.Request) bool {
 func (s *Server) writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(v); err != nil {
-		// The status line is already written; nothing left but to record it.
 		s.logger.Warn("writing JSON response: %v", err)
 	}
 }

@@ -46,8 +46,6 @@ func newTestMP3(t *testing.T) string {
 	return newTestMP3Len(t, "0.1")
 }
 
-// newTestMP3Len creates a silent MP3 lasting the given number of seconds.
-// Skips the test if ffmpeg is not available.
 func newTestMP3Len(t *testing.T, seconds string) string {
 	t.Helper()
 	return testaudio.MP3(t, t.TempDir(), "test.mp3", seconds)
@@ -97,7 +95,6 @@ func TestResolve_PhaseA_RunsBeforePhaseB(t *testing.T) {
 		taglib.Album:  {"LP!"},
 	})
 
-	// Phase A resolves both files with correct positions
 	bf := &mockBatchFingerprinter{
 		matches: []FileMatch{
 			{Path: p1, MBID: "mbid-1"},
@@ -119,7 +116,6 @@ func TestResolve_PhaseA_RunsBeforePhaseB(t *testing.T) {
 		},
 	}
 
-	// Phase B would assign wrong positions if it ran for these files
 	tar := &mockAlbumResolver{found: true, tracklist: Tracklist{
 		Tracks: []ReleaseTrack{
 			{TrackNumber: 7, DiscNumber: 1, Title: "TRUST!"},
@@ -138,7 +134,6 @@ func TestResolve_PhaseA_RunsBeforePhaseB(t *testing.T) {
 		t.Fatalf("Resolve: %v", err)
 	}
 
-	// Phase A wrote correct positions; Phase B should have been skipped for these files
 	tags1, _ := taglib.ReadTags(p1)
 	if got := FirstTag(tags1, taglib.TrackNumber); got != "1" {
 		t.Errorf("p1 TrackNumber = %q, want 1 (Phase A must win over Phase B)", got)

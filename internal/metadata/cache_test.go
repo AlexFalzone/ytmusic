@@ -21,8 +21,6 @@ func (p *countingProvider) Search(_ context.Context, _ SearchQuery) ([]TrackInfo
 	return p.results, nil
 }
 
-// A variant file asks every provider for its primary match, then asks the
-// ones after the donor again to fill its gaps: the same query, twice.
 func TestResolverAsksEachProviderOncePerQuery(t *testing.T) {
 	p1 := &countingProvider{name: "first", results: []TrackInfo{{Title: "Song", Artist: "Artist", Album: "Album"}}}
 	p2 := &countingProvider{name: "second", results: []TrackInfo{{Title: "Song", Artist: "Artist", Album: "Album"}}}
@@ -39,8 +37,6 @@ func TestResolverAsksEachProviderOncePerQuery(t *testing.T) {
 	}
 }
 
-// Workers share the cached results: one of them editing its copy must not
-// change what the next one is given.
 func TestCachedResultsAreCopies(t *testing.T) {
 	p := &cachedProvider{Provider: &countingProvider{name: "p", results: []TrackInfo{{Title: "Song"}}}}
 	q := SearchQuery{Title: "Song"}

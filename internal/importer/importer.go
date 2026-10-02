@@ -11,15 +11,11 @@ import (
 	"ytmusic/pkg/utils"
 )
 
-// Importer resolves the metadata of a directory of audio files with what the
-// configuration provides.
 type Importer struct {
 	log      *logger.Logger
-	resolver *metadata.Resolver // nil: no provider and no fingerprinter configured
+	resolver *metadata.Resolver // nil: nothing to resolve with
 }
 
-// New builds the metadata stack cfg asks for — providers, fingerprinter and
-// the one MusicBrainz client they share — and the resolver on top of it.
 func New(cfg config.Config, log *logger.Logger) *Importer {
 	return newImporter(cfg, log, buildComponents(cfg))
 }
@@ -44,8 +40,6 @@ func newImporter(cfg config.Config, log *logger.Logger, c components) *Importer 
 	return imp
 }
 
-// Import resolves metadata for all audio files in the given directory,
-// then writes improved tags.
 func (i *Importer) Import(ctx context.Context, dir string) error {
 	if i.resolver == nil {
 		i.log.Info("No metadata providers configured, skipping metadata resolution")

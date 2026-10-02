@@ -7,14 +7,11 @@ import (
 	"os/exec"
 )
 
-// Result holds the raw output from fpcalc.
 type Result struct {
-	Duration    int    // audio duration in seconds
-	Fingerprint string // raw Chromaprint fingerprint string
+	Duration    int // seconds
+	Fingerprint string
 }
 
-// Generate runs fpcalc on the given audio file and returns the fingerprint.
-// fpcalc must be installed and available on PATH.
 func Generate(ctx context.Context, path string) (Result, error) {
 	cmd := exec.CommandContext(ctx, "fpcalc", "-raw", "-json", path)
 	out, err := cmd.Output()

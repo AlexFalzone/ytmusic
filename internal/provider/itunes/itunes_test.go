@@ -10,7 +10,7 @@ func TestParseResultsYear(t *testing.T) {
 		{date: "2019-11-29T08:00:00Z", want: 2019},
 		{date: "", want: 0},
 		{date: "19", want: 0},
-		// Sscanf read the leading digits and called this year 20.
+		// Sscanf once read this as year 20.
 		{date: "20x9-01-01", want: 0},
 	}
 

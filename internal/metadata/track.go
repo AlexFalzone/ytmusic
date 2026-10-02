@@ -34,7 +34,6 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 	r.logger.Debug("  Normalized: title=%q artist=%q album=%q version=%q length=%s",
 		query.Title, query.Artist, query.Album, version.Key, src.duration.Round(time.Second))
 
-	// Try acoustic fingerprinting first for a definitive identification.
 	if r.fingerprinter != nil {
 		if info, found, err := r.fingerprinter.LookupByFile(ctx, path, query.Album); err == nil && found {
 			r.logger.Debug("  Fingerprint match: %q by %q", info.Title, info.Artist)
@@ -61,8 +60,7 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 	return r.writeResolved(path, existing, info, art)
 }
 
-// fileDuration reads the file's own length. Zero means unknown, which disables
-// the duration check instead of failing the file.
+// Zero means unknown, which disables the duration check instead of failing the file.
 func (r *Resolver) fileDuration(path string) time.Duration {
 	props, err := taglib.ReadProperties(path)
 	if err != nil {
@@ -72,9 +70,6 @@ func (r *Resolver) fileDuration(path string) time.Duration {
 	return props.Length
 }
 
-// writeResolved writes the resolved metadata, keeping the track and disc
-// numbers the file already had, then embeds the artwork if there is one.
-// existing are the file's tags as read before resolving it.
 func (r *Resolver) writeResolved(path string, existing map[string][]string, info TrackInfo, art []byte) error {
 	info = mergeWithExisting(existing, info)
 	if info.AlbumArtist == "" {
@@ -89,11 +84,7 @@ func (r *Resolver) writeResolved(path string, existing map[string][]string, info
 	return nil
 }
 
-// findPrimaryMatch asks the providers in order. An exact candidate above the
-// threshold ends the search at once, as before. A donor is settled for only
-// once every provider has had the chance to offer the variant itself, and then
-// the earliest provider's wins: only files that declare a variant pay for the
-// extra lookups.
+// An exact match ends the search; a donor waits for every provider to offer the variant itself.
 func (r *Resolver) findPrimaryMatch(ctx context.Context, src source) (match, bool) {
 	var donor *match
 	for i, p := range r.providers {
@@ -128,8 +119,6 @@ func (r *Resolver) findPrimaryMatch(ctx context.Context, src source) (match, boo
 	return match{}, false
 }
 
-// fillGaps queries the providers after the primary's to fill its missing
-// fields. A filler passes the same constraints as the match it completes.
 // Artwork URLs in failedArtwork count as missing, wherever they come from.
 func (r *Resolver) fillGaps(ctx context.Context, src source, primary match, failedArtwork map[string]bool) TrackInfo {
 	base := primary.info
@@ -174,7 +163,6 @@ func (r *Resolver) fillGaps(ctx context.Context, src source, primary match, fail
 	return base
 }
 
-// hasMissingFields returns true if any gap-fillable field is empty/zero.
 func hasMissingFields(t TrackInfo) bool {
 	return t.Genre == "" ||
 		t.TrackNumber == 0 ||
@@ -184,8 +172,7 @@ func hasMissingFields(t TrackInfo) bool {
 		t.ArtworkURL == ""
 }
 
-// mergeTrackInfo copies gap-fillable fields from filler into base where base has zero values.
-// Authoritative fields (Title, Artist, Album, AlbumArtist) are never overwritten.
+// Title, Artist, Album and AlbumArtist come from the primary match only.
 func mergeTrackInfo(base, filler TrackInfo) TrackInfo {
 	if base.Genre == "" && filler.Genre != "" {
 		base.Genre = filler.Genre

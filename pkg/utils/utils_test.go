@@ -8,7 +8,6 @@ import (
 	"testing"
 )
 
-// writeFile creates a file with the given content, making parent directories.
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
@@ -79,7 +78,6 @@ func TestMoveFile(t *testing.T) {
 	src := filepath.Join(dir, "src.mp3")
 	writeFile(t, src, "payload")
 
-	// The destination directory does not exist yet: MoveFile must create it.
 	dst := filepath.Join(dir, "out", "Artist", "Album", "src.mp3")
 	if err := MoveFile(src, dst); err != nil {
 		t.Fatalf("MoveFile: %v", err)
@@ -110,14 +108,10 @@ func TestMoveFileRejectsBadInput(t *testing.T) {
 	}
 }
 
-// copyAndDelete is the cross-device fallback. Two filesystems cannot be
-// arranged in a unit test, so it is called directly.
-// A copy that fails halfway must not leave a truncated file in the library,
-// where it would pass for the real track, nor lose the source.
+// Called directly: two filesystems cannot be arranged in a unit test.
 func TestCopyAndDeleteDiscardsAFailedCopy(t *testing.T) {
 	dir := t.TempDir()
-	// Reading a directory fails after it opens fine: a copy that breaks
-	// mid-stream, with the destination already created.
+	// Reading a directory fails after it opens: a copy that breaks mid-stream.
 	src := filepath.Join(dir, "src")
 	if err := os.Mkdir(src, 0755); err != nil {
 		t.Fatal(err)
@@ -245,8 +239,6 @@ func TestCleanupRemovesTempDir(t *testing.T) {
 }
 
 func TestCleanupRefusesOutsideTemp(t *testing.T) {
-	// A directory that is not under the temp folder, arranged by pointing the
-	// temp folder elsewhere rather than by writing into the source tree.
 	base := t.TempDir()
 	tmp := filepath.Join(base, "tmp")
 	abs := filepath.Join(base, "elsewhere")
@@ -337,8 +329,6 @@ func TestMoveAudioFilesSidecarFollowsTheResolvedName(t *testing.T) {
 		t.Fatalf("MoveAudioFiles: %v", err)
 	}
 
-	// An orphan sidecar keeping the old name is what no player would ever pair
-	// with the track it belongs to.
 	if _, err := os.Stat(filepath.Join(dst, "song.lrc")); err == nil {
 		t.Error("sidecar kept the original name, leaving it orphaned")
 	}
@@ -397,8 +387,6 @@ func TestMoveAudioFilesStaysInsideDestination(t *testing.T) {
 	dst := filepath.Join(root, "music")
 	writeFile(t, filepath.Join(src, "song.mp3"), "audio")
 
-	// A subDirFunc is fed by file tags, so it is attacker-influenced input.
-	// Containment must not depend on the caller sanitising it.
 	moved, _, _, err := MoveAudioFiles(src, dst, func(string) string {
 		return filepath.Join("..", "..", "etc")
 	})
@@ -470,8 +458,6 @@ func TestMoveAudioFilesCountsFailedSidecars(t *testing.T) {
 	writeFile(t, filepath.Join(src, "song.mp3"), "audio")
 	writeFile(t, filepath.Join(src, "song.lrc"), "lyrics")
 
-	// A directory sitting where the sidecar must land: the audio file moves,
-	// its lyrics cannot follow.
 	if err := os.MkdirAll(filepath.Join(dst, "song.lrc"), 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -489,7 +475,6 @@ func TestMoveAudioFilesCountsFailedSidecars(t *testing.T) {
 }
 
 func TestNumberedNameStaysWithinTheNameLimit(t *testing.T) {
-	// A name already at the filesystem limit: numbering it naively overflows.
 	base := strings.Repeat("a", 251) + ".mp3"
 	if len(base) != 255 {
 		t.Fatalf("test fixture is %d bytes, want 255", len(base))
@@ -518,9 +503,6 @@ func TestMoveAudioFilesKeepsAFileWhoseNameIsAtTheLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MoveAudioFiles: %v", err)
 	}
-	// Failing here means the new download is left in the temp directory, which
-	// the caller then deletes: the file is lost, which is the opposite of what
-	// the incremental suffix exists for.
 	if moved != 1 || failed != 0 {
 		t.Errorf("moved=%d failed=%d, want 1 and 0", moved, failed)
 	}
@@ -534,8 +516,6 @@ func TestMoveAudioFilesKeepsAFileWhoseNameIsAtTheLimit(t *testing.T) {
 	}
 }
 
-// onlyOnPath replaces PATH with a directory holding a stub executable for each
-// name, so a test controls exactly which tools exist.
 func onlyOnPath(t *testing.T, names ...string) {
 	t.Helper()
 	dir := t.TempDir()

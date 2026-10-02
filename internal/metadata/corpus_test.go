@@ -10,8 +10,6 @@ import (
 	"go.senan.xyz/taglib"
 )
 
-// corpusProvider answers from fixtures keyed by the query's title, so every
-// file of the corpus can be resolved in one run without any network.
 type corpusProvider struct {
 	name    string
 	byTitle map[string][]TrackInfo
@@ -23,8 +21,7 @@ func (p corpusProvider) Search(_ context.Context, q SearchQuery) ([]TrackInfo, e
 	return p.byTitle[q.Title], nil
 }
 
-// corpusCase is one hard case seen in real use. key is the title the query
-// must carry once cleaned: a provider only answers to that exact title.
+// key is the cleaned title the query must carry: the provider answers only to that.
 type corpusCase struct {
 	name          string
 	title, artist string
@@ -34,7 +31,6 @@ type corpusCase struct {
 	want          map[string]string // tag → value after resolution, "" for absent
 }
 
-// unchanged is what a file keeps when no candidate is accepted.
 func unchanged(title, artist string) map[string]string {
 	return map[string]string{
 		taglib.Title: title, taglib.Artist: artist,
@@ -57,8 +53,7 @@ var corpus = []corpusCase{
 		},
 	},
 	{
-		// The live take lasts exactly as long as the file: only the version
-		// check keeps it out.
+		// Same length as the file: only the version check keeps it out.
 		name:  "live take of a studio file",
 		title: "Bohemian Rhapsody", artist: "Queen", seconds: "355",
 		key: "Bohemian Rhapsody",
@@ -102,8 +97,7 @@ var corpus = []corpusCase{
 		want:  unchanged("Shape of You", "Ed Sheeran"),
 	},
 	{
-		// The candidate is an isolated MusicBrainz recording: no length, no
-		// release, only an ISRC that the clip must not inherit.
+		// An isolated MusicBrainz recording: no length, no release, an ISRC the clip must not inherit.
 		name:  "truncated clip against a recording with neither length nor album",
 		title: "Blinding Lights", artist: "The Weeknd", seconds: "60",
 		key:   "Blinding Lights",
@@ -161,8 +155,6 @@ var corpus = []corpusCase{
 		},
 	},
 	{
-		// No artist tag: the hyphen inside the title must not be read as an
-		// "Artist - Title" separator.
 		name:  "hyphenated title without an artist",
 		title: "Anti-Hero", artist: "", seconds: "1",
 		key:   "Anti-Hero",
@@ -185,8 +177,6 @@ var corpus = []corpusCase{
 	},
 }
 
-// TestResolveCorpus resolves every hard case in a single run on four workers,
-// the way a playlist is resolved, and checks what each file ends up tagged with.
 func TestResolveCorpus(t *testing.T) {
 	first := corpusProvider{name: "first", byTitle: map[string][]TrackInfo{}}
 	second := corpusProvider{name: "second", byTitle: map[string][]TrackInfo{}}

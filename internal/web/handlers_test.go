@@ -14,7 +14,6 @@ import (
 	"ytmusic/internal/pipeline"
 )
 
-// sessionCookie returns a cookie for a freshly created session.
 func sessionCookie(t *testing.T, s *Server) *http.Cookie {
 	t.Helper()
 	token, err := s.sessions.create()
@@ -24,8 +23,7 @@ func sessionCookie(t *testing.T, s *Server) *http.Cookie {
 	return &http.Cookie{Name: sessionCookieName, Value: token}
 }
 
-// Every endpoint must be closed by default. Checked one by one rather than by
-// sampling: a single unprotected route defeats the whole feature.
+// One by one, not sampled: a single unprotected route defeats the feature.
 func TestAllEndpointsRequireSession(t *testing.T) {
 	s := newTestServer(t, nil)
 	router := s.Router()
@@ -159,14 +157,13 @@ func TestWebSocketOriginCheck(t *testing.T) {
 				req.Header.Set("Origin", tt.origin)
 			}
 
-			if got := checkWSOrigin(req); got != tt.want {
-				t.Errorf("checkWSOrigin() = %v, want %v", got, tt.want)
+			if got := originMatchesHost(req); got != tt.want {
+				t.Errorf("originMatchesHost() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-// A shared cache must never be allowed to store a page served behind a session.
 func TestAuthenticatedResponsesAreNotPubliclyCacheable(t *testing.T) {
 	s := newTestServer(t, nil)
 
@@ -180,8 +177,6 @@ func TestAuthenticatedResponsesAreNotPubliclyCacheable(t *testing.T) {
 	}
 }
 
-// A job listing must be readable while the job is being updated: the manager
-// hands out data, not pointers into its own mutable state.
 func TestJobReadsDoNotRaceWithUpdates(t *testing.T) {
 	s := newTestServer(t, nil)
 	job, err := s.jobMgr.CreateJob(context.Background(), "https://example.com/playlist", s.config)
@@ -258,8 +253,6 @@ type panickingReader struct{}
 
 func (panickingReader) ReadMessage() (int, []byte, error) { panic("boom") }
 
-// The read pump runs in its own goroutine, off any handler stack: an unhandled
-// panic there takes down the whole server, every running job with it.
 func TestReadPumpSurvivesPanic(t *testing.T) {
 	s := newTestServer(t, nil)
 
@@ -273,15 +266,12 @@ func TestReadPumpSurvivesPanic(t *testing.T) {
 	}
 }
 
-// Shutdown must not cut a running job off mid-flight: Wait returns only once
-// the job goroutine has finished.
 func TestWaitBlocksUntilJobGoroutineFinishes(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := newTestServer(t, nil)
 	s.ctx = ctx
 
-	// A cancelled context makes the pipeline fail immediately, without
-	// reaching the network.
+	// A cancelled context fails the pipeline before it reaches the network.
 	cancel()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/download",
@@ -318,8 +308,6 @@ func TestWaitBlocksUntilJobGoroutineFinishes(t *testing.T) {
 	}
 }
 
-// A job the user stopped must read as "cancelled". Reporting it as "failed"
-// tells the user something went wrong when nothing did.
 func TestCancelledJobEndsAsCancelled(t *testing.T) {
 	s := newTestServer(t, nil)
 
@@ -342,7 +330,6 @@ func TestCancelledJobEndsAsCancelled(t *testing.T) {
 	}
 }
 
-// The same must hold when the whole server is shutting down.
 func TestJobCancelledByShutdownEndsAsCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := newTestServer(t, nil)
@@ -367,7 +354,6 @@ func TestJobCancelledByShutdownEndsAsCancelled(t *testing.T) {
 	}
 }
 
-// startJob launches a job the way handleDownload does.
 func startJob(t *testing.T, s *Server, url string) Job {
 	t.Helper()
 
@@ -428,7 +414,6 @@ func TestJobsBeyondTheCapWaitTheirTurn(t *testing.T) {
 	s.Wait()
 }
 
-// A job cancelled while still queued must never run at all.
 func TestJobCancelledWhileQueuedNeverStarts(t *testing.T) {
 	s := newTestServer(t, func(c *config.Config) { c.MaxConcurrentJobs = 1 })
 

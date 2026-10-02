@@ -177,7 +177,6 @@ func TestBatchLookupByFiles_EmptyPaths(t *testing.T) {
 	}
 }
 
-// panickingFpcalc panics on one path and fingerprints the others.
 type panickingFpcalc struct{ on string }
 
 func (p panickingFpcalc) Generate(_ context.Context, path string) (fingerprint.Result, error) {
@@ -187,8 +186,6 @@ func (p panickingFpcalc) Generate(_ context.Context, path string) (fingerprint.R
 	return fingerprint.Result{Duration: 200, Fingerprint: "AQx"}, nil
 }
 
-// The batch goroutines run off any handler stack: a panic there would take
-// the web server down with every job on it.
 func TestBatchLookupByFiles_PanicFailsOnlyItsFile(t *testing.T) {
 	fp := fingerprint.NewFingerprinter(
 		panickingFpcalc{on: "/b.mp3"},

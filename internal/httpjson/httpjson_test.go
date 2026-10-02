@@ -19,14 +19,13 @@ func newClient() *Client {
 	return &Client{HTTP: &http.Client{Timeout: 5 * time.Second}}
 }
 
-// reply is one answer of the fake server.
 type reply struct {
 	status     int
 	retryAfter string
 	body       string
 }
 
-// serve answers each request with the next of replies; the last one repeats.
+// The last reply repeats.
 func serve(t *testing.T, replies ...reply) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
 	var calls atomic.Int32
@@ -131,7 +130,6 @@ func TestGetDoesNotRetryUnlessTold(t *testing.T) {
 	}
 }
 
-// Spotify can ask for a wait of hours: cancelling must not sit through it.
 func TestGetStopsWaitingToRetryWhenCancelled(t *testing.T) {
 	srv, _ := serve(t, reply{status: http.StatusTooManyRequests, retryAfter: "3600"})
 	c := newClient()
@@ -165,8 +163,6 @@ func TestGetWaitsForTheThrottle(t *testing.T) {
 	}
 }
 
-// LRCLib retries network errors only: they must stay recognisable through
-// the wrapping.
 func TestGetKeepsNetworkErrorsInspectable(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	url := srv.URL

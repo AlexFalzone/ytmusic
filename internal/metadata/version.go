@@ -6,23 +6,15 @@ import (
 	"strings"
 )
 
-// Version is the variant a title declares ("Live", "Sped Up"); the zero value
-// is the original recording.
+// The zero value is the original recording.
 type Version struct {
-	// Key identifies the variant whatever the wording or order: "live",
-	// "acoustic+live". Empty for the original.
-	Key string
-	// Label is the variant as the title spelled it ("Skrillex Remix"), kept
-	// for display when a variant borrows the original's metadata.
-	Label string
+	Key   string // "acoustic+live", whatever the wording or order
+	Label string // as the title spelled it: "Skrillex Remix"
 }
 
-// IsOriginal reports whether the title declares no variant.
 func (v Version) IsOriginal() bool { return v.Key == "" }
 
-// versionMarkers recognise a variant only when a whole delimited segment
-// matches, which is what keeps "Song (Live at Wembley)" apart from the titles
-// "Live Forever" and "Remix to Ignition".
+// Whole delimited segments only: "Live Forever" is a title, not a live version.
 var versionMarkers = []struct {
 	key     string
 	pattern *regexp.Regexp
@@ -40,7 +32,6 @@ var versionMarkers = []struct {
 	{"acapella", regexp.MustCompile(`(?i)^a\s*cap+el+a(\s+version)?$`)},
 }
 
-// versionKey returns the variant a delimited segment declares, if any.
 func versionKey(segment string) (string, bool) {
 	s := strings.TrimSpace(segment)
 	for _, m := range versionMarkers {
@@ -51,7 +42,6 @@ func versionKey(segment string) (string, bool) {
 	return "", false
 }
 
-// newVersion combines the markers found in one title.
 func newVersion(keys, labels []string) Version {
 	if len(keys) == 0 {
 		return Version{}

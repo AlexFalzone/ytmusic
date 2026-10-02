@@ -15,32 +15,24 @@ import (
 	"ytmusic/internal/throttle"
 )
 
-// requestInterval is MusicBrainz's rate limit: one request per second per
-// client, enforced by throttling whoever exceeds it.
+// MusicBrainz throttles clients that exceed it.
 const requestInterval = time.Second
 
-// Client is a MusicBrainz Web API client that implements metadata.Provider.
-// Its throttle covers every request it sends, which is why a run must share
-// one Client rather than create several.
+// One Client per run: the throttle and the caches live in the instance.
 type Client struct {
 	api            *httpjson.Client
 	apiURL         string
 	artworkBaseURL string
 
-	// The three phases of a run ask for the same recordings and releases:
-	// phase A for the releases of each fingerprinted recording, the
-	// fingerprint path for the same recordings' metadata, phase B for an
-	// album phase A may already have fetched.
+	// The three phases ask for the same recordings and releases.
 	recordings memo.Cache[string, recording]
 	releases   memo.Cache[string, metadata.Tracklist]
 }
 
-// New creates a new MusicBrainz client.
 func New() *Client {
 	return NewWithURL("https://musicbrainz.org/ws/2", "https://coverartarchive.org/release")
 }
 
-// NewWithURL creates a client with custom API and artwork base URLs (used in tests).
 func NewWithURL(apiURL, artworkBaseURL string) *Client {
 	return &Client{
 		api: &httpjson.Client{
@@ -55,7 +47,6 @@ func NewWithURL(apiURL, artworkBaseURL string) *Client {
 
 func (c *Client) Name() string { return "musicbrainz" }
 
-// Search queries the MusicBrainz recording search API and returns matching tracks.
 func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]metadata.TrackInfo, error) {
 	q := buildQuery(query)
 	if q == "" {
@@ -71,8 +62,7 @@ func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]meta
 	return parseRecordings(searchResp.Recordings, query.Album, c.artworkBaseURL), nil
 }
 
-// LookupByMBID fetches a single recording by its MusicBrainz recording ID.
-// preferAlbum, if non-empty, is used to break ties when the recording appears in multiple releases.
+// preferAlbum breaks ties between the releases the recording appears on.
 func (c *Client) LookupByMBID(ctx context.Context, mbid, preferAlbum string) (metadata.TrackInfo, error) {
 	rec, err := c.lookupRecording(ctx, mbid)
 	if err != nil {
@@ -86,8 +76,6 @@ func (c *Client) LookupByMBID(ctx context.Context, mbid, preferAlbum string) (me
 	return results[0], nil
 }
 
-// lookupRecording fetches a recording with everything both of its callers
-// need, once per run.
 func (c *Client) lookupRecording(ctx context.Context, mbid string) (recording, error) {
 	return c.recordings.Do(mbid, func() (recording, error) {
 		var rec recording
@@ -113,10 +101,7 @@ func buildQuery(query metadata.SearchQuery) string {
 	return strings.Join(parts, " AND ")
 }
 
-// parseRecordings turns recordings into candidates. The artwork URL is the
-// release's Cover Art Archive front image, not checked here: probing every
-// candidate cost a request each, and the resolver downloads the one it keeps,
-// falling back to another provider's artwork when that fails.
+// The artwork URL is unchecked: the resolver downloads the one it keeps and falls back on failure.
 func parseRecordings(recordings []recording, preferAlbum, artworkBaseURL string) []metadata.TrackInfo {
 	var results []metadata.TrackInfo
 	for _, rec := range recordings {
@@ -148,12 +133,8 @@ func parseRecordings(recordings []recording, preferAlbum, artworkBaseURL string)
 				} else if m.Track[0].Position > 0 {
 					info.TrackNumber = m.Track[0].Position
 				}
-				if m.TrackCount > 0 {
-					info.TotalTracks = m.TrackCount
-				}
-				if m.Position > 0 {
-					info.DiscNumber = m.Position
-				}
+				info.TotalTracks = m.TrackCount
+				info.DiscNumber = m.Position
 			}
 		}
 
@@ -170,11 +151,7 @@ func joinArtistCredits(credits []artistCredit) string {
 	return strings.Join(parts, ", ")
 }
 
-// pickBestRelease selects the most appropriate release for tagging.
-// Prefers: Official status, Album type, no secondary types (not Compilation).
-// Among equal-scored releases, prefers releases whose title matches preferAlbum
-// (to avoid landing on variants like "LP! OFFLINE" when the source is "LP!"),
-// then the one with track position data, then the earliest date.
+// Score ties: title closer to preferAlbum ("LP!" over "LP! OFFLINE"), then track data, then earliest date.
 func pickBestRelease(releases []release, preferAlbum string) release {
 	best := releases[0]
 	bestScore := releaseScore(best)
@@ -202,9 +179,7 @@ func pickBestRelease(releases []release, preferAlbum string) release {
 	return best
 }
 
-// releaseAlbumSim is how close a release title is to the album the file
-// declares, 0 when it declares none: two empty strings are perfectly alike,
-// and would hand every tie to a release without a title.
+// Two empty strings are perfectly alike and would hand every tie to an untitled release.
 func releaseAlbumSim(releaseTitle, preferAlbum string) float64 {
 	if preferAlbum == "" {
 		return 0
@@ -230,14 +205,11 @@ func releaseScore(rel release) int {
 	return score
 }
 
-// MusicBrainz API response types
-
 type searchResponse struct {
 	Recordings []recording `json:"recordings"`
 }
 
 type recording struct {
-	ID           string         `json:"id"`
 	Title        string         `json:"title"`
 	Length       int            `json:"length"`
 	ArtistCredit []artistCredit `json:"artist-credit"`
@@ -250,7 +222,6 @@ type artistCredit struct {
 }
 
 type artistInfo struct {
-	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
@@ -270,17 +241,15 @@ type releaseGroup struct {
 }
 
 type media struct {
-	Position   int     `json:"position"`    // disc number (1-indexed)
-	TrackCount int     `json:"track-count"` // total tracks on this disc
+	Position   int     `json:"position"` // disc number
+	TrackCount int     `json:"track-count"`
 	Track      []track `json:"track"`
 }
 
 type track struct {
-	Number   string `json:"number"`   // display number (may be non-numeric, e.g. "A1")
-	Position int    `json:"position"` // numeric position, used when Number is non-numeric
+	Number   string `json:"number"` // may be "A1"
+	Position int    `json:"position"`
 }
-
-// Release search / lookup types
 
 type releaseListResponse struct {
 	Releases []release `json:"releases"`
@@ -309,7 +278,6 @@ type releaseLookupRec struct {
 	ID string `json:"id"`
 }
 
-// searchRelease queries MusicBrainz for releases matching album + artist.
 func (c *Client) searchRelease(ctx context.Context, album, artist string) ([]release, error) {
 	q := fmt.Sprintf("release:%q", album)
 	if artist != "" {
@@ -322,14 +290,6 @@ func (c *Client) searchRelease(ctx context.Context, album, artist string) ([]rel
 		return nil, fmt.Errorf("musicbrainz release search: %w", err)
 	}
 	return result.Releases, nil
-}
-
-// lookupRelease returns the full tracklist for a release by its MusicBrainz
-// ID, fetched once per run.
-func (c *Client) lookupRelease(ctx context.Context, releaseID string) (metadata.Tracklist, error) {
-	return c.releases.Do(releaseID, func() (metadata.Tracklist, error) {
-		return c.fetchRelease(ctx, releaseID)
-	})
 }
 
 func (c *Client) fetchRelease(ctx context.Context, releaseID string) (metadata.Tracklist, error) {
@@ -364,8 +324,6 @@ func (c *Client) fetchRelease(ctx context.Context, releaseID string) (metadata.T
 	return tl, nil
 }
 
-// ReleaseIDsForRecording returns all release IDs that contain the given recording MBID.
-// Implements metadata.ReleaseResolver.
 func (c *Client) ReleaseIDsForRecording(ctx context.Context, mbid string) ([]string, error) {
 	rec, err := c.lookupRecording(ctx, mbid)
 	if err != nil {
@@ -379,14 +337,12 @@ func (c *Client) ReleaseIDsForRecording(ctx context.Context, mbid string) ([]str
 	return ids, nil
 }
 
-// LookupTracklist fetches the complete tracklist for a release by its MusicBrainz ID.
-// Implements metadata.ReleaseResolver.
 func (c *Client) LookupTracklist(ctx context.Context, releaseID string) (metadata.Tracklist, error) {
-	return c.lookupRelease(ctx, releaseID)
+	return c.releases.Do(releaseID, func() (metadata.Tracklist, error) {
+		return c.fetchRelease(ctx, releaseID)
+	})
 }
 
-// ResolveAlbum implements metadata.AlbumResolver: searches for the best matching
-// release and returns its complete tracklist.
 func (c *Client) ResolveAlbum(ctx context.Context, album, artist string) (metadata.Tracklist, bool, error) {
 	candidates, err := c.searchRelease(ctx, album, artist)
 	if err != nil {
@@ -397,7 +353,7 @@ func (c *Client) ResolveAlbum(ctx context.Context, album, artist string) (metada
 	}
 
 	best := pickBestRelease(candidates, album)
-	tl, err := c.lookupRelease(ctx, best.ID)
+	tl, err := c.LookupTracklist(ctx, best.ID)
 	if err != nil {
 		return metadata.Tracklist{}, false, fmt.Errorf("release lookup failed: %w", err)
 	}

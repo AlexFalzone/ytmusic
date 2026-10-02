@@ -14,7 +14,7 @@ type Logger struct {
 	mu      *sync.Mutex
 	fileLog *os.File
 	hasBar  *bool
-	prefix  string // "[a] [b]": every WithPrefix up the chain, outermost first
+	prefix  string // "[job] [3/20]": outermost first
 }
 
 func New(verbose bool) *Logger {
@@ -27,10 +27,6 @@ func New(verbose bool) *Logger {
 	}
 }
 
-// WithPrefix returns a child logger that prepends [prefix] to every message
-// body, after the parent's own prefixes: a file's line inside a web job reads
-// "[job] [3/20]". The child shares the parent's writer, fileLog, and mutex so
-// concurrent writes remain safe.
 func (l *Logger) WithPrefix(prefix string) *Logger {
 	tag := "[" + prefix + "]"
 	if l.prefix != "" {
@@ -41,7 +37,7 @@ func (l *Logger) WithPrefix(prefix string) *Logger {
 		writer:  l.writer,
 		mu:      l.mu,
 		fileLog: l.fileLog,
-		hasBar:  l.hasBar, // shared pointer so SetProgressBar on parent propagates to all children
+		hasBar:  l.hasBar,
 		prefix:  tag,
 	}
 }
@@ -82,8 +78,7 @@ func (l *Logger) Debug(format string, args ...interface{}) {
 	l.debugLocked(format, args...)
 }
 
-// debugLocked writes a DEBUG line; caller must hold l.mu.
-// Always captures debug detail in the file even when not printing to stdout.
+// Caller holds l.mu. The file gets debug lines even when stdout does not.
 func (l *Logger) debugLocked(format string, args ...interface{}) {
 	if l.Verbose {
 		msg := l.formatMsg("DEBUG", format, args...)
@@ -116,17 +111,15 @@ func (l *Logger) log(level, format string, args ...interface{}) {
 	l.writeFileLocked(msg)
 }
 
-// writeFileLocked copies a line to the log file, if there is one; caller must
-// hold l.mu. A logger has nowhere to report its own write failure, so a failed
-// file write is dropped on purpose.
+// Caller holds l.mu.
 func (l *Logger) writeFileLocked(msg string) {
 	if l.fileLog != nil {
-		_, _ = l.fileLog.WriteString(msg)
+		_, _ = l.fileLog.WriteString(msg) // a logger has nowhere to report its own failure
 	}
 }
 
 func (l *Logger) formatMsg(level, format string, args ...interface{}) string {
-	ts := time.Now().Format("2006-01-02 15:04:05")
+	ts := time.Now().Format(time.DateTime)
 	body := fmt.Sprintf(format, args...)
 	if l.prefix != "" {
 		return fmt.Sprintf("%s [%s] %s %s\n", ts, level, l.prefix, body)

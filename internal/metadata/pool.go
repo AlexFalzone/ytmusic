@@ -8,9 +8,7 @@ import (
 	"sync/atomic"
 )
 
-// resolveFiles runs the per-file phase on a pool of workers and returns how
-// many files failed. The phases before it stay sequential: the MusicBrainz
-// rate limit would serialise them anyway.
+// Only the per-file phase is parallel: the MusicBrainz rate limit serialises the others anyway.
 func (r *Resolver) resolveFiles(ctx context.Context, files []string) int {
 	indexes := make(chan int)
 	var failed atomic.Int32
@@ -21,8 +19,7 @@ func (r *Resolver) resolveFiles(ctx context.Context, files []string) int {
 		go func() {
 			defer wg.Done()
 			for i := range indexes {
-				// The feeder checks too, but once a cancel and a waiting
-				// worker are both ready its select may pick either.
+				// The feeder's select may still hand out work after a cancel.
 				if ctx.Err() != nil {
 					continue
 				}
@@ -48,18 +45,13 @@ func (r *Resolver) resolveFiles(ctx context.Context, files []string) int {
 	return int(failed.Load())
 }
 
-// forFile returns a copy of the resolver whose log lines carry the file's
-// position, so the lines of files resolved side by side can be told apart.
-// Everything else is shared: providers, caches, the tag store.
+// A copy whose log lines carry the file's position; everything else is shared.
 func (r *Resolver) forFile(i, n int) *Resolver {
 	fr := *r
 	fr.logger = r.logger.WithPrefix(fmt.Sprintf("%d/%d", i+1, n))
 	return &fr
 }
 
-// resolveSafely resolves one file and turns a panic into its failure. The
-// workers run off any handler stack: a panic there would take the whole
-// process down, and with it every job of the web server.
 func (r *Resolver) resolveSafely(ctx context.Context, path string) (err error) {
 	defer func() {
 		if p := recover(); p != nil {

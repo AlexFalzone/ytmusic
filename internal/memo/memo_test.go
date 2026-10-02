@@ -33,7 +33,6 @@ func TestDoCallsOncePerKey(t *testing.T) {
 	}
 }
 
-// A transient failure, a timeout or a 503, must not stick for the whole run.
 func TestDoForgetsFailures(t *testing.T) {
 	var c Cache[string, int]
 	calls := 0

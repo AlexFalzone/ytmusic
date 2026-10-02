@@ -10,7 +10,7 @@ func TestJaroWinkler(t *testing.T) {
 		a, b string
 		want float64
 	}{
-		// Reference values from Winkler's paper.
+		// From Winkler's paper.
 		{"martha", "marhta", 0.961},
 		{"dwayne", "duane", 0.840},
 		{"dixon", "dicksonx", 0.813},
@@ -37,8 +37,7 @@ func TestTokensMatch(t *testing.T) {
 		{"love", "live", false},       // another word, JW 0.850
 		{"me", "we", false},           // too short to be fuzzy
 		{"i", "is", false},            // too short for the plural rule too
-		// One letter apart, but each pair is two different words. Edit distance
-		// alone cannot tell them apart: every one of these scores above 0.92.
+		// Different words one letter apart: all score above 0.92.
 		{"lock", "clock", false},
 		{"ever", "never", false},
 		{"word", "world", false},
@@ -80,8 +79,7 @@ func TestSimilarityOnNormalizedTitles(t *testing.T) {
 		{"Perché", "Perche", 1.0},
 		{"Simon & Garfunkel", "Simon and Garfunkel", 1.0},
 		{"Walking on Sunshine", "Talking on Sunshine", 2.0 / 3},
-		// Unrelated titles must stay at zero: whole-string Jaro-Winkler would
-		// have put this pair at 0.63, next to the 0.7 threshold.
+		// Whole-string Jaro-Winkler put this pair at 0.63, next to the 0.7 threshold.
 		{"Blinding Lights", "Bohemian Rhapsody", 0.0},
 	}
 	for _, tt := range tests {

@@ -7,14 +7,8 @@ import (
 	"go.senan.xyz/taglib"
 )
 
-// The album-first phases run before the per-file phase and only ever write
-// track and disc numbers, which the per-file phase then keeps.
-
 const trackMatchThreshold = 0.6
 
-// resolveGroup looks up the full tracklist for album via ar and writes
-// TrackNumber/DiscNumber to each file whose title matches a tracklist entry
-// with sufficient confidence.
 func (r *Resolver) resolveGroup(ctx context.Context, album string, files []string, ar AlbumResolver) error {
 	artist := ""
 	if len(files) > 0 {
@@ -35,10 +29,6 @@ func (r *Resolver) resolveGroup(ctx context.Context, album string, files []strin
 	return nil
 }
 
-// resolveGroupByFingerprint fingerprints all files in the group, finds the dominant
-// release (the one appearing in >= 50% of recording lookups), then writes positional
-// tags for each file whose title matches a tracklist entry with sufficient confidence.
-// Returns the paths of files that were successfully resolved.
 func (r *Resolver) resolveGroupByFingerprint(ctx context.Context, files []string) []string {
 	matches, err := r.batchFingerprinter.BatchLookupByFiles(ctx, files)
 	if err != nil {
@@ -75,9 +65,6 @@ func (r *Resolver) resolveGroupByFingerprint(ctx context.Context, files []string
 	return r.writeTrackPositions(files, tl, "batch fingerprint")
 }
 
-// writeTrackPositions writes the track and disc number of each file whose
-// title matches an entry of tl, and returns the files it wrote. phase names
-// the caller in the log.
 func (r *Resolver) writeTrackPositions(files []string, tl Tracklist, phase string) []string {
 	var written []string
 	for _, path := range files {
@@ -106,9 +93,6 @@ func (r *Resolver) writeTrackPositions(files []string, tl Tracklist, phase strin
 	return written
 }
 
-// findDominantRelease fetches the release IDs for each recording MBID and returns
-// the release ID that appears in >= 50% of recordings. Returns ("", false) if no
-// release reaches the quorum.
 func (r *Resolver) findDominantRelease(ctx context.Context, mbids []string) (string, bool) {
 	if len(mbids) == 0 {
 		return "", false
@@ -130,7 +114,7 @@ func (r *Resolver) findDominantRelease(ctx context.Context, mbids []string) (str
 	bestID := ""
 	bestCount := 0
 	for id, count := range counts {
-		// Strict > for count; lexicographic < on ID breaks ties deterministically.
+		// Ties go to the lowest ID, so map order cannot change the result.
 		if count > bestCount || (count == bestCount && (bestID == "" || id < bestID)) {
 			bestCount = count
 			bestID = id
@@ -143,7 +127,6 @@ func (r *Resolver) findDominantRelease(ctx context.Context, mbids []string) (str
 	return "", false
 }
 
-// filterResolved returns files from the slice that are not in the resolved set.
 func filterResolved(files []string, resolved map[string]bool) []string {
 	var out []string
 	for _, f := range files {
@@ -154,7 +137,6 @@ func filterResolved(files []string, resolved map[string]bool) []string {
 	return out
 }
 
-// groupByAlbum reads the album tag of each file and groups paths by album name.
 func (r *Resolver) groupByAlbum(files []string) map[string][]string {
 	groups := make(map[string][]string)
 	for _, path := range files {
@@ -168,8 +150,6 @@ func (r *Resolver) groupByAlbum(files []string) map[string][]string {
 	return groups
 }
 
-// matchTrackByTitle finds the track in tracks whose title best matches fileTitle.
-// Returns the best match and its similarity score (0.0–1.0).
 func matchTrackByTitle(fileTitle string, tracks []ReleaseTrack) (ReleaseTrack, float64) {
 	best := tracks[0]
 	bestScore := Similarity(fileTitle, tracks[0].Title)

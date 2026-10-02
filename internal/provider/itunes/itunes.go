@@ -13,18 +13,14 @@ import (
 	"ytmusic/internal/throttle"
 )
 
-// requestInterval keeps to Apple's documented limit of about 20 calls a
-// minute. Exceeding it gets requests refused, and gap filling then loses the
-// genre without a word: iTunes is often the only provider that has one.
+// Apple's limit is about 20 calls a minute; past it the genre, often only iTunes has, silently goes.
 const requestInterval = 3 * time.Second
 
-// Client is an iTunes Search API client that implements metadata.Provider.
 type Client struct {
 	api    *httpjson.Client
 	apiURL string
 }
 
-// New creates a new iTunes client.
 func New() *Client {
 	return &Client{
 		api: &httpjson.Client{
@@ -37,7 +33,6 @@ func New() *Client {
 
 func (c *Client) Name() string { return "itunes" }
 
-// Search queries the iTunes Search API and returns matching tracks.
 func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]metadata.TrackInfo, error) {
 	term := buildTerm(query)
 	if term == "" {
@@ -71,12 +66,6 @@ func buildTerm(query metadata.SearchQuery) string {
 func parseResults(items []resultItem) []metadata.TrackInfo {
 	var results []metadata.TrackInfo
 	for _, item := range items {
-		artworkURL := item.ArtworkURL100
-		// Upgrade to 600x600 artwork
-		if artworkURL != "" {
-			artworkURL = strings.Replace(artworkURL, "100x100", "600x600", 1)
-		}
-
 		info := metadata.TrackInfo{
 			Title:       item.TrackName,
 			Artist:      item.ArtistName,
@@ -85,23 +74,18 @@ func parseResults(items []resultItem) []metadata.TrackInfo {
 			Genre:       item.PrimaryGenreName,
 			TrackNumber: item.TrackNumber,
 			DiscNumber:  item.DiscNumber,
-			ArtworkURL:  artworkURL,
+			Year:        metadata.ParseYear(item.ReleaseDate),
+			ReleaseDate: item.ReleaseDate,
+			ArtworkURL:  strings.Replace(item.ArtworkURL100, "100x100", "600x600", 1),
 			Duration:    time.Duration(item.TrackTimeMillis) * time.Millisecond,
 		}
-
-		info.ReleaseDate = item.ReleaseDate
-		info.Year = metadata.ParseYear(item.ReleaseDate)
-
 		results = append(results, info)
 	}
 	return results
 }
 
-// iTunes Search API response types
-
 type searchResponse struct {
-	ResultCount int          `json:"resultCount"`
-	Results     []resultItem `json:"results"`
+	Results []resultItem `json:"results"`
 }
 
 type resultItem struct {

@@ -12,13 +12,11 @@ import (
 	"ytmusic/internal/metadata"
 )
 
-// Client is a Deezer API client that implements metadata.Provider.
 type Client struct {
 	api    *httpjson.Client
 	apiURL string
 }
 
-// New creates a new Deezer client.
 func New() *Client {
 	return &Client{
 		api:    &httpjson.Client{HTTP: &http.Client{Timeout: 10 * time.Second}},
@@ -28,7 +26,6 @@ func New() *Client {
 
 func (c *Client) Name() string { return "deezer" }
 
-// Search queries the Deezer search API and returns matching tracks.
 func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]metadata.TrackInfo, error) {
 	q := buildQuery(query)
 	if q == "" {
@@ -46,11 +43,7 @@ func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]meta
 	return parseResults(searchResp.Data), nil
 }
 
-// buildQuery returns a free-text query, not Deezer's documented advanced
-// search syntax: the live API no longer honours `artist:"…"` as a field filter
-// and matches the literal word "artist" instead, so every query carrying it is
-// ANDed down to zero results. Quotes are stripped for the same reason — they
-// would turn the query into an exact phrase.
+// Free text: the API reads `artist:"…"` as the word "artist" (BUG-14); quotes would force an exact phrase.
 func buildQuery(query metadata.SearchQuery) string {
 	var parts []string
 	for _, field := range []string{query.Title, query.Artist, query.Album} {
@@ -64,10 +57,8 @@ func buildQuery(query metadata.SearchQuery) string {
 func parseResults(items []trackItem) []metadata.TrackInfo {
 	var results []metadata.TrackInfo
 	for _, item := range items {
-		var artworkURL string
-		if item.Album.CoverXL != "" {
-			artworkURL = item.Album.CoverXL
-		} else if item.Album.CoverBig != "" {
+		artworkURL := item.Album.CoverXL
+		if artworkURL == "" {
 			artworkURL = item.Album.CoverBig
 		}
 
@@ -87,24 +78,17 @@ func parseResults(items []trackItem) []metadata.TrackInfo {
 	return results
 }
 
-// Deezer API response types
-
 type searchResponse struct {
 	Data  []trackItem `json:"data"`
 	Error *apiError   `json:"error,omitempty"`
 }
 
 type apiError struct {
-	Type    string `json:"type"`
 	Message string `json:"message"`
-	Code    int    `json:"code"`
 }
 
 type trackItem struct {
-	ID            int       `json:"id"`
-	Title         string    `json:"title"`
 	TitleShort    string    `json:"title_short"`
-	TitleVersion  string    `json:"title_version"`
 	ISRC          string    `json:"isrc"`
 	Duration      int       `json:"duration"`
 	TrackPosition int       `json:"track_position"`
@@ -114,12 +98,10 @@ type trackItem struct {
 }
 
 type artist struct {
-	ID   int    `json:"id"`
 	Name string `json:"name"`
 }
 
 type albumInfo struct {
-	ID       int    `json:"id"`
 	Title    string `json:"title"`
 	CoverBig string `json:"cover_big"`
 	CoverXL  string `json:"cover_xl"`

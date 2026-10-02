@@ -12,7 +12,6 @@ import (
 	"go.senan.xyz/taglib"
 )
 
-// albumFiles writes one silent MP3 per title into dir, tagged with the album.
 func albumFiles(t *testing.T, dir, album string, titles ...string) []string {
 	t.Helper()
 	var paths []string
@@ -36,7 +35,6 @@ func tag(t *testing.T, path, key string) string {
 	return metadata.FirstTag(tags, key)
 }
 
-// fingerprints recognises the files listed in mbids and no others.
 type fingerprints struct{ mbids map[string]string }
 
 func (f fingerprints) LookupByFile(context.Context, string, string) (metadata.TrackInfo, bool, error) {
@@ -53,7 +51,6 @@ func (f fingerprints) BatchLookupByFiles(_ context.Context, paths []string) ([]m
 	return out, nil
 }
 
-// releases puts every recording on one release.
 type releases struct{ tracklist metadata.Tracklist }
 
 func (r releases) ReleaseIDsForRecording(context.Context, string) ([]string, error) {
@@ -64,14 +61,12 @@ func (r releases) LookupTracklist(context.Context, string) (metadata.Tracklist, 
 	return r.tracklist, nil
 }
 
-// albums knows only album "Y".
 type albums struct{ tracklist metadata.Tracklist }
 
 func (a albums) ResolveAlbum(_ context.Context, album, _ string) (metadata.Tracklist, bool, error) {
 	return a.tracklist, album == "Y", nil
 }
 
-// everything matches every title, with track numbers of its own.
 type everything struct{}
 
 func (everything) Name() string { return "everything" }
@@ -82,10 +77,7 @@ func (everything) Search(_ context.Context, q metadata.SearchQuery) ([]metadata.
 	}}, nil
 }
 
-// The three phases have never run together outside the resolver's own
-// tests: this goes through the importer's wiring. Album X is placed by the
-// fingerprint phase, album Y by the album-first phase, and the per-file
-// phase fills the rest without touching their track numbers.
+// Album X is placed by phase A, album Y by phase B, and phase 3 fills the rest without touching their track numbers.
 func TestImportRunsTheThreePhasesTogether(t *testing.T) {
 	dir := t.TempDir()
 	x := albumFiles(t, dir, "X", "Alpha", "Beta")

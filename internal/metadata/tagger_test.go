@@ -7,21 +7,11 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"ytmusic/internal/testaudio"
-
 	"go.senan.xyz/taglib"
 )
 
-// createTestAudioFile generates a minimal MP3 using ffmpeg.
-// Skips the test if ffmpeg is not available.
-func createTestAudioFile(t *testing.T, dir string) string {
-	t.Helper()
-	return testaudio.MP3(t, dir, "test.mp3", "0.1")
-}
-
 func TestWriteTagMap(t *testing.T) {
-	dir := t.TempDir()
-	path := createTestAudioFile(t, dir)
+	path := newTestMP3(t)
 
 	info := TrackInfo{
 		Title:       "Test Song",
@@ -39,7 +29,6 @@ func TestWriteTagMap(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	// Verify written tags
 	tags, err := taglib.ReadTags(path)
 	if err != nil {
 		t.Fatalf("failed to read tags: %v", err)
@@ -68,10 +57,8 @@ func TestWriteTagMap(t *testing.T) {
 }
 
 func TestWriteArtwork(t *testing.T) {
-	dir := t.TempDir()
-	path := createTestAudioFile(t, dir)
+	path := newTestMP3(t)
 
-	// Minimal valid JPEG (smallest valid JFIF)
 	fakeImage := []byte{
 		0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01,
 		0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xFF, 0xD9,
@@ -91,7 +78,6 @@ func TestWriteArtwork(t *testing.T) {
 }
 
 func TestWriteArtworkEmpty(t *testing.T) {
-	// Should be a no-op with empty data
 	if err := WriteArtwork("/nonexistent", nil); err != nil {
 		t.Errorf("expected nil error for empty image, got %v", err)
 	}
@@ -106,16 +92,13 @@ func TestWriteTagMapNonexistentFile(t *testing.T) {
 }
 
 func TestWriteTagMapEmptyInfo(t *testing.T) {
-	dir := t.TempDir()
-	path := createTestAudioFile(t, dir)
+	path := newTestMP3(t)
 
-	// Writing empty info should not error (just writes nothing)
 	var s tagStore
 	if err := s.write(path, tagMap(TrackInfo{})); err != nil {
 		t.Fatalf("write with empty info failed: %v", err)
 	}
 
-	// Verify file still readable
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("file missing after empty write: %v", err)
 	}
@@ -156,9 +139,7 @@ func TestSanitizePathHostileInput(t *testing.T) {
 }
 
 func TestSanitizePathTruncatesOnRuneBoundary(t *testing.T) {
-	// Two-byte runes on purpose: 255 is odd, so a naive s[:255] lands in the
-	// middle of a rune. Three-byte runes would not catch it — 255 = 3 × 85
-	// falls exactly on a boundary and the naive cut would look correct.
+	// Two-byte runes: 255 is odd, so a naive s[:255] splits a rune (three-byte ones would land on a boundary).
 	long := strings.Repeat("é", 200)
 	got := sanitizePath(long)
 
@@ -171,15 +152,13 @@ func TestSanitizePathTruncatesOnRuneBoundary(t *testing.T) {
 	if r, _ := utf8.DecodeLastRuneInString(got); r == utf8.RuneError {
 		t.Errorf("the last rune of %q is broken", got)
 	}
-	// 127 whole runes fit in 255 bytes; the 128th must be dropped, not halved.
 	if want := 127; utf8.RuneCountInString(got) != want {
 		t.Errorf("kept %d runes, want %d", utf8.RuneCountInString(got), want)
 	}
 }
 
 func TestSubDirFromTagsCannotEscapeOutputDir(t *testing.T) {
-	dir := t.TempDir()
-	path := createTestAudioFile(t, dir)
+	path := newTestMP3(t)
 
 	writeTestTags(t, path, tagMap(TrackInfo{Artist: "..", Album: "..", AlbumArtist: ".."}))
 
@@ -200,7 +179,6 @@ func TestMergeWithExisting_HandlesSlashTrackNumberFormat(t *testing.T) {
 		taglib.TrackNumber: {"5/12"},
 	}
 
-	// Provider returns track 3 (wrong release), existing tag is "5/12"
 	info := TrackInfo{Title: "TRUST!", TrackNumber: 3}
 	got := mergeWithExisting(tags, info)
 

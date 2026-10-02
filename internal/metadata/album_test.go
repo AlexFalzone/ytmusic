@@ -40,7 +40,6 @@ func TestMatchTrackByTitle_NormalizesBeforeComparing(t *testing.T) {
 	tracks := []ReleaseTrack{
 		{TrackNumber: 5, Title: "ARE U HAPPY?"},
 	}
-	// yt-dlp may give slightly different casing or punctuation
 	got, score := matchTrackByTitle("ARE U HAPPY?", tracks)
 	if got.TrackNumber != 5 {
 		t.Errorf("TrackNumber = %d, want 5", got.TrackNumber)
@@ -72,7 +71,6 @@ func TestGroupByAlbum_GroupsSameAlbumTogether(t *testing.T) {
 
 func TestGroupByAlbum_FilesWithNoAlbumGetOwnGroup(t *testing.T) {
 	p := newTestMP3(t)
-	// no album tag written
 
 	groups := newEvalResolver().groupByAlbum([]string{p})
 
@@ -118,8 +116,7 @@ func (m *mockAlbumResolver) ResolveAlbum(_ context.Context, _, _ string) (Trackl
 }
 
 func TestFindDominantRelease_ReturnsMajority(t *testing.T) {
-	// 3 MBIDs: mbid-1 and mbid-2 belong to rel-lp, mbid-3 to rel-offline
-	// rel-lp count = 2, rel-offline count = 1 → rel-lp is dominant (2 >= 3*0.5 = 1.5)
+	// rel-lp holds 2 of 3 recordings: 2 >= 1.5.
 	rr := &mockReleaseResolver{
 		releaseIDs: map[string][]string{
 			"mbid-1": {"rel-lp"},
@@ -142,7 +139,6 @@ func TestFindDominantRelease_ReturnsMajority(t *testing.T) {
 }
 
 func TestFindDominantRelease_NoQuorum_NotFound(t *testing.T) {
-	// Each MBID belongs to a different release — no quorum
 	rr := &mockReleaseResolver{
 		releaseIDs: map[string][]string{
 			"mbid-1": {"rel-a"},
@@ -242,7 +238,6 @@ func TestResolveGroupByFingerprint_TooFewFingerprinted_DoesNothing(t *testing.T)
 	p2 := newTestMP3(t)
 	p3 := newTestMP3(t)
 
-	// only 1 of 3 files gets a match (< 50%) → should not write any tags
 	bf := &mockBatchFingerprinter{
 		matches: []FileMatch{{Path: p1, MBID: "mbid-1"}},
 	}
@@ -392,7 +387,7 @@ func TestResolve_AlbumFirstPhaseWritesPositionalTags(t *testing.T) {
 		},
 	}
 
-	// Provider returns no results so per-file resolution doesn't overwrite positional tags.
+	// No results, so phase 3 cannot touch the positional tags.
 	mock := &mockProvider{name: "empty", results: nil}
 
 	log := logger.New(false)
@@ -414,7 +409,6 @@ func TestResolve_AlbumFirstPhaseWritesPositionalTags(t *testing.T) {
 	}
 }
 
-// A panic on one file must not cost the group the files that were matched.
 func TestResolveGroupByFingerprint_KeepsMatchesBesideAFailure(t *testing.T) {
 	p1, p2 := newTestMP3(t), newTestMP3(t)
 	writeTestTags(t, p1, map[string][]string{taglib.Title: {"TRUST!"}, taglib.Album: {"LP!"}})

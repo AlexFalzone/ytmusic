@@ -30,8 +30,7 @@ func main() {
 	flag.BoolVar(&hashPassword, "hash-password", false, "Generate a bcrypt hash for auth.password_hash and exit")
 	flag.Parse()
 
-	// Runs before the config is loaded: it must work precisely when the config
-	// is still invalid because the hash is missing.
+	// Before loading the config: it must work while the config still lacks the hash.
 	if hashPassword {
 		if err := runHashPassword(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -51,14 +50,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Checked here rather than per job: a missing tool would otherwise surface
-	// only as the first job failing, long after the server looked healthy.
 	if err := pipeline.CheckTools(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "Dependency error: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Setup logger with file logging
 	l := logger.New(false)
 	if err := os.MkdirAll(cfg.LogDir, 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to create log directory: %v\n", err)
@@ -78,7 +74,6 @@ func main() {
 		l.Warn("authentication is DISABLED: anyone who can reach this server can control it")
 	}
 
-	// Context that cancels on shutdown signal — used by jobs to stop gracefully
 	ctx, cancel := context.WithCancel(context.Background())
 
 	jobMgr := web.NewJobManager()
@@ -109,7 +104,6 @@ func main() {
 	l.Info("Shutting down server...")
 	cancel()
 
-	// Let in-flight jobs wind down, but never hang the shutdown on one.
 	waited := make(chan struct{})
 	go func() {
 		server.Wait()

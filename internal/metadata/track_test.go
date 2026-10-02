@@ -177,7 +177,6 @@ func TestGapFilling(t *testing.T) {
 	if filled.ISRC != "US1234567890" {
 		t.Errorf("ISRC = %q, want %q", filled.ISRC, "US1234567890")
 	}
-	// Authoritative fields must not change
 	if filled.Year != 2020 {
 		t.Errorf("Year = %d, want 2020 (should not be overwritten)", filled.Year)
 	}
@@ -283,8 +282,7 @@ func TestHasMissingFields(t *testing.T) {
 	}
 }
 
-// Providers write the featured artists into the track name; the query has
-// already dropped them. Compared raw, the two share 1 token out of 6.
+// Compared raw, the provider's title with featured artists shares 1 token out of 6.
 func TestResolveFile_MatchesCandidateWithFeaturingInTitle(t *testing.T) {
 	path := newTestMP3(t)
 	tagTestFile(t, path, "Peaches", "Justin Bieber")
@@ -310,7 +308,6 @@ func TestResolveFile_PreservesYtdlpTrackNumber(t *testing.T) {
 		t.Fatalf("write initial tags: %v", err)
 	}
 
-	// Provider returns a confident match but with a wrong track number (wrong release).
 	mock := &mockProvider{
 		name: "mock",
 		results: []TrackInfo{
@@ -342,7 +339,6 @@ func TestResolveFile_PreservesYtdlpTrackNumber(t *testing.T) {
 	}
 }
 
-// A file with no variant must not pay for extra lookups: the first match wins.
 func TestFindPrimaryMatch_StopsAtFirstMatch(t *testing.T) {
 	p1 := &mockProvider{name: "first", results: []TrackInfo{{Title: "Song", Artist: "Artist", Album: "Album"}}}
 	p2 := &mockProvider{name: "second", results: []TrackInfo{{Title: "Song", Artist: "Artist", Album: "Album"}}}
@@ -374,7 +370,6 @@ func TestGapFilling_IgnoresFillerOfAnotherVersion(t *testing.T) {
 	}
 }
 
-// A donor is completed by other originals, never by the variant it stands in for.
 func TestGapFilling_DonorTakesOriginalAsFiller(t *testing.T) {
 	p1 := &mockProvider{name: "primary"}
 	p2 := &mockProvider{name: "filler", results: []TrackInfo{
@@ -404,8 +399,7 @@ func TestResolveFile_DoesNotTagOriginalAsLiveVersion(t *testing.T) {
 	}
 }
 
-// Both tests below use the file's real length: if it were not read, the first
-// would tag the file and fail.
+// Both tests rely on the file's real length: unread, the first would tag the file.
 func TestResolveFile_ShorterRecordingIsRejected(t *testing.T) {
 	path := newTestMP3Len(t, "5")
 	tagTestFile(t, path, "Song", "Artist")
@@ -439,8 +433,6 @@ func liveSource() source {
 	}
 }
 
-// Before settling for a donor, every provider gets the chance to offer the
-// variant itself.
 func TestFindPrimaryMatch_PrefersExactVariantFromLaterProvider(t *testing.T) {
 	p1 := &mockProvider{name: "studio-only", results: []TrackInfo{{Title: "Song", Artist: "Artist", Album: "Studio"}}}
 	p2 := &mockProvider{name: "has-live", results: []TrackInfo{{Title: "Song - Live", Artist: "Artist", Album: "Live"}}}

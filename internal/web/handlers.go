@@ -10,6 +10,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"time"
 
 	"ytmusic/internal/pipeline"
 	"ytmusic/pkg/utils"
@@ -42,7 +43,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var req DownloadRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
@@ -76,9 +77,6 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, s.jobToResponse(job))
 }
 
-// validateDownloadURL checks the URL is an http(s) address whose host is
-// allowed. yt-dlp supports well over a thousand sites, so without an allowlist
-// the server is a general-purpose downloader for anyone who can reach it.
 func validateDownloadURL(raw string, allowedHosts []string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -96,8 +94,6 @@ func validateDownloadURL(raw string, allowedHosts []string) error {
 	return nil
 }
 
-// hostAllowed matches on label boundaries, so "youtube.com" accepts
-// "www.youtube.com" but not "notyoutube.com" or "youtube.com.evil.test".
 func hostAllowed(host string, allowed []string) bool {
 	if len(allowed) == 0 {
 		return true
@@ -169,10 +165,7 @@ func (s *Server) handleJobAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if job.Cancel != nil {
-			job.Cancel()
-		}
-
+		job.Cancel()
 		s.updateJob(jobID, func(j *Job) {
 			j.Status = StatusCancelled
 		})
@@ -199,13 +192,8 @@ func (s *Server) processJob(job Job) {
 		}
 	}()
 
-	// The job's context was created with the job; releasing it here keeps the
-	// parent from accumulating cancel functions for finished work.
 	defer job.Cancel()
 
-	// Wait for a free slot. Watching the job context too means a job cancelled
-	// while queued stops here instead of waiting for a slot only to discover it
-	// was cancelled.
 	select {
 	case s.jobSem <- struct{}{}:
 		defer func() { <-s.jobSem }()
@@ -233,8 +221,6 @@ func (s *Server) processJob(job Job) {
 		return
 	}
 	defer func() {
-		// Leftover temp directories accumulate silently otherwise, and the job
-		// log is the only place this would ever surface.
 		if err := utils.Cleanup(tempDir); err != nil {
 			jobLog.Warn("Error during cleanup: %v", err)
 		}
@@ -258,8 +244,6 @@ func (s *Server) processJob(job Job) {
 	}
 
 	if err := s.runPipeline(job.ctx, job.Config, jobLog, tempDir, hooks); err != nil {
-		// A stopped job is not a broken one. The status is the same either way;
-		// only the log distinguishes a user's cancel from a server shutdown.
 		if errors.Is(err, context.Canceled) {
 			if s.ctx.Err() != nil {
 				jobLog.Info("cancelled by server shutdown")
@@ -294,9 +278,7 @@ func (s *Server) processJob(job Job) {
 	}
 }
 
-// updateJob applies fn to a job's state. UpdateJob fails only when the job no
-// longer exists, which the retention cleanup never does to a job still running;
-// the log is there so a broken invariant cannot pass unnoticed.
+// Cleanup never removes a running job, so a failure here is a broken invariant.
 func (s *Server) updateJob(id string, fn func(*Job)) {
 	if err := s.jobMgr.UpdateJob(id, fn); err != nil {
 		s.logger.Warn("updating job %s: %v", id, err)
@@ -311,16 +293,16 @@ func (s *Server) jobToResponse(job Job) *JobResponse {
 		Progress:  job.Progress,
 		Total:     job.Total,
 		Error:     job.Error,
-		CreatedAt: job.CreatedAt.Format("2006-01-02 15:04:05"),
+		CreatedAt: job.CreatedAt.Format(time.DateTime),
 	}
 
 	if job.StartedAt != nil {
-		started := job.StartedAt.Format("2006-01-02 15:04:05")
+		started := job.StartedAt.Format(time.DateTime)
 		resp.StartedAt = &started
 	}
 
 	if job.CompletedAt != nil {
-		completed := job.CompletedAt.Format("2006-01-02 15:04:05")
+		completed := job.CompletedAt.Format(time.DateTime)
 		resp.CompletedAt = &completed
 	}
 

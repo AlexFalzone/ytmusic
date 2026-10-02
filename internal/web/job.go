@@ -11,7 +11,6 @@ import (
 	"ytmusic/internal/config"
 )
 
-// JobStatus represents the current status of a job
 type JobStatus string
 
 const (
@@ -22,7 +21,6 @@ const (
 	StatusCancelled JobStatus = "cancelled"
 )
 
-// Job represents a download job
 type Job struct {
 	ID          string
 	URL         string
@@ -36,16 +34,11 @@ type Job struct {
 	CompletedAt *time.Time
 	Cancel      context.CancelFunc
 
-	// ctx is the job's own cancellation scope, created with the job so there is
-	// never a moment when a cancel request has nothing to act on.
+	// Created with the job, so a cancel request always has something to act on.
 	ctx context.Context
 }
 
-// JobManager manages download jobs.
-//
-// Every accessor returns a copy of the Job rather than the pointer it keeps:
-// handing out pointers let callers read fields while a job goroutine was
-// writing them, which is a data race even though each write is itself locked.
+// Accessors return copies: a pointer would let callers read while a job goroutine writes.
 type JobManager struct {
 	jobs      map[string]*Job
 	mu        sync.RWMutex
@@ -54,7 +47,6 @@ type JobManager struct {
 
 const jobRetention = 1 * time.Hour
 
-// NewJobManager creates a new job manager
 func NewJobManager() *JobManager {
 	return &JobManager{
 		jobs:      make(map[string]*Job),
@@ -62,8 +54,6 @@ func NewJobManager() *JobManager {
 	}
 }
 
-// StartCleanup starts a background goroutine that removes old completed jobs.
-// Stops when ctx is cancelled.
 func (jm *JobManager) StartCleanup(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(10 * time.Minute)
@@ -86,8 +76,7 @@ func (jm *JobManager) cleanup() {
 	cutoff := time.Now().Add(-jobRetention)
 	for id, job := range jm.jobs {
 		if job.CompletedAt != nil && job.CompletedAt.Before(cutoff) {
-			// Close before dropping the slice: a listener left on an open
-			// channel that nobody will ever write to blocks forever.
+			// A listener left on an open channel nobody writes to blocks forever.
 			for _, ch := range jm.listeners[id] {
 				close(ch)
 			}
@@ -97,8 +86,6 @@ func (jm *JobManager) cleanup() {
 	}
 }
 
-// CreateJob creates a new job, derives its cancellation scope from parent, and
-// returns a snapshot of it.
 func (jm *JobManager) CreateJob(parent context.Context, url string, cfg config.Config) (Job, error) {
 	id, err := generateJobID()
 	if err != nil {
@@ -124,7 +111,6 @@ func (jm *JobManager) CreateJob(parent context.Context, url string, cfg config.C
 	return *job, nil
 }
 
-// GetJob retrieves a snapshot of a job by ID.
 func (jm *JobManager) GetJob(id string) (Job, error) {
 	jm.mu.RLock()
 	defer jm.mu.RUnlock()
@@ -136,7 +122,7 @@ func (jm *JobManager) GetJob(id string) (Job, error) {
 	return *job, nil
 }
 
-// ListJobs returns snapshots of the most recent jobs, newest first.
+// Newest first.
 func (jm *JobManager) ListJobs(limit int) []Job {
 	jm.mu.RLock()
 	defer jm.mu.RUnlock()
@@ -156,7 +142,6 @@ func (jm *JobManager) ListJobs(limit int) []Job {
 	return jobs
 }
 
-// UpdateJob updates job status
 func (jm *JobManager) UpdateJob(id string, fn func(*Job)) error {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
@@ -169,7 +154,6 @@ func (jm *JobManager) UpdateJob(id string, fn func(*Job)) error {
 	oldStatus := job.Status
 	fn(job)
 
-	// Update timestamps based on status changes
 	if oldStatus != job.Status {
 		switch job.Status {
 		case StatusRunning:
@@ -189,7 +173,6 @@ func (jm *JobManager) UpdateJob(id string, fn func(*Job)) error {
 	return nil
 }
 
-// Subscribe subscribes to job updates
 func (jm *JobManager) Subscribe(jobID string) <-chan Job {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
@@ -199,7 +182,6 @@ func (jm *JobManager) Subscribe(jobID string) <-chan Job {
 	return ch
 }
 
-// Unsubscribe removes a listener
 func (jm *JobManager) Unsubscribe(jobID string, ch <-chan Job) {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
@@ -214,7 +196,7 @@ func (jm *JobManager) Unsubscribe(jobID string, ch <-chan Job) {
 	}
 }
 
-// notifyListeners sends a snapshot to all listeners; caller holds jm.mu.
+// Caller holds jm.mu.
 func (jm *JobManager) notifyListeners(jobID string, job *Job) {
 	for _, ch := range jm.listeners[jobID] {
 		select {
@@ -224,7 +206,6 @@ func (jm *JobManager) notifyListeners(jobID string, job *Job) {
 	}
 }
 
-// randRead is a seam so tests can simulate a failing entropy source.
 var randRead = rand.Read
 
 func generateJobID() (string, error) {

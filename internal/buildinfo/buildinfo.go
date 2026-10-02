@@ -1,14 +1,9 @@
-// Package buildinfo holds what the binary knows about its own build.
 package buildinfo
 
-// Version is set at build time:
-//
-//	go build -ldflags "-X ytmusic/internal/buildinfo.Version=v1.2.0"
+// Set with -ldflags "-X ytmusic/internal/buildinfo.Version=…".
 var Version = "dev"
 
-// UserAgent identifies ytmusic to the services it queries. MusicBrainz asks
-// for "App/version ( contact )" and throttles clients that give no way to
-// reach the maintainer.
+// MusicBrainz throttles clients whose User-Agent lacks "App/version ( contact )".
 func UserAgent() string {
 	return "ytmusic/" + Version + " ( https://github.com/AlexFalzone/ytmusic )"
 }

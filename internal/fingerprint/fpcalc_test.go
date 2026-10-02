@@ -22,7 +22,6 @@ func TestGenerate_InvalidFile(t *testing.T) {
 	if _, err := exec.LookPath("fpcalc"); err != nil {
 		t.Skip("fpcalc not installed")
 	}
-	// /etc/hostname is not an audio file
 	_, err := fingerprint.Generate(context.Background(), "/etc/hostname")
 	if err == nil {
 		t.Fatal("expected error for non-audio file, got nil")

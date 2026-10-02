@@ -14,10 +14,10 @@ import (
 
 	"ytmusic/internal/buildinfo"
 	"ytmusic/internal/httpjson"
+	"ytmusic/internal/memo"
 	"ytmusic/internal/metadata"
 )
 
-// Client is a Spotify Web API client that implements the provider.Provider interface.
 type Client struct {
 	clientID     string
 	clientSecret string
@@ -27,21 +27,17 @@ type Client struct {
 	accessToken string
 	tokenExpiry time.Time
 
-	cacheMu    sync.Mutex
-	genreCache map[string][]string // artist ID → genres
+	genres memo.Cache[string, []string] // by artist ID
 
-	// Overridable for testing
 	tokenURL string
 	apiURL   string
 }
 
-// New creates a new Spotify client.
 func New(clientID, clientSecret string) *Client {
 	return &Client{
 		clientID:     clientID,
 		clientSecret: clientSecret,
 		api:          &httpjson.Client{HTTP: &http.Client{Timeout: 10 * time.Second}, Retry: true},
-		genreCache:   make(map[string][]string),
 		tokenURL:     "https://accounts.spotify.com/api/token",
 		apiURL:       "https://api.spotify.com/v1",
 	}
@@ -49,7 +45,6 @@ func New(clientID, clientSecret string) *Client {
 
 func (c *Client) Name() string { return "spotify" }
 
-// Search queries the Spotify search API and returns matching tracks.
 func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]metadata.TrackInfo, error) {
 	q := buildSearchQuery(query)
 	if q == "" {
@@ -68,15 +63,10 @@ func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]meta
 	}
 
 	results := parseSearchResults(searchResp)
-
-	// Enrich with genres from artist endpoint
 	c.enrichGenres(ctx, results, searchResp)
-
 	return results, nil
 }
 
-// enrichGenres fetches genres for primary artists and sets them on results.
-// Uses an internal cache to avoid redundant API calls.
 func (c *Client) enrichGenres(ctx context.Context, results []metadata.TrackInfo, resp searchResponse) {
 	for i, item := range resp.Tracks.Items {
 		if i >= len(results) || len(item.Artists) == 0 {
@@ -97,41 +87,25 @@ func (c *Client) enrichGenres(ctx context.Context, results []metadata.TrackInfo,
 	}
 }
 
-// getArtistGenres returns genres for an artist, using cache when available.
 func (c *Client) getArtistGenres(ctx context.Context, artistID string) ([]string, error) {
-	c.cacheMu.Lock()
-	if genres, ok := c.genreCache[artistID]; ok {
-		c.cacheMu.Unlock()
-		return genres, nil
-	}
-	c.cacheMu.Unlock()
+	return c.genres.Do(artistID, func() ([]string, error) {
+		token, err := c.getToken(ctx)
+		if err != nil {
+			return nil, err
+		}
 
-	token, err := c.getToken(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	var artistResp artistResponse
-	reqURL := fmt.Sprintf("%s/artists/%s", c.apiURL, url.PathEscape(artistID))
-	if err := c.api.Get(ctx, reqURL, bearer(token), &artistResp); err != nil {
-		return nil, fmt.Errorf("spotify artist %s: %w", artistID, err)
-	}
-
-	c.cacheMu.Lock()
-	c.genreCache[artistID] = artistResp.Genres
-	c.cacheMu.Unlock()
-
-	return artistResp.Genres, nil
+		var artistResp artistResponse
+		reqURL := fmt.Sprintf("%s/artists/%s", c.apiURL, url.PathEscape(artistID))
+		if err := c.api.Get(ctx, reqURL, bearer(token), &artistResp); err != nil {
+			return nil, fmt.Errorf("spotify artist %s: %w", artistID, err)
+		}
+		return artistResp.Genres, nil
+	})
 }
 
-// formatGenres title-cases and joins genres (max 3).
 func formatGenres(genres []string) string {
-	limit := 3
-	if len(genres) < limit {
-		limit = len(genres)
-	}
-	formatted := make([]string, limit)
-	for i := 0; i < limit; i++ {
+	formatted := make([]string, min(3, len(genres)))
+	for i := range formatted {
 		formatted[i] = titleCase(genres[i])
 	}
 	return strings.Join(formatted, ", ")
@@ -163,7 +137,6 @@ func buildSearchQuery(query metadata.SearchQuery) string {
 	return strings.Join(parts, " ")
 }
 
-// getToken returns a valid access token, refreshing if necessary.
 func (c *Client) getToken(ctx context.Context) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -198,13 +171,11 @@ func (c *Client) getToken(ctx context.Context) (string, error) {
 	}
 
 	c.accessToken = tokenResp.AccessToken
-	// Refresh a bit early to avoid edge-case expiry
 	c.tokenExpiry = time.Now().Add(time.Duration(tokenResp.ExpiresIn-60) * time.Second)
 
 	return c.accessToken, nil
 }
 
-// bearer is the header that authorises a Web API request.
 func bearer(token string) http.Header {
 	return http.Header{"Authorization": {"Bearer " + token}}
 }
@@ -246,11 +217,8 @@ func parseSearchResults(resp searchResponse) []metadata.TrackInfo {
 	return results
 }
 
-// Spotify API response types
-
 type tokenResponse struct {
 	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
 	ExpiresIn   int    `json:"expires_in"`
 }
 
@@ -284,9 +252,7 @@ type albumInfo struct {
 }
 
 type image struct {
-	URL    string `json:"url"`
-	Width  int    `json:"width"`
-	Height int    `json:"height"`
+	URL string `json:"url"`
 }
 
 type externalID struct {

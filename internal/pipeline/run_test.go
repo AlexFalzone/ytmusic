@@ -16,9 +16,7 @@ import (
 	"go.senan.xyz/taglib"
 )
 
-// fakeYtdlp puts a yt-dlp first in PATH that lists two videos, "song" and
-// "dead". Downloading "song" copies fixture where the -o template points and
-// reports it like yt-dlp does; "dead" fails like an unavailable video.
+// Lists "song" and "dead": "song" copies fixture where -o points and reports it, "dead" fails like an unavailable video.
 func fakeYtdlp(t *testing.T, fixture string) {
 	t.Helper()
 	script := `#!/bin/sh
@@ -53,9 +51,7 @@ printf '%s\n' "$out" > "$list"
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-// retagger stands in for metadata resolution: it renames the album of every
-// file it is handed, so the test can tell the files were imported before
-// they were moved.
+// Renames every album, so the test can tell files were imported before being moved.
 type retagger struct {
 	dirs []string
 	err  error
@@ -115,7 +111,6 @@ func hasWarning(warnings []string, part string) bool {
 	return false
 }
 
-// The whole pipeline on a fake yt-dlp: a playlist of two videos, one dead.
 func TestRunDownloadsImportsAndFilesTheTracks(t *testing.T) {
 	imp := &retagger{}
 	res := runFake(t, imp)
@@ -136,8 +131,6 @@ func TestRunDownloadsImportsAndFilesTheTracks(t *testing.T) {
 	}
 }
 
-// A failed resolution leaves the tags as yt-dlp wrote them: the files still
-// belong in the library, and the user hears why they look the way they do.
 func TestRunFilesTheTracksWhenImportFails(t *testing.T) {
 	res := runFake(t, &retagger{err: fmt.Errorf("all 1 files failed metadata resolution")})
 

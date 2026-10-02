@@ -16,7 +16,6 @@ import (
 	"go.senan.xyz/taglib"
 )
 
-// fakeLyrics answers by title and records what it was asked.
 type fakeLyrics struct {
 	byTitle map[string]lyrics.Result
 	mu      sync.Mutex

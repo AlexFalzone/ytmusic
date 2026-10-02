@@ -14,7 +14,6 @@ func TestWaitSpacesCallsOneIntervalApart(t *testing.T) {
 			t.Fatalf("Wait: %v", err)
 		}
 	}
-	// The first call goes at once, the next two one interval apart each.
 	if elapsed := time.Since(start); elapsed < 100*time.Millisecond {
 		t.Errorf("three calls took %v, want at least 100ms", elapsed)
 	}

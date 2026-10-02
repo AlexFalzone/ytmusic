@@ -12,7 +12,6 @@ import (
 	"ytmusic/internal/throttle"
 )
 
-// setThrottle keeps the tests apart from where the client keeps its throttle.
 func setThrottle(c *Client, th *throttle.Throttle) { c.api.Throttle = th }
 
 func newTestClient(t *testing.T, h http.HandlerFunc) *Client {

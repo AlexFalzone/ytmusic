@@ -14,7 +14,7 @@ func TestParseYear(t *testing.T) {
 		{"", 0},
 		{"19", 0},
 		{"abc", 0},
-		// Sscanf read the leading digits and called this year 20.
+		// Sscanf once read this as year 20.
 		{"20x9-01-01", 0},
 	}
 	for _, tt := range tests {

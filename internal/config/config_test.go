@@ -352,7 +352,6 @@ func TestDefaultConfigEnablesAuth(t *testing.T) {
 	}
 }
 
-// The CLI has no web server: auth credentials must never gate it.
 func TestCLIValidateIgnoresAuth(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.PlaylistURL = "https://youtube.com/playlist?list=abc"
@@ -363,7 +362,6 @@ func TestCLIValidateIgnoresAuth(t *testing.T) {
 	}
 }
 
-// The web server must refuse to start unauthenticated by accident.
 func TestValidateWebRequiresAuth(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.OutputDir = "/tmp/music"
@@ -403,16 +401,13 @@ func TestValidateMaxConcurrentJobs(t *testing.T) {
 }
 
 func TestDefaultMaxConcurrentJobsIsOne(t *testing.T) {
-	// One job at a time keeps yt-dlp's parallelism (parallel_jobs) as the only
-	// source of concurrency against YouTube; two jobs would multiply it.
 	if got := DefaultConfig().MaxConcurrentJobs; got != 1 {
 		t.Errorf("MaxConcurrentJobs default = %d, want 1", got)
 	}
 }
 
 func TestDefaultConfigReadsNoBrowserCookies(t *testing.T) {
-	// A container has no browser to read cookies from: any default browser makes
-	// every download fail there, so cookies have to be an explicit choice.
+	// A container has no browser: any default would make every download fail there.
 	if got := DefaultConfig().CookiesBrowser; got != "" {
 		t.Errorf("CookiesBrowser default = %q, want empty", got)
 	}
@@ -428,8 +423,6 @@ func TestDefaultLogDirIsUnderHome(t *testing.T) {
 	}
 }
 
-// In Docker the log directory has to be the mounted volume, not somewhere under
-// HOME that dies with the container.
 func TestLoadConfigFileReadsLogDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

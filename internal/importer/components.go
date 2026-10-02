@@ -13,8 +13,6 @@ import (
 	"ytmusic/internal/provider/spotify"
 )
 
-// fingerprinter is what AcoustID identification provides: single-file and
-// batch lookups.
 type fingerprinter interface {
 	metadata.Fingerprinter
 	metadata.BatchFingerprinter
@@ -22,21 +20,15 @@ type fingerprinter interface {
 
 type components struct {
 	providers       []metadata.Provider
-	fingerprinter   fingerprinter            // nil if AcoustID not configured
-	albumResolver   metadata.AlbumResolver   // nil if musicbrainz not in providers
-	releaseResolver metadata.ReleaseResolver // nil if musicbrainz not in providers
+	fingerprinter   fingerprinter
+	albumResolver   metadata.AlbumResolver
+	releaseResolver metadata.ReleaseResolver
 }
 
-// buildComponents creates all metadata-related components, sharing a single
-// MusicBrainz client so its rate limiter is coordinated across all usages.
+// One MusicBrainz client for everything: its throttle and caches live in the instance.
 func buildComponents(cfg config.Config) components {
 	var mbClient *musicbrainz.Client
-	if slices.Contains(cfg.MetadataProviders, "musicbrainz") {
-		mbClient = musicbrainz.New()
-	}
-	// Also need a MusicBrainz client for fingerprint MBID lookups even when the
-	// musicbrainz search provider is not in the provider list.
-	if mbClient == nil && cfg.AcoustIDAPIKey != "" {
+	if slices.Contains(cfg.MetadataProviders, "musicbrainz") || cfg.AcoustIDAPIKey != "" {
 		mbClient = musicbrainz.New()
 	}
 
@@ -54,8 +46,7 @@ func buildComponents(cfg config.Config) components {
 		}
 	}
 
-	// Declared as the interface, not *fingerprint.Fingerprinter: a nil pointer
-	// converted to an interface is not nil and would crash the resolver.
+	// The interface, not *fingerprint.Fingerprinter: a nil pointer in an interface is not nil.
 	var fp fingerprinter
 	if cfg.AcoustIDAPIKey != "" {
 		acoustid := fingerprint.NewAcoustIDClient(cfg.AcoustIDAPIKey, "")

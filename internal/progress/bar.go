@@ -7,7 +7,8 @@ import (
 	"time"
 )
 
-// Bar represents a simple progress bar
+const barWidth = 40
+
 type Bar struct {
 	total     int
 	current   int
@@ -17,24 +18,20 @@ type Bar struct {
 	done      bool
 }
 
-// New creates a new progress bar
 func New(total int) *Bar {
 	return &Bar{
 		total:     total,
-		current:   0,
 		startTime: time.Now(),
 		lastPrint: time.Now(),
 	}
 }
 
-// Increment increases the progress counter
 func (b *Bar) Increment() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	b.current++
 
-	// Update display every 500ms or when complete
 	now := time.Now()
 	if now.Sub(b.lastPrint) > 500*time.Millisecond || b.current >= b.total {
 		b.render()
@@ -42,7 +39,6 @@ func (b *Bar) Increment() {
 	}
 }
 
-// Finish marks the progress as complete
 func (b *Bar) Finish() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -50,12 +46,11 @@ func (b *Bar) Finish() {
 	if !b.done {
 		b.current = b.total
 		b.render()
-		fmt.Println() // New line after completion
+		fmt.Println()
 		b.done = true
 	}
 }
 
-// render displays the progress bar
 func (b *Bar) render() {
 	if b.done {
 		return
@@ -64,39 +59,18 @@ func (b *Bar) render() {
 	percentage := float64(b.current) / float64(b.total) * 100
 	elapsed := time.Since(b.startTime)
 
-	// Calculate ETA
 	var eta time.Duration
 	if b.current > 0 {
-		avgTime := elapsed / time.Duration(b.current)
-		remaining := b.total - b.current
-		eta = avgTime * time.Duration(remaining)
+		eta = elapsed / time.Duration(b.current) * time.Duration(b.total-b.current)
 	}
 
-	// Progress bar width
-	barWidth := 40
-	filled := int(float64(barWidth) * float64(b.current) / float64(b.total))
+	filled := min(barWidth*b.current/b.total, barWidth)
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
 
-	var bar strings.Builder
-	for i := range barWidth {
-		if i < filled {
-			bar.WriteString("█")
-		} else {
-			bar.WriteString("░")
-		}
-	}
-
-	// Format output
 	fmt.Printf("\r[%s] %d/%d (%.1f%%) - Elapsed: %s - ETA: %s   ",
-		bar.String(),
-		b.current,
-		b.total,
-		percentage,
-		formatDuration(elapsed),
-		formatDuration(eta),
-	)
+		bar, b.current, b.total, percentage, formatDuration(elapsed), formatDuration(eta))
 }
 
-// formatDuration formats a duration in a human-readable way
 func formatDuration(d time.Duration) string {
 	if d < time.Minute {
 		return fmt.Sprintf("%ds", int(d.Seconds()))

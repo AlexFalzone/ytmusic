@@ -7,8 +7,7 @@ import (
 	"testing"
 )
 
-// isolate keeps parseArgs from picking up a real config file from the
-// developer's home directory.
+// Keeps parseArgs away from a real config in the developer's home.
 func isolate(t *testing.T) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())

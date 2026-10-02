@@ -2,7 +2,6 @@ package fingerprint_test
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,16 +10,8 @@ import (
 
 	"ytmusic/internal/buildinfo"
 	"ytmusic/internal/fingerprint"
+	"ytmusic/internal/testhttp"
 )
-
-// respondJSON encodes v as the fake server's reply. t.Errorf rather than Fatal:
-// it runs on the handler's goroutine.
-func respondJSON(t *testing.T, w http.ResponseWriter, v any) {
-	t.Helper()
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		t.Errorf("encoding fake response: %v", err)
-	}
-}
 
 func TestAcoustIDClient_Lookup_Found(t *testing.T) {
 	payload := map[string]any{
@@ -41,7 +32,7 @@ func TestAcoustIDClient_Lookup_Found(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		respondJSON(t, w, payload)
+		testhttp.JSON(t, w, payload)
 	}))
 	defer srv.Close()
 
@@ -61,7 +52,7 @@ func TestAcoustIDClient_Lookup_Found(t *testing.T) {
 func TestAcoustIDClient_Lookup_NoResults(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		respondJSON(t, w, map[string]any{"status": "ok", "results": []any{}})
+		testhttp.JSON(t, w, map[string]any{"status": "ok", "results": []any{}})
 	}))
 	defer srv.Close()
 
@@ -88,7 +79,7 @@ func TestAcoustIDClient_Lookup_NoRecordings(t *testing.T) {
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		respondJSON(t, w, payload)
+		testhttp.JSON(t, w, payload)
 	}))
 	defer srv.Close()
 
@@ -102,12 +93,10 @@ func TestAcoustIDClient_Lookup_NoRecordings(t *testing.T) {
 	}
 }
 
-// AcoustID allows three requests per second, and is called from several
-// goroutines at once: the batch phase and the per-file workers.
 func TestAcoustIDClient_SpacesRequests(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		respondJSON(t, w, map[string]any{"status": "ok", "results": []any{}})
+		testhttp.JSON(t, w, map[string]any{"status": "ok", "results": []any{}})
 	}))
 	defer srv.Close()
 
@@ -118,7 +107,6 @@ func TestAcoustIDClient_SpacesRequests(t *testing.T) {
 			t.Fatalf("Lookup: %v", err)
 		}
 	}
-	// Three requests at three per second: the last goes two thirds of a second in.
 	if elapsed := time.Since(start); elapsed < 600*time.Millisecond {
 		t.Errorf("three lookups took %v, want at least 600ms", elapsed)
 	}
@@ -129,7 +117,7 @@ func TestAcoustIDClient_Lookup_IdentifiesItself(t *testing.T) {
 		if got := r.Header.Get("User-Agent"); got != buildinfo.UserAgent() {
 			t.Errorf("User-Agent = %q, want %q", got, buildinfo.UserAgent())
 		}
-		respondJSON(t, w, map[string]any{"status": "ok", "results": []any{}})
+		testhttp.JSON(t, w, map[string]any{"status": "ok", "results": []any{}})
 	}))
 	defer srv.Close()
 
@@ -139,11 +127,10 @@ func TestAcoustIDClient_Lookup_IdentifiesItself(t *testing.T) {
 	}
 }
 
-// Remembered as "no match", an error would stop the per-file phase from
-// trying the file again.
+// An error remembered as "no match" would stop the per-file phase from retrying.
 func TestAcoustIDClient_Lookup_ErrorStatusIsAnError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		respondJSON(t, w, map[string]any{"status": "error", "error": map[string]any{"code": 4, "message": "invalid API key"}})
+		testhttp.JSON(t, w, map[string]any{"status": "error", "error": map[string]any{"code": 4, "message": "invalid API key"}})
 	}))
 	defer srv.Close()
 
@@ -157,7 +144,7 @@ func TestAcoustIDClient_Lookup_ErrorStatusIsAnError(t *testing.T) {
 func TestAcoustIDClient_Lookup_HTTPErrorKeepsTheMessage(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		respondJSON(t, w, map[string]any{"status": "error", "error": map[string]any{"code": 3, "message": "invalid fingerprint"}})
+		testhttp.JSON(t, w, map[string]any{"status": "error", "error": map[string]any{"code": 3, "message": "invalid fingerprint"}})
 	}))
 	defer srv.Close()
 

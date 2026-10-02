@@ -1,13 +1,11 @@
 package web
 
 import (
-	"context"
 	"sync"
 	"testing"
 	"time"
 )
 
-// testClock is a manually advanced clock so expiry can be tested without sleeping.
 type testClock struct {
 	mu sync.Mutex
 	t  time.Time
@@ -85,7 +83,6 @@ func TestSessionValidateRejectsExpiredToken(t *testing.T) {
 	}
 }
 
-// Sliding expiry: a session in continuous use must never expire.
 func TestSessionValidateRenewsExpiry(t *testing.T) {
 	clock := newTestClock()
 	s := newSessionStore(time.Hour)
@@ -150,52 +147,4 @@ func TestSessionStoreConcurrentUse(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-}
-
-// The GC loop must have a clear exit: a leaked goroutine outlives every job.
-func TestSessionGCLoopStopsOnContextCancel(t *testing.T) {
-	s := newSessionStore(time.Hour)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		s.runGC(ctx, time.Millisecond)
-		close(done)
-	}()
-
-	cancel()
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("runGC did not return after context cancellation")
-	}
-}
-
-func TestSessionGCLoopCollectsWhileRunning(t *testing.T) {
-	clock := newTestClock()
-	s := newSessionStore(time.Millisecond)
-	s.now = clock.now
-
-	token, _ := s.create()
-	clock.advance(time.Hour)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go s.runGC(ctx, time.Millisecond)
-
-	deadline := time.After(2 * time.Second)
-	for {
-		s.mu.Lock()
-		_, present := s.sessions[token]
-		s.mu.Unlock()
-		if !present {
-			return
-		}
-		select {
-		case <-deadline:
-			t.Fatal("expired session still present: the loop is not calling gc")
-		case <-time.After(time.Millisecond):
-		}
-	}
 }

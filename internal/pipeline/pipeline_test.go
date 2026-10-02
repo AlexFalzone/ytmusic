@@ -45,8 +45,6 @@ func TestCheckImportToolsNeedsNoDownloader(t *testing.T) {
 	}
 }
 
-// A dry run only lists the playlist through yt-dlp: it never converts audio or
-// fingerprints, so it must not demand the tools for that.
 func TestCheckToolsDryRunNeedsOnlyYtdlp(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 

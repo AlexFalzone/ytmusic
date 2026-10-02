@@ -5,71 +5,30 @@ import (
 	"strings"
 )
 
-// Patterns to remove from YouTube titles
-var titleCleanupPatterns = []*regexp.Regexp{
-	// Parenthesized suffixes
-	regexp.MustCompile(`(?i)\s*\(official\s+(music\s+)?video\)`),
-	regexp.MustCompile(`(?i)\s*\(official\s+audio\)`),
-	regexp.MustCompile(`(?i)\s*\(official\s+lyric\s+video\)`),
-	regexp.MustCompile(`(?i)\s*\(official\s+visualizer\)`),
-	regexp.MustCompile(`(?i)\s*\(lyrics?\)`),
-	regexp.MustCompile(`(?i)\s*\(visual(?:izer)?\)`),
-	regexp.MustCompile(`(?i)\s*\(audio\)`),
-	regexp.MustCompile(`(?i)\s*\(hd\)`),
-	regexp.MustCompile(`(?i)\s*\(hq\)`),
-	regexp.MustCompile(`(?i)\s*\(4k\)`),
-	regexp.MustCompile(`(?i)\s*\(explicit\)`),
-	regexp.MustCompile(`(?i)\s*\(clean\)`),
+var promoPattern = func() *regexp.Regexp {
+	inner := `official\s+(?:music\s+|lyric\s+)?video|official\s+(?:audio|visualizer)|lyrics?|visual(?:izer)?|audio|hd|hq|4k|explicit|clean`
+	return regexp.MustCompile(`(?i)\s*(?:\((?:` + inner + `)\)|\[(?:` + inner + `)\])`)
+}()
 
-	// Bracketed suffixes
-	regexp.MustCompile(`(?i)\s*\[official\s+(music\s+)?video\]`),
-	regexp.MustCompile(`(?i)\s*\[official\s+audio\]`),
-	regexp.MustCompile(`(?i)\s*\[official\s+lyric\s+video\]`),
-	regexp.MustCompile(`(?i)\s*\[official\s+visualizer\]`),
-	regexp.MustCompile(`(?i)\s*\[lyrics?\]`),
-	regexp.MustCompile(`(?i)\s*\[visual(?:izer)?\]`),
-	regexp.MustCompile(`(?i)\s*\[audio\]`),
-	regexp.MustCompile(`(?i)\s*\[hd\]`),
-	regexp.MustCompile(`(?i)\s*\[hq\]`),
-	regexp.MustCompile(`(?i)\s*\[4k\]`),
-	regexp.MustCompile(`(?i)\s*\[explicit\]`),
-	regexp.MustCompile(`(?i)\s*\[clean\]`),
-}
-
-// Patterns to extract featuring artists from the title
 var featuringPattern = regexp.MustCompile(`(?i)\s*[\(\[]\s*(?:feat\.?|ft\.?|featuring|with)\s+([^\)\]]+)[\)\]]`)
 
-// trailingFeaturingPattern catches a credit left outside parentheses, as in
-// "Song ft. Someone". "with" stays out: unparenthesised, it belongs to titles
-// like "Stay With Me".
+// No "with": unparenthesised, it belongs to titles like "Stay With Me".
 var trailingFeaturingPattern = regexp.MustCompile(`(?i)\s+(?:feat\.?|ft\.?|featuring)\s+.+$`)
 
-// remasterPattern matches remaster notes. A remaster is the same recording, so
-// the note is noise, not a variant: treating it as one would reject the many
-// albums only available remastered.
+// A remaster is the same recording, not a variant: many albums exist only remastered.
 var remasterPattern = regexp.MustCompile(`(?i)^(\d{4}\s+)?(digital(ly)?\s+)?remaster(ed)?(\s+\d{4})?(\s+version)?$`)
 
-// segmentPattern matches one parenthesised or bracketed segment.
 var segmentPattern = regexp.MustCompile(`\s*[\(\[]([^\(\)\[\]]*)[\)\]]`)
 
-// dashSuffixPattern splits off the last " - " suffix, where Spotify writes
-// "Remastered 2011" and "Live". The spaces are required so that hyphenated
-// words such as "Anti-Hero" are never cut.
+// Spotify writes "- Remastered 2011". The spaces keep "Anti-Hero" whole.
 var dashSuffixPattern = regexp.MustCompile(`^(.*\S)\s+[-–—]\s+(.+)$`)
 
-// Pattern to detect "VEVO" channel suffix in artist name
 var vevoPattern = regexp.MustCompile(`(?i)vevo$`)
 
-// Pattern for "Artist - Title" format (common in YouTube titles). The spaces
-// are required: without them "Anti-Hero" splits into artist "Anti", title
-// "Hero", and the search goes looking for a song that does not exist.
+// The spaces keep "Anti-Hero" from splitting into artist "Anti", title "Hero".
 var artistTitleSeparator = regexp.MustCompile(`^(.+?)\s+[-–—]\s+(.+)$`)
 
-// NormalizeQuery turns raw metadata (typically from yt-dlp) into the query sent
-// to providers, plus the variant the title declares. The query carries the
-// song's name only: a variant such as "Sped Up" is usually a fan edit no
-// provider distributes, so searching for it would find nothing — not even the
-// original to borrow metadata from.
+// Query by the song's name only: a variant like "Sped Up" is usually a fan edit no provider has.
 func NormalizeQuery(title, artist string) (SearchQuery, Version) {
 	title = strings.TrimSpace(title)
 	artist = strings.TrimSpace(vevoPattern.ReplaceAllString(strings.TrimSpace(artist), ""))
@@ -78,8 +37,7 @@ func NormalizeQuery(title, artist string) (SearchQuery, Version) {
 		return SearchQuery{Artist: artist}, Version{}
 	}
 
-	// With no artist tag, "Artist - Song - Live" starts with the artist: split
-	// it off first, so that dash is not mistaken for a variant suffix.
+	// "Artist - Song - Live": the first dash is the artist, not a variant suffix.
 	if artist == "" {
 		if m := artistTitleSeparator.FindStringSubmatch(stripNoise(title)); m != nil {
 			artist = strings.TrimSpace(m[1])
@@ -91,9 +49,7 @@ func NormalizeQuery(title, artist string) (SearchQuery, Version) {
 	return SearchQuery{Title: base, Artist: artist}, version
 }
 
-// cleanTitle reduces a title to the song's name and the variant it declares.
-// It is applied to the query and to every candidate alike, so both sides are
-// compared on the same terms.
+// Applied to the query and to every candidate alike.
 func cleanTitle(raw string) (string, Version) {
 	title := stripNoise(raw)
 
@@ -111,10 +67,7 @@ func cleanTitle(raw string) (string, Version) {
 		return segment
 	})
 
-	// Suffixes stack — "Song - Live - Remastered 2011" — and Spotify joins them
-	// with a semicolon: "Comfortably Numb - Live; 2000 Remaster". Strip while
-	// the whole suffix is made of markers, so a suffix that carries part of the
-	// title is left alone.
+	// Strip stacked suffixes ("- Live; 2000 Remaster") only while they are all markers.
 	for {
 		m := dashSuffixPattern.FindStringSubmatch(title)
 		if m == nil {
@@ -148,11 +101,6 @@ func cleanTitle(raw string) (string, Version) {
 	return strings.Join(strings.Fields(title), " "), newVersion(keys, labels)
 }
 
-// stripNoise removes what never carries meaning: promotional suffixes and
-// parenthesised featuring credits.
 func stripNoise(title string) string {
-	for _, p := range titleCleanupPatterns {
-		title = p.ReplaceAllString(title, "")
-	}
-	return featuringPattern.ReplaceAllString(title, "")
+	return featuringPattern.ReplaceAllString(promoPattern.ReplaceAllString(title, ""), "")
 }

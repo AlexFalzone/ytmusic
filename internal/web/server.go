@@ -16,9 +16,6 @@ import (
 	"ytmusic/internal/pipeline"
 )
 
-// staticFiles is the frontend, compiled into the binary so the server does not
-// depend on the directory it is started from.
-//
 //go:embed static
 var staticFiles embed.FS
 
@@ -29,20 +26,12 @@ type Server struct {
 	logger   *logger.Logger
 	sessions *sessionStore
 	logins   *loginLimiter
-	wg       sync.WaitGroup // in-flight job goroutines
+	wg       sync.WaitGroup
+	jobSem   chan struct{}
 
-	// jobSem caps how many jobs run at once. Each job already runs
-	// parallel_jobs downloads, so two concurrent jobs multiply the load on
-	// YouTube; the ones beyond the cap wait rather than being refused.
-	jobSem chan struct{}
-
-	// runPipeline is the work a job does, injectable so tests can drive job
-	// scheduling without shelling out to yt-dlp.
 	runPipeline func(context.Context, config.Config, *logger.Logger, string, pipeline.Hooks) error
 }
 
-// Wait blocks until every job goroutine has finished. Called on shutdown so a
-// download is not cut off halfway, leaving a half-written library behind.
 func (s *Server) Wait() {
 	s.wg.Wait()
 }
@@ -55,9 +44,7 @@ func NewServer(ctx context.Context, jobMgr *JobManager, cfg config.Config, log *
 		logger:   log,
 		sessions: newSessionStore(cfg.Auth.TTL()),
 		logins:   newLoginLimiter(),
-		// Validation rejects anything below 1 at startup; this guard keeps a
-		// zero-value config from producing an unbuffered channel that would
-		// deadlock every job.
+		// An unbuffered channel would deadlock every job.
 		jobSem:      make(chan struct{}, max(cfg.MaxConcurrentJobs, 1)),
 		runPipeline: pipeline.Run,
 	}
@@ -66,28 +53,22 @@ func NewServer(ctx context.Context, jobMgr *JobManager, cfg config.Config, log *
 func (s *Server) Router() http.Handler {
 	mux := http.NewServeMux()
 
-	// fs.Sub fails only on an invalid path, and "static" is a constant.
-	static, _ := fs.Sub(staticFiles, "static")
+	static, _ := fs.Sub(staticFiles, "static") // fails only on an invalid path
 	mux.Handle("/", s.staticCacheMiddleware(http.FileServerFS(static)))
 
-	// Auth endpoints
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/login", s.handleLogin)
 	mux.HandleFunc("/api/logout", s.handleLogout)
 	mux.HandleFunc("/api/me", s.handleMe)
-
-	// API endpoints
 	mux.HandleFunc("/api/download", s.handleDownload)
 	mux.HandleFunc("/api/jobs", s.handleListJobs)
 	mux.HandleFunc("/api/jobs/", s.handleJobAction)
 	mux.HandleFunc("/ws", s.handleWebSocket)
 
-	// Outermost first: a cross-site request is rejected before it can touch a
-	// session, and every request is logged whatever its outcome.
+	// Outermost first: a cross-site request is rejected before it touches a session.
 	return s.loggingMiddleware(s.requireSameOrigin(s.requireAuth(mux)))
 }
 
-// StartSessionGC collects expired sessions and login records until ctx is done.
 func (s *Server) StartSessionGC(ctx context.Context) {
 	go func() {
 		defer func() {
@@ -113,9 +94,7 @@ func (s *Server) StartSessionGC(ctx context.Context) {
 
 const sessionGCInterval = 10 * time.Minute
 
-// requireSameOrigin blocks cross-site state-changing requests. SameSite=Lax on
-// the session cookie already stops most of them; this closes the rest, including
-// clients that send no cookie at all.
+// SameSite=Lax stops most cross-site requests; this closes the rest.
 func (s *Server) requireSameOrigin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -133,18 +112,18 @@ func (s *Server) requireSameOrigin(next http.Handler) http.Handler {
 }
 
 func isSameOrigin(r *http.Request) bool {
-	// Where the browser sends it, Sec-Fetch-Site settles the question.
 	if site := r.Header.Get("Sec-Fetch-Site"); site != "" {
 		return site == "same-origin" || site == "none"
 	}
+	return originMatchesHost(r)
+}
 
+// No Origin means a non-browser client: browsers always send it cross-origin.
+func originMatchesHost(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
-		// No Origin means a non-browser client: browsers always send it on
-		// cross-origin requests.
 		return true
 	}
-
 	u, err := url.Parse(origin)
 	if err != nil {
 		return false
@@ -154,8 +133,7 @@ func isSameOrigin(r *http.Request) bool {
 
 func (s *Server) staticCacheMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Never "public": behind a session that would let a shared cache serve
-		// one user's page to somebody else.
+		// Never "public": a shared cache would serve one session's page to others.
 		if r.URL.Path == "/" || strings.HasSuffix(r.URL.Path, ".html") {
 			w.Header().Set("Cache-Control", "no-store")
 		} else {

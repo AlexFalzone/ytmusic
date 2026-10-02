@@ -26,26 +26,21 @@ type Hooks struct {
 	OnWarning       func(msg string)
 }
 
-// dirImporter resolves the metadata of the audio files in a directory.
 type dirImporter interface {
 	Import(ctx context.Context, dir string) error
 }
 
-// lyricsFetcher looks up the lyrics of one track.
 type lyricsFetcher interface {
 	Fetch(ctx context.Context, artist, title, album string) (lyrics.Result, error)
 }
 
-// Run executes the full download pipeline: extract URLs → download → merge → resolve metadata → move.
 func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir string, hooks Hooks) error {
 	return run(ctx, cfg, log, tmpDir, hooks, importer.New(cfg, log), lyrics.NewClient())
 }
 
 func run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir string, hooks Hooks, imp dirImporter, lf lyricsFetcher) error {
 	dl := downloader.New(cfg, log, tmpDir)
-	if hooks.OnProgress != nil {
-		dl.OnProgress = hooks.OnProgress
-	}
+	dl.OnProgress = hooks.OnProgress
 
 	urls, err := dl.ExtractURLs(ctx)
 	if err != nil {
@@ -109,7 +104,6 @@ func run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 	return nil
 }
 
-// RunImportOnly resolves metadata and lyrics for existing audio files in dir.
 func RunImportOnly(ctx context.Context, cfg config.Config, log *logger.Logger, dir string) error {
 	if err := importer.New(cfg, log).Import(ctx, dir); err != nil {
 		return fmt.Errorf("metadata resolution failed: %w", err)
@@ -122,8 +116,6 @@ func RunImportOnly(ctx context.Context, cfg config.Config, log *logger.Logger, d
 	return nil
 }
 
-// ResolveLyrics fetches lyrics from LRCLib for each audio file in dir.
-// Synced lyrics are saved as .lrc sidecar files; plain lyrics are embedded in tags.
 func ResolveLyrics(ctx context.Context, dir string, log *logger.Logger) {
 	resolveLyrics(ctx, dir, log, lyrics.NewClient())
 }
@@ -169,8 +161,6 @@ func resolveLyrics(ctx context.Context, dir string, log *logger.Logger, lf lyric
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			// Off any handler stack: an unhandled panic here would take down
-			// the whole process, mid-download, for a lyrics lookup.
 			defer func() {
 				if r := recover(); r != nil {
 					log.Error("panic while fetching lyrics for %q: %v\n%s", title, r, debug.Stack())

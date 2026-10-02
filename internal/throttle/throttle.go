@@ -1,6 +1,4 @@
-// Package throttle spaces out the requests sent to a service that allows only
-// so many per second. A Throttle belongs to the one client of that service:
-// two of them would each let the full rate through.
+// One Throttle per service: two would each let the full rate through.
 package throttle
 
 import (
@@ -9,22 +7,18 @@ import (
 	"time"
 )
 
-// Throttle lets one caller through per interval.
 type Throttle struct {
 	interval time.Duration
 
 	mu   sync.Mutex
-	next time.Time // the earliest moment the next caller may go
+	next time.Time
 }
 
-// New returns a Throttle that lets one caller through per interval.
 func New(interval time.Duration) *Throttle {
 	return &Throttle{interval: interval}
 }
 
-// Wait blocks until the caller may send its request, or until ctx ends. Each
-// caller books its own slot and waits for it without holding the lock, so a
-// cancelled caller leaves at once instead of queueing behind the others.
+// Each caller books a slot and waits without the lock, so a cancelled one leaves at once.
 func (t *Throttle) Wait(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err

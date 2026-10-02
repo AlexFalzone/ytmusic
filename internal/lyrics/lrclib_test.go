@@ -115,8 +115,6 @@ func TestFetchQueryParams(t *testing.T) {
 	}
 }
 
-// Fetch retries network errors only: they must still be recognised once the
-// request goes through httpjson.
 func TestNetworkErrorsAreTransient(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	c := NewClient()

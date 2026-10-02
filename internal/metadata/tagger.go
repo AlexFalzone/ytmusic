@@ -11,7 +11,6 @@ import (
 	"go.senan.xyz/taglib"
 )
 
-// tagMap turns the non-empty fields of info into tags.
 func tagMap(info TrackInfo) map[string][]string {
 	tags := make(map[string][]string)
 
@@ -47,8 +46,7 @@ func tagMap(info TrackInfo) map[string][]string {
 	return tags
 }
 
-// SubDirFromTags reads an audio file's tags and returns an "Artist/Album"
-// subdirectory path for organizing files. Returns "" if tags can't be read.
+// "Artist/Album", or "" when the tags cannot be read.
 func SubDirFromTags(path string) string {
 	tags, err := taglib.ReadTags(path)
 	if err != nil {
@@ -57,10 +55,7 @@ func SubDirFromTags(path string) string {
 
 	artist := FirstTag(tags, taglib.AlbumArtist)
 	if artist == "" || strings.EqualFold(artist, "Various Artists") {
-		artist = FirstTag(tags, taglib.Artist)
-		if i := strings.Index(artist, ","); i > 0 {
-			artist = strings.TrimSpace(artist[:i])
-		}
+		artist = primaryArtist(FirstTag(tags, taglib.Artist))
 	}
 	album := FirstTag(tags, taglib.Album)
 
@@ -74,12 +69,9 @@ func SubDirFromTags(path string) string {
 	return filepath.Join(sanitizePath(artist), sanitizePath(album))
 }
 
-// maxComponentBytes is the length limit a single path component gets, shared
-// with the file names pkg/utils writes.
 const maxComponentBytes = utils.MaxNameBytes
 
-// windowsReserved are device names that cannot be a path component on Windows
-// or on an SMB share, whatever extension follows them.
+// Device names Windows and SMB shares refuse as a path component, whatever the extension.
 var windowsReserved = map[string]bool{
 	"CON": true, "PRN": true, "AUX": true, "NUL": true,
 	"COM1": true, "COM2": true, "COM3": true, "COM4": true, "COM5": true,
@@ -100,15 +92,10 @@ var pathReplacer = strings.NewReplacer(
 	"|", "_",
 )
 
-// sanitizePath turns a tag value into one safe path component. Beyond the
-// characters filesystems reject, it defuses the values that are a path
-// instruction rather than a name — "." and ".." — and the ones a filesystem
-// would rewrite or refuse behind our back.
 func sanitizePath(s string) string {
 	s = pathReplacer.Replace(s)
 
-	// Control characters give unreadable names, and a NUL byte ends the path
-	// early at the syscall boundary — the rest of the name silently vanishes.
+	// A NUL byte would silently cut the path short at the syscall boundary.
 	s = strings.Map(func(r rune) rune {
 		if r < 0x20 || r == 0x7f {
 			return -1
@@ -116,8 +103,7 @@ func sanitizePath(s string) string {
 		return r
 	}, s)
 
-	// Stripping leading and trailing dots and spaces is what disarms "." and
-	// "..", and Windows drops them from names anyway.
+	// Disarms "." and "..".
 	s = strings.Trim(s, " .")
 
 	if len(s) > maxComponentBytes {
@@ -125,13 +111,11 @@ func sanitizePath(s string) string {
 		s = strings.Trim(s, " .")
 	}
 
-	// Never return "": it would collapse in filepath.Join and move the file a
-	// level up, straight out of its album directory.
+	// "" would collapse in filepath.Join and move the file out of its album directory.
 	if s == "" {
 		return "_"
 	}
 
-	// Windows refuses "CON" and "CON.mp3" alike, so the stem is what matters.
 	stem, _, _ := strings.Cut(s, ".")
 	if windowsReserved[strings.ToUpper(stem)] {
 		return s + "_"
@@ -139,7 +123,6 @@ func sanitizePath(s string) string {
 	return s
 }
 
-// WriteArtwork embeds artwork image data into an audio file.
 func WriteArtwork(path string, imageData []byte) error {
 	if len(imageData) == 0 {
 		return nil
@@ -150,11 +133,7 @@ func WriteArtwork(path string, imageData []byte) error {
 	return nil
 }
 
-// albumArtistFallback returns the album artist to write when the file would
-// otherwise be left without one: the primary artist, the first before a comma.
-// Music servers such as Navidrome otherwise file every track with a featured
-// artist under an entry of its own. artist is the artist about to be written,
-// empty when none is.
+// Without an album artist, Navidrome files each featured-artist track under its own entry.
 func albumArtistFallback(existing map[string][]string, artist string) string {
 	if FirstTag(existing, taglib.AlbumArtist) != "" {
 		return ""
@@ -162,16 +141,17 @@ func albumArtistFallback(existing map[string][]string, artist string) string {
 	if artist == "" {
 		artist = FirstTag(existing, taglib.Artist)
 	}
+	return primaryArtist(artist)
+}
+
+func primaryArtist(artist string) string {
 	if i := strings.Index(artist, ","); i > 0 {
-		artist = strings.TrimSpace(artist[:i])
+		return strings.TrimSpace(artist[:i])
 	}
 	return artist
 }
 
-// mergeWithExisting keeps the non-zero TrackNumber and DiscNumber the file
-// already has over whatever the provider returned. This prevents a wrong
-// release selection from overwriting correct positional data from yt-dlp or
-// from the album-first phases.
+// The file's track and disc numbers win: a provider may have picked the wrong release.
 func mergeWithExisting(tags map[string][]string, info TrackInfo) TrackInfo {
 	if n := parseTagInt(tags, taglib.TrackNumber); n > 0 {
 		info.TrackNumber = n
@@ -182,14 +162,12 @@ func mergeWithExisting(tags map[string][]string, info TrackInfo) TrackInfo {
 	return info
 }
 
-// parseTagInt reads a tag value as an integer. Returns 0 if absent or non-numeric.
 func parseTagInt(tags map[string][]string, key string) int {
 	s := FirstTag(tags, key)
 	if s == "" {
 		return 0
 	}
-	// Handle "5/12" format (track number / total tracks) written by some taggers.
-	if i := strings.Index(s, "/"); i > 0 {
+	if i := strings.Index(s, "/"); i > 0 { // "5/12"
 		s = strings.TrimSpace(s[:i])
 	}
 	n, err := strconv.Atoi(s)
@@ -199,7 +177,6 @@ func parseTagInt(tags map[string][]string, key string) int {
 	return n
 }
 
-// FirstTag returns the first value of key in tags, or "" when there is none.
 func FirstTag(tags map[string][]string, key string) string {
 	if vals, ok := tags[key]; ok && len(vals) > 0 {
 		return vals[0]

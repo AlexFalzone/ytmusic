@@ -8,9 +8,7 @@ import (
 	"ytmusic/internal/provider/musicbrainz"
 )
 
-// Checked as the importer receives it. A nil *Fingerprinter stored in an
-// interface is not a nil interface: it passes the importer's nil check and the
-// first file crashes on a nil receiver.
+// A nil *Fingerprinter in an interface passes the nil check and crashes on the first file.
 func TestNoFingerprinterWithoutAcoustID(t *testing.T) {
 	c := buildComponents(config.Config{MetadataProviders: []string{"deezer"}})
 
@@ -28,9 +26,7 @@ func TestFingerprinterWithAcoustID(t *testing.T) {
 	}
 }
 
-// One client per run: its throttle and its caches live in the instance, so a
-// second one would double the request rate MusicBrainz allows. The AcoustID
-// key matters: fingerprint lookups are the only other way to build a client.
+// The AcoustID key matters: fingerprint lookups are the only other way to build a client.
 func TestComponentsShareOneMusicBrainzClient(t *testing.T) {
 	c := buildComponents(config.Config{
 		MetadataProviders: []string{"deezer", "musicbrainz"},
@@ -49,7 +45,6 @@ func TestComponentsShareOneMusicBrainzClient(t *testing.T) {
 	}
 }
 
-// AcoustID alone still needs MusicBrainz, for the recordings it identifies.
 func TestComponentsBuildMusicBrainzForAcoustIDAlone(t *testing.T) {
 	c := buildComponents(config.Config{AcoustIDAPIKey: "key"})
 

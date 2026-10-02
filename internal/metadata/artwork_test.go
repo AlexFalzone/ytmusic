@@ -17,8 +17,6 @@ import (
 	"go.senan.xyz/taglib"
 )
 
-// pngOf returns a one-pixel PNG of the given shade, so two images can be told
-// apart once embedded.
 func pngOf(t *testing.T, shade uint8) []byte {
 	t.Helper()
 	img := image.NewGray(image.Rect(0, 0, 1, 1))
@@ -30,8 +28,7 @@ func pngOf(t *testing.T, shade uint8) []byte {
 	return buf.Bytes()
 }
 
-// artworkServer serves /a and /b as two different images and 404s the rest.
-// hits reports how many requests a path received.
+// /a and /b are two different images; hits counts requests per path.
 func artworkServer(t *testing.T) (srv *httptest.Server, a, b []byte, hits func(path string) int) {
 	t.Helper()
 	a, b = pngOf(t, 0), pngOf(t, 255)
@@ -75,8 +72,6 @@ func readTestImage(t *testing.T, path string) []byte {
 	return img
 }
 
-// MusicBrainz hands out Cover Art Archive URLs without checking them. When the
-// primary's artwork cannot be had, gap filling supplies another.
 func TestResolveFile_FallsBackToFillerArtwork(t *testing.T) {
 	srv, _, b, _ := artworkServer(t)
 	path := newTestMP3(t)
@@ -116,7 +111,6 @@ func TestResolveFile_KeepsPrimaryArtwork(t *testing.T) {
 	}
 }
 
-// A fingerprint match comes from MusicBrainz too, with the same unchecked URL.
 func TestResolveFile_FingerprintMatchFallsBackToFillerArtwork(t *testing.T) {
 	srv, _, b, _ := artworkServer(t)
 	path := newTestMP3(t)
@@ -136,9 +130,7 @@ func TestResolveFile_FingerprintMatchFallsBackToFillerArtwork(t *testing.T) {
 	}
 }
 
-// A fingerprint match comes from MusicBrainz, and the MusicBrainz text search
-// finds the same recording on the same release: as a filler it offers the very
-// URL that just failed. It must not keep a later provider's artwork out.
+// The MusicBrainz filler offers the very URL that just failed: it must not keep a later provider's artwork out.
 func TestResolveFile_DroppedArtworkOfferedAgainIsSkipped(t *testing.T) {
 	srv, _, b, _ := artworkServer(t)
 	path := newTestMP3(t)
@@ -161,9 +153,7 @@ func TestResolveFile_DroppedArtworkOfferedAgainIsSkipped(t *testing.T) {
 	}
 }
 
-// The first filler completes every field but its artwork is broken: gap
-// filling would stop there, and the next provider's artwork must still be
-// reached.
+// The first filler completes every field but its artwork is broken: gap filling must not stop there.
 func TestResolveFile_BrokenFillerArtworkFallsBackToTheNext(t *testing.T) {
 	srv, _, b, _ := artworkServer(t)
 	path := newTestMP3(t)

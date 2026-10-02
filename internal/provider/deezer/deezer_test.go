@@ -9,16 +9,8 @@ import (
 
 	"ytmusic/internal/buildinfo"
 	"ytmusic/internal/metadata"
+	"ytmusic/internal/testhttp"
 )
-
-// respondJSON encodes v as the fake server's reply. t.Errorf rather than Fatal:
-// it runs on the handler's goroutine.
-func respondJSON(t *testing.T, w http.ResponseWriter, v any) {
-	t.Helper()
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		t.Errorf("encoding fake response: %v", err)
-	}
-}
 
 func TestSearch(t *testing.T) {
 	mux := http.NewServeMux()
@@ -26,19 +18,16 @@ func TestSearch(t *testing.T) {
 		if r.Header.Get("User-Agent") != buildinfo.UserAgent() {
 			t.Errorf("unexpected User-Agent: %s", r.Header.Get("User-Agent"))
 		}
-		respondJSON(t, w, searchResponse{
+		testhttp.JSON(t, w, searchResponse{
 			Data: []trackItem{
 				{
-					ID:            1,
-					Title:         "Santeria",
 					TitleShort:    "Santeria",
 					ISRC:          "ITXXX1700001",
 					Duration:      240,
 					TrackPosition: 3,
 					DiskNumber:    1,
-					Artist:        artist{ID: 100, Name: "Marracash"},
+					Artist:        artist{Name: "Marracash"},
 					Album: albumInfo{
-						ID:       200,
 						Title:    "Santeria",
 						CoverBig: "https://example.com/cover-big.jpg",
 						CoverXL:  "https://example.com/cover-xl.jpg",
@@ -105,7 +94,7 @@ func TestSearchEmptyQuery(t *testing.T) {
 
 func TestSearchNoResults(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		respondJSON(t, w, searchResponse{Data: []trackItem{}})
+		testhttp.JSON(t, w, searchResponse{Data: []trackItem{}})
 	}))
 	defer srv.Close()
 
@@ -123,8 +112,8 @@ func TestSearchNoResults(t *testing.T) {
 
 func TestSearchAPIError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		respondJSON(t, w, searchResponse{
-			Error: &apiError{Type: "Exception", Message: "Quota exceeded", Code: 4},
+		testhttp.JSON(t, w, searchResponse{
+			Error: &apiError{Message: "Quota exceeded"},
 		})
 	}))
 	defer srv.Close()
@@ -160,7 +149,6 @@ func TestBuildQuery(t *testing.T) {
 			want:  "Money Marracash",
 		},
 		{
-			// A field prefix would be read as a search term, not as a filter.
 			name:  "no field prefixes",
 			query: metadata.SearchQuery{Title: "Blinding Lights", Artist: "The Weeknd"},
 			want:  "Blinding Lights The Weeknd",
@@ -183,15 +171,12 @@ func TestBuildQuery(t *testing.T) {
 }
 
 func TestParseTitleShort(t *testing.T) {
-	items := []trackItem{
-		{
-			Title:      "Salvador Dalí (Live @ Santeria Tour 2017)",
-			TitleShort: "Salvador Dalí",
-			Artist:     artist{Name: "Marracash"},
-			Album:      albumInfo{Title: "Santeria"},
-		},
+	var item trackItem
+	body := `{"title": "Salvador Dalí (Live @ Santeria Tour 2017)", "title_short": "Salvador Dalí"}`
+	if err := json.Unmarshal([]byte(body), &item); err != nil {
+		t.Fatal(err)
 	}
-	results := parseResults(items)
+	results := parseResults([]trackItem{item})
 	if results[0].Title != "Salvador Dalí" {
 		t.Errorf("expected TitleShort, got %q", results[0].Title)
 	}

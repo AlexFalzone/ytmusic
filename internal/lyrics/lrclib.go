@@ -13,8 +13,8 @@ import (
 )
 
 type Result struct {
-	Synced string // LRC format with timestamps, empty if unavailable
-	Plain  string // plain text lyrics, empty if unavailable
+	Synced string // LRC
+	Plain  string
 }
 
 type Client struct {
@@ -29,17 +29,14 @@ func NewClient() *Client {
 	}
 }
 
-// Fetch retrieves lyrics for the given track from LRCLib.
-// Returns empty Result (no error) when lyrics are not found.
-// Retries once on transient network errors.
+// Not found is an empty Result, not an error.
 func (c *Client) Fetch(ctx context.Context, artist, title, album string) (Result, error) {
 	result, err := c.doFetch(ctx, artist, title, album)
 	if err == nil {
 		return result, nil
 	}
 
-	// Only retry on network-level errors (timeout, connection reset, etc.)
-	// Don't retry on API errors (4xx, 5xx) which would fail identically.
+	// An HTTP error would fail the same way again; a network error might not.
 	if !isTransient(err) {
 		return Result{}, err
 	}

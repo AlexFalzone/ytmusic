@@ -11,8 +11,6 @@ import (
 	"ytmusic/internal/throttle"
 )
 
-// Apple limits the Search API to about 20 calls a minute; the per-file workers
-// would otherwise call it several times a second.
 func TestSearchWaitsForTheThrottle(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

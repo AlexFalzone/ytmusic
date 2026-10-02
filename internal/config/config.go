@@ -13,17 +13,13 @@ import (
 
 const defaultSessionTTL = 720 * time.Hour
 
-// AuthConfig holds the web server credentials. Single user by design:
-// no roles, no registration, no user store.
 type AuthConfig struct {
 	Enabled      bool   `yaml:"enabled"`
 	Username     string `yaml:"username"`
-	PasswordHash string `yaml:"password_hash"` // bcrypt, see: ytmusic-web -hash-password
-	SessionTTL   string `yaml:"session_ttl"`   // time.ParseDuration format
+	PasswordHash string `yaml:"password_hash"`
+	SessionTTL   string `yaml:"session_ttl"`
 }
 
-// TTL returns the session lifetime. Validation rejects unparsable values at
-// startup, so the fallback here only guards callers that skipped validation.
 func (a AuthConfig) TTL() time.Duration {
 	if a.SessionTTL == "" {
 		return defaultSessionTTL
@@ -35,7 +31,6 @@ func (a AuthConfig) TTL() time.Duration {
 	return d
 }
 
-// bcryptPrefixes are the hash variants bcrypt.GenerateFromPassword may produce.
 var bcryptPrefixes = []string{"$2a$", "$2b$", "$2y$"}
 
 func (a AuthConfig) validate() error {
@@ -50,14 +45,8 @@ func (a AuthConfig) validate() error {
 		return fmt.Errorf("auth.password_hash is required when auth is enabled; generate one with: ytmusic-web -hash-password")
 	}
 
-	isHash := false
-	for _, prefix := range bcryptPrefixes {
-		if strings.HasPrefix(a.PasswordHash, prefix) {
-			isHash = true
-			break
-		}
-	}
-	if !isHash {
+	isHash := func(prefix string) bool { return strings.HasPrefix(a.PasswordHash, prefix) }
+	if !slices.ContainsFunc(bcryptPrefixes, isHash) {
 		return fmt.Errorf("auth.password_hash must be a bcrypt hash, not a plaintext password; generate one with: ytmusic-web -hash-password")
 	}
 
@@ -74,7 +63,6 @@ func (a AuthConfig) validate() error {
 	return nil
 }
 
-// Config contains the program configuration
 type Config struct {
 	PlaylistURL         string     `yaml:"playlist_url"`
 	Verbose             bool       `yaml:"verbose"`
@@ -99,11 +87,8 @@ type Config struct {
 	LogDir              string     `yaml:"log_dir"`
 }
 
-// DefaultConfig returns the default configuration
 func DefaultConfig() Config {
 	return Config{
-		Verbose:             false,
-		DryRun:              false,
 		ParallelJobs:        4,
 		MetadataWorkers:     4,
 		AudioFormat:         "mp3",
@@ -118,8 +103,7 @@ func DefaultConfig() Config {
 	}
 }
 
-// LoadConfigFile loads configuration from a YAML file.
-// If path is empty, searches standard locations. Returns defaults if no file found.
+// An empty path searches the standard locations; no file found means defaults.
 func LoadConfigFile(path string) (Config, error) {
 	cfg := DefaultConfig()
 
@@ -148,7 +132,6 @@ func LoadConfigFile(path string) (Config, error) {
 	return cfg, nil
 }
 
-// ExpandHome replaces a leading ~ with the user's home directory.
 func ExpandHome(path string) string {
 	if strings.HasPrefix(path, "~/") {
 		return filepath.Join(homeDir(), path[2:])
@@ -156,7 +139,6 @@ func ExpandHome(path string) string {
 	return path
 }
 
-// FindConfigFile searches for a config file in standard locations
 func FindConfigFile() string {
 	home := homeDir()
 	locations := []string{
@@ -169,9 +151,6 @@ func FindConfigFile() string {
 	}
 
 	for _, path := range locations {
-		if path == "" {
-			continue
-		}
 		if _, err := os.Stat(path); err == nil {
 			return path
 		}
@@ -180,7 +159,6 @@ func FindConfigFile() string {
 	return ""
 }
 
-// SaveConfigFile saves the current configuration to a YAML file
 func SaveConfigFile(cfg Config, path string) error {
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
@@ -199,7 +177,6 @@ func SaveConfigFile(cfg Config, path string) error {
 	return nil
 }
 
-// GetDefaultConfigPath returns the default config file path
 func GetDefaultConfigPath() string {
 	return filepath.Join(homeDir(), ".config", "ytmusic", "config.yaml")
 }
@@ -212,8 +189,6 @@ func homeDir() string {
 	return home
 }
 
-// ValidateBase checks non-URL configuration fields.
-// Used by the web server at startup to catch config errors early.
 func (c *Config) ValidateBase() error {
 	if c.ParallelJobs < 1 {
 		return fmt.Errorf("parallel jobs must be at least 1, got %d", c.ParallelJobs)
@@ -231,8 +206,7 @@ func (c *Config) ValidateBase() error {
 	}
 
 	validFormats := []string{"mp3", "m4a", "opus", "flac", "wav", "aac"}
-	isValid := slices.Contains(validFormats, c.AudioFormat)
-	if !isValid {
+	if !slices.Contains(validFormats, c.AudioFormat) {
 		return fmt.Errorf("unsupported audio format '%s', valid formats: %v", c.AudioFormat, validFormats)
 	}
 
@@ -263,9 +237,6 @@ func (c *Config) ValidateBase() error {
 	return nil
 }
 
-// ValidateWeb checks everything the web server needs, including credentials.
-// Kept separate from ValidateBase because the CLI has no web server and must
-// never be gated by web authentication settings.
 func (c *Config) ValidateWeb() error {
 	if err := c.ValidateBase(); err != nil {
 		return err
@@ -273,7 +244,6 @@ func (c *Config) ValidateWeb() error {
 	return c.Auth.validate()
 }
 
-// Validate checks the full configuration including playlist URL.
 func (c *Config) Validate() error {
 	if err := c.ValidateBase(); err != nil {
 		return err

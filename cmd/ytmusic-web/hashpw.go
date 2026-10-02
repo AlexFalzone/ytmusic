@@ -14,9 +14,7 @@ import (
 	"golang.org/x/term"
 )
 
-// runHashPassword prints a bcrypt hash for the given password and returns.
-// Prompts go to stderr so that `ytmusic-web -hash-password > hash.txt` writes
-// only the hash to the file.
+// Prompts go to stderr so that stdout carries only the hash.
 func runHashPassword() error {
 	if flag.NArg() > 0 {
 		return errors.New("do not pass the password as an argument: it would land in your shell history and be visible in ps.\n" +
@@ -40,8 +38,7 @@ func runHashPassword() error {
 func readPassword() (string, error) {
 	fd := int(os.Stdin.Fd())
 
-	// Not a terminal: the password is being piped in, so read it plainly and
-	// skip the confirmation there is no one to answer.
+	// Piped in: no echo to hide, no one to confirm.
 	if !term.IsTerminal(fd) {
 		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
@@ -57,8 +54,6 @@ func readPassword() (string, error) {
 		return "", fmt.Errorf("reading password: %w", err)
 	}
 
-	// A typo here would only surface at the first failed login, after editing
-	// the config and restarting: cheaper to catch it now.
 	fmt.Fprint(os.Stderr, "Confirm:  ")
 	second, err := term.ReadPassword(fd)
 	fmt.Fprintln(os.Stderr)

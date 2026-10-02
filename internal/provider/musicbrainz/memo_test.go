@@ -26,8 +26,6 @@ const releaseJSON = `{
 	"media": [{"position": 1, "tracks": [{"number": "1", "position": 1, "title": "Song", "recording": {"id": "rec-1"}}]}]
 }`
 
-// Phase A asks which releases hold a recording, and the fingerprint path then
-// looks the same recording up for its metadata: one request serves both.
 func TestRecordingIsFetchedOncePerRun(t *testing.T) {
 	var lookups atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +50,6 @@ func TestRecordingIsFetchedOncePerRun(t *testing.T) {
 	}
 }
 
-// The dominant release of phase A is often the album phase B lands on.
 func TestReleaseIsFetchedOncePerRun(t *testing.T) {
 	var lookups atomic.Int32
 	mux := http.NewServeMux()
@@ -82,7 +79,6 @@ func TestReleaseIsFetchedOncePerRun(t *testing.T) {
 	}
 }
 
-// A 503 during phase A must not cost the recording for the rest of the run.
 func TestFailedLookupIsAskedAgain(t *testing.T) {
 	var lookups atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

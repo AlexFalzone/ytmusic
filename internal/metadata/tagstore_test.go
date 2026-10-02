@@ -17,8 +17,6 @@ func TestTagStoreServesRepeatedReadsFromMemory(t *testing.T) {
 	if _, err := s.read(path); err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	// Changed behind the store's back: a second read that went to disk
-	// would see it.
 	writeTestTags(t, path, map[string][]string{taglib.Title: {"Behind"}})
 
 	tags, err := s.read(path)
@@ -54,9 +52,6 @@ func TestTagStoreReadsAgainAfterAWrite(t *testing.T) {
 	}
 }
 
-// The album-first phase writes the track number; the per-file phase reads the
-// file's tags again to protect it. Served a copy from before that write, it
-// would let the provider's number overwrite the album's.
 func TestResolve_PerFilePhaseKeepsAlbumFirstTrackNumber(t *testing.T) {
 	path := newTestMP3(t)
 	writeTestTags(t, path, map[string][]string{
@@ -121,7 +116,6 @@ func TestWritePositionalTags_SkipsZeroValues(t *testing.T) {
 	p := newTestMP3(t)
 	writeTestTags(t, p, map[string][]string{taglib.TrackNumber: {"3"}})
 
-	// disc = 0 means "unknown", should not write
 	if err := (&tagStore{}).writePositional(p, 4, 0); err != nil {
 		t.Fatalf("writePositional: %v", err)
 	}

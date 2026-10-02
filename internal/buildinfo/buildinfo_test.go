@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// MusicBrainz throttles clients whose User-Agent carries no way to reach the
-// maintainer: the form it asks for is "App/version ( contact )".
 func TestUserAgentNamesVersionAndContact(t *testing.T) {
 	ua := UserAgent()
 

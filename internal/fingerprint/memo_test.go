@@ -29,8 +29,6 @@ func (c *countingAcoustID) Lookup(_ context.Context, _ fingerprint.Result) (stri
 	return "mbid-1", true, nil
 }
 
-// Phase A fingerprints every file of an album group; the per-file phase then
-// looks each of them up again.
 func TestFingerprinter_FingerprintsEachFileOnce(t *testing.T) {
 	fc, ac := &countingFpcalc{}, &countingAcoustID{}
 	fp := fingerprint.NewFingerprinter(fc, ac, makeMBIDLookup(metadata.TrackInfo{Title: "Song"}, nil))

@@ -5,36 +5,28 @@ import (
 	"time"
 )
 
-// minDurationTolerance absorbs the silence and fades that differ between two
-// uploads of the same recording.
+// Silence and fades differ between two uploads of the same recording.
 const minDurationTolerance = 3 * time.Second
 
-// source is what is known about the file being tagged.
 type source struct {
 	query    SearchQuery
 	version  Version
-	duration time.Duration // zero when the file's length could not be read
+	duration time.Duration // zero: unknown
 }
 
-// match is a candidate that survived the constraints.
 type match struct {
-	info TrackInfo // Confidence holds its score
-	base string    // the candidate's cleaned title
-	// donor marks the original recording standing in for a variant no provider
-	// carries: its descriptive metadata is used, its identity is not.
+	info TrackInfo
+	base string // cleaned title
+	// The original recording standing in for a variant no provider carries.
 	donor       bool
-	delta       time.Duration // distance from the file's length, -1 if unknown
+	delta       time.Duration // -1: unknown
 	providerIdx int
 }
 
-// durationFits reports whether a candidate can be the same recording as the
-// file, judging by length alone. The rule is asymmetric on purpose: a file
-// shorter than the candidate is another cut (an edit, a sped-up version, a
-// truncated upload), while a longer one is usually a music video whose intro
-// and outro wrap the same song.
+// Asymmetric: a shorter file is another cut, a longer one usually a music video around the same song.
 func durationFits(file, candidate time.Duration) bool {
 	if file <= 0 || candidate <= 0 {
-		return true // missing data never vetoes
+		return true
 	}
 	if file < candidate-max(minDurationTolerance, candidate/10) {
 		return false
@@ -43,7 +35,6 @@ func durationFits(file, candidate time.Duration) bool {
 	return file <= 2*candidate
 }
 
-// durationDelta is how far apart the two lengths are, -1 when either is unknown.
 func durationDelta(file, candidate time.Duration) time.Duration {
 	if file <= 0 || candidate <= 0 {
 		return -1
@@ -54,9 +45,7 @@ func durationDelta(file, candidate time.Duration) time.Duration {
 	return candidate - file
 }
 
-// better reports whether a should be preferred over b: higher score first, then
-// the album closer to the file's own album tag, then the length closer to the
-// file's. A full tie keeps b, the provider's own earlier ranking.
+// A full tie keeps b, the provider's own earlier ranking.
 func better(a, b match, queryAlbum string) bool {
 	if a.info.Confidence != b.info.Confidence {
 		return a.info.Confidence > b.info.Confidence
@@ -74,7 +63,6 @@ func better(a, b match, queryAlbum string) bool {
 	return b.delta < 0 || a.delta < b.delta
 }
 
-// score computes a similarity score (0.0-1.0) between the query and a result.
 func score(query SearchQuery, result TrackInfo) float64 {
 	titleScore := Similarity(query.Title, result.Title)
 	artistScore := Similarity(query.Artist, result.Artist)
@@ -83,11 +71,9 @@ func score(query SearchQuery, result TrackInfo) float64 {
 	if query.Artist == "" {
 		s = titleScore
 	} else {
-		// Weight: 60% title, 40% artist
 		s = titleScore*0.6 + artistScore*0.4
 	}
 
-	// Boost results that match the existing album tag from yt-dlp
 	if query.Album != "" && result.Album != "" {
 		albumScore := Similarity(query.Album, result.Album)
 		if albumScore > 0.8 {
@@ -95,29 +81,17 @@ func score(query SearchQuery, result TrackInfo) float64 {
 		}
 	}
 
-	// Penalize compilation albums so original releases are preferred
 	if strings.EqualFold(result.AlbumArtist, "Various Artists") {
 		s *= 0.8
 	}
 
-	// Clamp to 1.0
-	if s > 1.0 {
-		s = 1.0
-	}
-
-	return s
+	return min(s, 1.0)
 }
 
-// evaluate applies the constraints to every result and returns the best exact
-// candidate — same version as the file, plausible length — and the best donor:
-// the original recording, offered only when the file declares a variant. Donors
-// skip the length check, since a variant is expected to differ from the
-// original in length.
+// Donors skip the length check: a variant is expected to differ in length.
 func (r *Resolver) evaluate(src source, results []TrackInfo) (exact, donor *match) {
 	for _, res := range results {
-		// Missing data never vetoes on its own, but with both missing there is
-		// nothing left to check the candidate against: MusicBrainz returns
-		// such isolated recordings, and a truncated clip took one's ISRC.
+		// Nothing to check it against: a truncated clip once took such a recording's ISRC.
 		if res.Duration == 0 && res.Album == "" {
 			r.logger.Debug("  skip %q: neither a length nor an album to check it against", res.Title)
 			continue
@@ -155,10 +129,7 @@ func (r *Resolver) evaluate(src source, results []TrackInfo) (exact, donor *matc
 	return exact, donor
 }
 
-// asVariant turns the original recording's metadata into metadata for the
-// variant the file is: the title keeps the variant, and the fields that
-// identify the original recording are dropped, so the variant is never
-// mistaken for it or collides with it in the library.
+// Drops what identifies the original, so the variant never collides with it in the library.
 func asVariant(info TrackInfo, base string, v Version) TrackInfo {
 	info.Title = base + " (" + v.Label + ")"
 	info.ISRC = ""

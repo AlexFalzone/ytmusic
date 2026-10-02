@@ -14,18 +14,16 @@ import (
 
 const defaultAcoustIDURL = "https://api.acoustid.org/v2/lookup"
 
-// requestInterval is AcoustID's published limit: no more than three requests
-// per second.
+// AcoustID's published limit.
 const requestInterval = time.Second / 3
 
-// AcoustIDClient queries the AcoustID API to resolve a fingerprint to a MusicBrainz recording ID.
 type AcoustIDClient struct {
 	apiKey  string
 	baseURL string
 	api     *httpjson.Client
 }
 
-// NewAcoustIDClient creates a new client. baseURL overrides the default endpoint (used in tests).
+// An empty baseURL means the real endpoint.
 func NewAcoustIDClient(apiKey, baseURL string) *AcoustIDClient {
 	if baseURL == "" {
 		baseURL = defaultAcoustIDURL
@@ -60,8 +58,6 @@ type acoustidRecording struct {
 	ID string `json:"id"`
 }
 
-// Lookup submits a fingerprint to AcoustID and returns the first MusicBrainz recording ID found.
-// Returns (mbid, true, nil) on success, ("", false, nil) when no match is found.
 func (c *AcoustIDClient) Lookup(ctx context.Context, fp Result) (string, bool, error) {
 	params := url.Values{}
 	params.Set("client", c.apiKey)

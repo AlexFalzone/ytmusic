@@ -1,4 +1,3 @@
-// Package testaudio makes the audio files tests run on. Only tests import it.
 package testaudio
 
 import (
@@ -7,8 +6,7 @@ import (
 	"testing"
 )
 
-// MP3 writes a silent MP3 lasting seconds ("0.1") to dir/name and returns its
-// path. The test is skipped when ffmpeg is not installed.
+// Skips the test without ffmpeg.
 func MP3(t testing.TB, dir, name, seconds string) string {
 	t.Helper()
 	if _, err := exec.LookPath("ffmpeg"); err != nil {

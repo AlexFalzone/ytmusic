@@ -20,7 +20,6 @@ type attemptRecord struct {
 	lockedUntil time.Time
 }
 
-// loginLimiter throttles failed logins per client IP.
 type loginLimiter struct {
 	mu       sync.Mutex
 	attempts map[string]*attemptRecord
@@ -34,7 +33,6 @@ func newLoginLimiter() *loginLimiter {
 	}
 }
 
-// allow reports whether ip may attempt a login right now.
 func (l *loginLimiter) allow(ip string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -63,15 +61,12 @@ func (l *loginLimiter) fail(ip string) {
 	}
 }
 
-// reset clears the record after a successful login.
 func (l *loginLimiter) reset(ip string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	delete(l.attempts, ip)
 }
 
-// gc drops records that are neither locked nor inside their window, so the map
-// cannot grow without bound and become its own denial-of-service vector.
 func (l *loginLimiter) gc() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -87,9 +82,7 @@ func (l *loginLimiter) gc() {
 	}
 }
 
-// clientIP identifies the caller for throttling. X-Forwarded-For is trusted only
-// when a proxy is declared: behind a proxy without it every attempt would look
-// like the same IP, so the first attacker would lock out the real user.
+// X-Forwarded-For only behind a declared proxy: anyone can forge it otherwise.
 func clientIP(r *http.Request, behindProxy bool) string {
 	if behindProxy {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {

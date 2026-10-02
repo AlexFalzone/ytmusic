@@ -77,9 +77,6 @@ func TestEvaluateVetoesShorterRecording(t *testing.T) {
 	}
 }
 
-// MusicBrainz returns isolated recordings with neither a length nor a release.
-// With nothing to check them against they passed every veto, and a truncated
-// clip inherited one's ISRC.
 func TestEvaluateRejectsCandidateWithNeitherLengthNorAlbum(t *testing.T) {
 	original := source{query: SearchQuery{Title: "Song", Artist: "Artist"}, duration: 200 * time.Second}
 	variant := source{
@@ -113,8 +110,7 @@ func TestEvaluateBreaksTiesOnDuration(t *testing.T) {
 	src := source{query: SearchQuery{Title: "Song", Artist: "Artist"}, duration: 200 * time.Second}
 
 	best, _ := newEvalResolver().evaluate(src, []TrackInfo{
-		// Both plausible lengths: only the tie-break can separate them. 230s
-		// would have been vetoed outright, leaving nothing to break.
+		// Both lengths plausible: only the tie-break separates them.
 		{Title: "Song", Artist: "Artist", Album: "A", Duration: 205 * time.Second},
 		{Title: "Song", Artist: "Artist", Album: "B", Duration: 201 * time.Second},
 	})
@@ -153,7 +149,6 @@ func TestEvaluateOffersOriginalAsDonor(t *testing.T) {
 	if exact != nil {
 		t.Errorf("exact = %+v, want nil: no provider has the sped-up version", exact)
 	}
-	// A variant is expected to differ in length: the donor skips that check.
 	if donor == nil || !donor.donor || donor.base != "Blinding Lights" {
 		t.Fatalf("donor = %+v, want the original with base title %q", donor, "Blinding Lights")
 	}
@@ -186,8 +181,6 @@ func TestAsVariant(t *testing.T) {
 	if got.Album != "After Hours" || got.Year != 2020 || got.Genre != "Pop" || got.ArtworkURL == "" {
 		t.Errorf("descriptive fields lost: %+v", got)
 	}
-	// These identify the original recording; on a variant they would make it
-	// pass for the original and collide with it in the library.
 	if got.ISRC != "" || got.TrackNumber != 0 || got.TotalTracks != 0 || got.DiscNumber != 0 {
 		t.Errorf("identity fields kept: ISRC=%q track=%d/%d disc=%d", got.ISRC, got.TrackNumber, got.TotalTracks, got.DiscNumber)
 	}

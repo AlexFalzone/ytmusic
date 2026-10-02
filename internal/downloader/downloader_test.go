@@ -14,7 +14,6 @@ import (
 	"ytmusic/internal/logger"
 )
 
-// writeFile creates path, parent directories included, holding content.
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
@@ -30,7 +29,6 @@ func TestMergeFilesDeduplicate(t *testing.T) {
 	log := logger.New(false)
 	d := New(config.DefaultConfig(), log, tmpDir)
 
-	// Create two subdirectories with files that have the same name
 	dir1 := filepath.Join(tmpDir, "artist1", "album1")
 	dir2 := filepath.Join(tmpDir, "artist2", "album2")
 	writeFile(t, filepath.Join(dir1, "song.mp3"), "content-1")
@@ -50,7 +48,6 @@ func TestMergeFilesDeduplicate(t *testing.T) {
 		t.Fatalf("expected 2 files in merged dir, got %d", len(entries))
 	}
 
-	// Verify both files exist with distinct names and original content
 	names := make(map[string]bool)
 	for _, e := range entries {
 		names[e.Name()] = true
@@ -63,7 +60,6 @@ func TestMergeFilesDeduplicate(t *testing.T) {
 		t.Error("expected song_2.mp3 in merged dir")
 	}
 
-	// Verify content is preserved (no data loss)
 	b1, _ := os.ReadFile(filepath.Join(mergedDir, "song.mp3"))
 	b2, _ := os.ReadFile(filepath.Join(mergedDir, "song_2.mp3"))
 	contents := map[string]bool{string(b1): true, string(b2): true}
@@ -132,8 +128,6 @@ func TestMergeFilesEmpty(t *testing.T) {
 	}
 }
 
-// Cancellation must keep its identity all the way up the stack. Matching on the
-// error text instead would be fragile and is forbidden by the project rules.
 func TestCancellationWrapsContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -165,10 +159,7 @@ func TestCancellationWrapsContextCanceled(t *testing.T) {
 	}
 }
 
-// The download workers run in their own goroutines, off any handler stack: an
-// unhandled panic there takes down the whole process. The progress hook is
-// supplied by the caller and runs inside the worker, so it is where a panic
-// realistically comes from.
+// The progress hook is caller code running inside the worker: where a panic realistically comes from.
 func TestDownloadAllSurvivesPanicInProgressHook(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.ParallelJobs = 2
@@ -198,9 +189,7 @@ func TestDownloadAllSurvivesPanicInProgressHook(t *testing.T) {
 	}
 }
 
-// fakeYtdlp puts a stub yt-dlp first in PATH. The script finds the file that
-// --print-to-file was pointed at, exposes it as $list, then runs body and exits
-// with code.
+// The stub exposes the --print-to-file target as $list, runs body and exits with code.
 func fakeYtdlp(t *testing.T, body string, code int) {
 	t.Helper()
 	dir := t.TempDir()
@@ -222,8 +211,7 @@ exit %d
 }
 
 func TestDownloadSingleFailsWhenNothingWasProduced(t *testing.T) {
-	// --ignore-errors lets yt-dlp succeed while producing no file at all.
-	// The stub leaves the report file empty, as yt-dlp does when it skips.
+	// --ignore-errors: yt-dlp succeeds, the report stays empty.
 	fakeYtdlp(t, ":", 0)
 
 	d := New(config.DefaultConfig(), logger.New(false), t.TempDir())

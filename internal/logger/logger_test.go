@@ -62,9 +62,6 @@ func TestWithPrefixPrependsToMessages(t *testing.T) {
 	}
 }
 
-// The web server prefixes a job's logger with the job ID and the resolver
-// prefixes it again per file: with jobs running side by side, a file's line
-// must still say which job it belongs to.
 func TestWithPrefixKeepsTheParentPrefix(t *testing.T) {
 	l, buf := newTestLogger(false)
 	l.WithPrefix("job_42").WithPrefix("3/20").Info("processing")
@@ -89,14 +86,12 @@ func TestWithPrefixSharesHasBar(t *testing.T) {
 	l, buf := newTestLogger(false)
 	child := l.WithPrefix("child")
 
-	// With hasBar false, Info should write to the buffer.
 	child.Info("before bar")
 	if !strings.Contains(buf.String(), "before bar") {
 		t.Fatalf("expected output before bar active, got: %q", buf.String())
 	}
 	buf.Reset()
 
-	// Activate bar on parent; child should now suppress stdout output.
 	l.SetProgressBar(true)
 	child.Info("during bar")
 	if buf.Len() > 0 {
@@ -104,7 +99,6 @@ func TestWithPrefixSharesHasBar(t *testing.T) {
 	}
 	buf.Reset()
 
-	// Deactivate bar on parent; output should resume.
 	l.SetProgressBar(false)
 	child.Info("after bar")
 	if !strings.Contains(buf.String(), "after bar") {
@@ -113,7 +107,6 @@ func TestWithPrefixSharesHasBar(t *testing.T) {
 }
 
 func TestDebugRaceCondition(t *testing.T) {
-	// Run concurrent Debug and SetProgressBar calls to verify no data race under -race.
 	l, _ := newTestLogger(true)
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {

@@ -8,8 +8,6 @@ import (
 	"ytmusic/internal/config"
 )
 
-// parseArgs parses command-line arguments and loads configuration.
-// Priority: CLI flags > config file > defaults
 func parseArgs(args []string) (config.Config, string, error) {
 	if len(args) == 0 {
 		printUsage()
@@ -48,8 +46,7 @@ func parseArgs(args []string) (config.Config, string, error) {
 		configPath = config.FindConfigFile()
 	}
 
-	// Tracked apart from cfg.PlaylistURL, which the config file may already
-	// have set: a URL on the command line overrides that one, it is not a second.
+	// Not cfg.PlaylistURL: the config file may set one, which the command line overrides.
 	urlGiven := false
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -128,59 +125,45 @@ func parseArgs(args []string) (config.Config, string, error) {
 	return cfg, configPath, nil
 }
 
-// initConfigFile creates a new config file with default values
 func initConfigFile() error {
 	path := config.GetDefaultConfigPath()
 
 	if _, err := os.Stat(path); err == nil {
 		fmt.Printf("Config file already exists at: %s\n", path)
-		fmt.Println("Delete it first if you want to recreate it.")
 		os.Exit(0)
 	}
 
-	cfg := config.DefaultConfig()
-
-	if err := config.SaveConfigFile(cfg, path); err != nil {
+	if err := config.SaveConfigFile(config.DefaultConfig(), path); err != nil {
 		return fmt.Errorf("failed to create config file: %w", err)
 	}
 
 	fmt.Printf("Created default config file at: %s\n", path)
-	fmt.Println("\nYou can now edit this file to customize your settings.")
-	fmt.Println("Available options:")
-	fmt.Println("  parallel_jobs: 1-10 (number of parallel downloads)")
-	fmt.Println("  cookies_browser: brave, chrome, firefox, etc. (empty: no cookies)")
-	fmt.Println("  audio_format: mp3, m4a, opus, flac, wav, aac")
-	fmt.Println("  verbose: true/false (enable detailed logging)")
-	fmt.Println("  dry_run: true/false (preview mode)")
-	fmt.Println("  spotify_client_id: Spotify API client ID (required)")
-	fmt.Println("  spotify_client_secret: Spotify API client secret (required)")
-	fmt.Println("  output_dir: output directory (default: ~/Music)")
-	fmt.Println("\nGet Spotify credentials at: https://developer.spotify.com/dashboard")
-
 	os.Exit(0)
 	return nil
 }
 
-// printUsage displays the help message
+const usage = `ytmusic - Download YouTube playlists with automatic metadata tagging
+
+Usage: ytmusic [options] <playlist_url>
+
+Options:
+  -v, --verbose              Show detailed output
+  -n, --dry-run              Preview what would be downloaded (no actual download)
+  -p, --parallel <n>         Number of parallel downloads (1-10, default: 4)
+  -b, --browser <name>       Browser to extract cookies from (default: none)
+  -f, --format <format>      Audio format: mp3, m4a, opus, flac, etc. (default: mp3)
+  -o, --output <dir>         Output directory (default: ~/Music)
+      --no-lyrics            Skip lyrics fetching
+      --lyrics-only <dir>    Fetch lyrics only for existing files in directory
+      --import-only <dir>    Resolve metadata and lyrics for existing files (no download)
+  -c, --config <path>        Path to config file
+  -h, --help                 Show this help message
+
+Configuration:
+  --init-config              Create a default config file
+
+`
+
 func printUsage() {
-	fmt.Println("ytmusic - Download YouTube playlists with automatic metadata tagging")
-	fmt.Println()
-	fmt.Println("Usage: ytmusic [options] <playlist_url>")
-	fmt.Println()
-	fmt.Println("Options:")
-	fmt.Println("  -v, --verbose              Show detailed output")
-	fmt.Println("  -n, --dry-run              Preview what would be downloaded (no actual download)")
-	fmt.Println("  -p, --parallel <n>         Number of parallel downloads (1-10, default: 4)")
-	fmt.Println("  -b, --browser <name>       Browser to extract cookies from (default: none)")
-	fmt.Println("  -f, --format <format>      Audio format: mp3, m4a, opus, flac, etc. (default: mp3)")
-	fmt.Println("  -o, --output <dir>         Output directory (default: ~/Music)")
-	fmt.Println("      --no-lyrics            Skip lyrics fetching")
-	fmt.Println("      --lyrics-only <dir>    Fetch lyrics only for existing files in directory")
-	fmt.Println("      --import-only <dir>    Resolve metadata and lyrics for existing files (no download)")
-	fmt.Println("  -c, --config <path>        Path to config file")
-	fmt.Println("  -h, --help                 Show this help message")
-	fmt.Println()
-	fmt.Println("Configuration:")
-	fmt.Println("  --init-config              Create a default config file")
-	fmt.Println()
+	fmt.Print(usage)
 }

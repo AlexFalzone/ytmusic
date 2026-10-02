@@ -16,8 +16,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// --- middleware ---
-
 func newTestServer(t *testing.T, modify func(*config.Config)) *Server {
 	t.Helper()
 
@@ -139,8 +137,6 @@ func TestRequireAuthRejectsForgedSession(t *testing.T) {
 	}
 }
 
-// --- cookie flags ---
-
 func setCookieHeader(t *testing.T, s *Server, r *http.Request) string {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -210,8 +206,6 @@ func TestSessionCookieSecureFlag(t *testing.T) {
 	}
 }
 
-// --- login / logout / me ---
-
 func loginRequest(body string) *http.Request {
 	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -262,7 +256,6 @@ func TestLoginRejectsBadCredentialsIdentically(t *testing.T) {
 		})
 	}
 
-	// A different message for a wrong username would reveal which half was wrong.
 	for i := 1; i < len(messages); i++ {
 		if messages[i] != messages[0] {
 			t.Errorf("error messages differ between cases: %q vs %q", messages[0], messages[i])
@@ -316,7 +309,6 @@ func TestLoginLocksOutAfterRepeatedFailures(t *testing.T) {
 		t.Fatalf("attempt %d: got %d, want 429", maxLoginAttempts+1, rec.Code)
 	}
 
-	// The lockout must hold even for the right password, or it is no lockout.
 	rec = httptest.NewRecorder()
 	s.handleLogin(rec, loginRequest(`{"username":"alex","password":"hunter2"}`))
 	if rec.Code != http.StatusTooManyRequests {
@@ -359,7 +351,6 @@ func TestLoginResetsCounterOnSuccess(t *testing.T) {
 		t.Fatalf("got %d, want 200", rec.Code)
 	}
 
-	// A successful login clears the record, so failures start counting again.
 	for i := 0; i < maxLoginAttempts; i++ {
 		rec := httptest.NewRecorder()
 		s.handleLogin(rec, loginRequest(`{"username":"alex","password":"wrong"}`))
@@ -382,7 +373,6 @@ func TestLogoutRevokesSessionServerSide(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("got %d, want 200", rec.Code)
 	}
-	// Clearing only the cookie would leave a copied token usable.
 	if s.sessions.validate(token) {
 		t.Error("logout must revoke the session server-side, not just clear the cookie")
 	}

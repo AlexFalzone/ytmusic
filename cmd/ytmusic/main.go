@@ -23,7 +23,6 @@ func main() {
 
 	sh := shutdown.New()
 	sh.Listen()
-	defer sh.Wait()
 
 	log := logger.New(cfg.Verbose)
 	defer func() {

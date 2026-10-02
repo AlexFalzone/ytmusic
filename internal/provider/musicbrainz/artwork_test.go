@@ -10,9 +10,6 @@ import (
 	"ytmusic/internal/metadata"
 )
 
-// Search used to probe Cover Art Archive for every candidate's release. The
-// resolver now checks the artwork of the one candidate it keeps, by
-// downloading it, so a search is a single request.
 func TestSearchDoesNotProbeArtwork(t *testing.T) {
 	var requests atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

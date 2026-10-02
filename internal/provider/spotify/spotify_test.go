@@ -2,26 +2,16 @@ package spotify
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"ytmusic/internal/buildinfo"
 	"ytmusic/internal/metadata"
+	"ytmusic/internal/testhttp"
 )
 
-// respondJSON encodes v as the fake server's reply. t.Errorf rather than Fatal:
-// it runs on the handler's goroutine.
-func respondJSON(t *testing.T, w http.ResponseWriter, v any) {
-	t.Helper()
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		t.Errorf("encoding fake response: %v", err)
-	}
-}
-
 func TestSearch(t *testing.T) {
-	// Mock Spotify API
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/api/token", func(w http.ResponseWriter, r *http.Request) {
@@ -36,9 +26,8 @@ func TestSearch(t *testing.T) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		respondJSON(t, w, tokenResponse{
+		testhttp.JSON(t, w, tokenResponse{
 			AccessToken: "test-token",
-			TokenType:   "Bearer",
 			ExpiresIn:   3600,
 		})
 	})
@@ -72,11 +61,11 @@ func TestSearch(t *testing.T) {
 					Artists:     []artist{{Name: "The Weeknd"}},
 					ReleaseDate: "2020-03-20",
 					TotalTracks: 14,
-					Images:      []image{{URL: "https://i.scdn.co/image/test", Width: 640, Height: 640}},
+					Images:      []image{{URL: "https://i.scdn.co/image/test"}},
 				},
 			},
 		}
-		respondJSON(t, w, resp)
+		testhttp.JSON(t, w, resp)
 	})
 
 	server := httptest.NewServer(mux)
@@ -142,16 +131,15 @@ func TestTokenCaching(t *testing.T) {
 
 	mux.HandleFunc("/api/token", func(w http.ResponseWriter, r *http.Request) {
 		tokenCalls++
-		respondJSON(t, w, tokenResponse{
+		testhttp.JSON(t, w, tokenResponse{
 			AccessToken: "cached-token",
-			TokenType:   "Bearer",
 			ExpiresIn:   3600,
 		})
 	})
 
 	mux.HandleFunc("/v1/search", func(w http.ResponseWriter, r *http.Request) {
 		resp := searchResponse{}
-		respondJSON(t, w, resp)
+		testhttp.JSON(t, w, resp)
 	})
 
 	server := httptest.NewServer(mux)
@@ -161,7 +149,6 @@ func TestTokenCaching(t *testing.T) {
 	client.tokenURL = server.URL + "/api/token"
 	client.apiURL = server.URL + "/v1"
 
-	// Two searches should only call token endpoint once
 	for _, title := range []string{"a", "b"} {
 		if _, err := client.Search(context.Background(), metadata.SearchQuery{Title: title}); err != nil {
 			t.Fatalf("Search(%q): %v", title, err)
@@ -214,18 +201,18 @@ func TestBuildSearchQuery(t *testing.T) {
 func TestSearchAddsTheArtistsGenres(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/token", func(w http.ResponseWriter, r *http.Request) {
-		respondJSON(t, w, tokenResponse{AccessToken: "test-token", ExpiresIn: 3600})
+		testhttp.JSON(t, w, tokenResponse{AccessToken: "test-token", ExpiresIn: 3600})
 	})
 	mux.HandleFunc("/v1/search", func(w http.ResponseWriter, r *http.Request) {
 		resp := searchResponse{}
 		resp.Tracks.Items = []trackItem{{Name: "Song", Artists: []artist{{ID: "a1", Name: "Artist"}}}}
-		respondJSON(t, w, resp)
+		testhttp.JSON(t, w, resp)
 	})
 	mux.HandleFunc("/v1/artists/a1", func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
 			t.Errorf("Authorization = %q", got)
 		}
-		respondJSON(t, w, artistResponse{Genres: []string{"hip hop", "pop rap", "trap", "rap"}})
+		testhttp.JSON(t, w, artistResponse{Genres: []string{"hip hop", "pop rap", "trap", "rap"}})
 	})
 	server := httptest.NewServer(mux)
 	defer server.Close()
