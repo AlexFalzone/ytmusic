@@ -17,15 +17,16 @@ import (
 	"go.senan.xyz/taglib"
 )
 
-// Lists "song" and "dead": "song" copies fixture where -o points and reports it, "dead" fails like an unavailable video.
-func fakeYtdlp(t *testing.T, fixture string) {
+// Lists "song" and "dead" in playlist id: "song" copies fixture where -o points and reports it, "dead" fails like an unavailable video.
+func fakeYtdlp(t *testing.T, fixture, id, title string) {
 	t.Helper()
+	entry := `{"id": "%s", "title": "%s", "playlist_id": "` + id + `", "playlist_title": "` + title + `", "playlist_count": 2, "playlist_index": %d}`
 	script := `#!/bin/sh
 for a in "$@"; do last="$a"; done
 case " $* " in
 *" --flat-playlist "*)
-	echo '{"id": "song", "title": "Song", "playlist_id": "PLx", "playlist_title": "Mix", "playlist_count": 2, "playlist_index": 1}'
-	echo '{"id": "dead", "title": "Dead", "playlist_id": "PLx", "playlist_title": "Mix", "playlist_count": 2, "playlist_index": 2}'
+	echo '` + fmt.Sprintf(entry, "song", "Song", 1) + `'
+	echo '` + fmt.Sprintf(entry, "dead", "Dead", 2) + `'
 	exit 0;;
 esac
 next=""
@@ -54,12 +55,14 @@ printf '%s\n' "$out" > "$list"
 
 // Renames every album, so the test can tell files were imported before being moved.
 type retagger struct {
-	dirs []string
-	err  error
+	dirs   []string
+	albums []*metadata.Album
+	err    error
 }
 
-func (r *retagger) Import(_ context.Context, dir string, _ *metadata.Album) error {
+func (r *retagger) Import(_ context.Context, dir string, album *metadata.Album) error {
 	r.dirs = append(r.dirs, dir)
+	r.albums = append(r.albums, album)
 	files, err := utils.FindAudioFiles(dir)
 	if err != nil {
 		return err
@@ -81,10 +84,15 @@ type runResult struct {
 
 func runFake(t *testing.T, imp dirImporter) runResult {
 	t.Helper()
+	return runFakePlaylist(t, imp, "PLx", "Mix")
+}
+
+func runFakePlaylist(t *testing.T, imp dirImporter, id, title string) runResult {
+	t.Helper()
 	fixture := trackFile(t, t.TempDir(), "fixture.mp3", map[string][]string{
 		taglib.Title: {"Song"}, taglib.Artist: {"Artist"}, taglib.Album: {"Album"},
 	})
-	fakeYtdlp(t, fixture)
+	fakeYtdlp(t, fixture, id, title)
 
 	res := runResult{out: t.TempDir(), tmp: t.TempDir()}
 	cfg := config.DefaultConfig()
@@ -125,6 +133,9 @@ func TestRunDownloadsImportsAndFilesTheTracks(t *testing.T) {
 	if want := []string{filepath.Join(res.tmp, "merged")}; fmt.Sprint(imp.dirs) != fmt.Sprint(want) {
 		t.Errorf("imported %v, want %v", imp.dirs, want)
 	}
+	if len(imp.albums) != 1 || imp.albums[0] != nil {
+		t.Errorf("albums = %v, want nil: a user playlist is not an album", imp.albums)
+	}
 	for _, name := range []string{"song.mp3", "song.lrc"} {
 		if _, err := os.Stat(filepath.Join(res.out, "Artist", "Imported", name)); err != nil {
 			t.Errorf("%s not in the library under the imported album: %v", name, err)
@@ -140,5 +151,23 @@ func TestRunFilesTheTracksWhenImportFails(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(res.out, "Artist", "Imported", "song.mp3")); err != nil {
 		t.Errorf("song.mp3 not moved after a failed import: %v", err)
+	}
+}
+
+func TestRunHandsAnAlbumPlaylistToTheImportAsAnAlbum(t *testing.T) {
+	imp := &retagger{}
+	res := runFakePlaylist(t, imp, "OLAK5uy_x", "Album - Record")
+
+	if len(imp.albums) != 1 || imp.albums[0] == nil {
+		t.Fatalf("albums = %v, want the album", imp.albums)
+	}
+	album := imp.albums[0]
+	if album.Title != "Record" || fmt.Sprint(album.Tracks) != "[Song Dead]" {
+		t.Errorf("album = %q %q, want Record [Song Dead]", album.Title, album.Tracks)
+	}
+	// The dead video keeps its place in the album but has no file.
+	want := map[string]int{filepath.Join(res.tmp, "merged", "song.mp3"): 1}
+	if fmt.Sprint(album.Files) != fmt.Sprint(want) {
+		t.Errorf("files = %v, want %v: the paths after merging", album.Files, want)
 	}
 }

@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -202,6 +203,46 @@ func TestResolveCorpus(t *testing.T) {
 		for key, want := range c.want {
 			if got := readTestTag(t, paths[i], key); got != want {
 				t.Errorf("%s: %s = %q, want %q", c.name, key, got, want)
+			}
+		}
+	}
+}
+
+// Take Care (Deluxe) before W7: one provider put The Motto at 12, another on a compilation, and the track nobody
+// recognised kept yt-dlp's "Take Care" and went to its own folder.
+func TestResolveCorpusScatteredAlbum(t *testing.T) {
+	tracks := make([]string, 19)
+	tracks[3], tracks[13], tracks[18] = "Crew Love", "The Real Her", "The Motto"
+	described := func(title, artist string) map[string][]string {
+		return map[string][]string{taglib.Title: {title}, taglib.Artist: {artist}, taglib.Album: {"Take Care"}, taglib.Date: {"2011-11-15"}}
+	}
+	album := newAlbum(t, "Take Care (Deluxe)", tracks, map[int]map[string][]string{
+		4:  described("Crew Love", "Drake, The Weeknd"),
+		14: described("The Real Her", "Drake, Lil Wayne, André 3000"),
+		19: described("The Motto", "Drake, Lil Wayne"),
+	})
+	first := corpusProvider{name: "first", byTitle: map[string][]TrackInfo{
+		"Crew Love": {{Title: "Crew Love", Artist: "Drake", Album: "Take Care (Deluxe)", TrackNumber: 4, ReleaseDate: "2011-11-15T12:00:00Z"}},
+		"The Motto": {{Title: "The Motto", Artist: "Drake", Album: "Take Care (Deluxe)", TrackNumber: 12, ReleaseDate: "2011-11-15T12:00:00Z"}},
+	}}
+	second := corpusProvider{name: "second", byTitle: map[string][]TrackInfo{
+		"The Motto": {{Title: "The Motto", Artist: "Drake", Album: "Care Package", TrackNumber: 5, ReleaseDate: "2019", Genre: "Rap"}},
+	}}
+
+	r := NewResolver([]Provider{first, second}, logger.New(false), 0).WithWorkers(4)
+	files := []string{pathAt(album, 4), pathAt(album, 14), pathAt(album, 19)}
+	if err := r.Resolve(context.Background(), files, album); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	for pos, title := range map[int]string{4: "Crew Love", 14: "The Real Her", 19: "The Motto"} {
+		want := map[string]string{
+			taglib.Album: "Take Care (Deluxe)", taglib.AlbumArtist: "Drake", taglib.TrackNumber: fmt.Sprintf("%d/19", pos),
+			taglib.DiscNumber: "", taglib.Date: "2011-11-15",
+		}
+		for key, value := range want {
+			if got := readTestTag(t, pathAt(album, pos), key); got != value {
+				t.Errorf("%s: %s = %q, want %q", title, key, got, value)
 			}
 		}
 	}

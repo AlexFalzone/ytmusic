@@ -75,12 +75,12 @@ func run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 		}
 	}
 
-	mergedDir, _, err := dl.MergeFiles()
+	mergedDir, mergedPaths, err := dl.MergeFiles()
 	if err != nil {
 		return fmt.Errorf("failed to merge files: %w", err)
 	}
 
-	if err := imp.Import(ctx, mergedDir, nil); err != nil {
+	if err := imp.Import(ctx, mergedDir, albumFor(pl, stats.Files, mergedPaths)); err != nil {
 		msg := fmt.Sprintf("metadata resolution failed: %v", err)
 		log.Warn("%s", msg)
 		if hooks.OnWarning != nil {
@@ -106,6 +106,32 @@ func run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 	log.Info("Moved %d files to %s", moved, cfg.OutputDir)
 
 	return nil
+}
+
+// nil unless the playlist is an album; each position follows its files through the download and the merge.
+func albumFor(pl downloader.Playlist, files map[string][]string, mergedPaths map[string]string) *metadata.Album {
+	title, ok := pl.Album()
+	if !ok {
+		return nil
+	}
+
+	count := pl.Count
+	for _, e := range pl.Entries {
+		count = max(count, e.Position)
+	}
+	album := &metadata.Album{Title: title, Tracks: make([]string, count), Files: make(map[string]int)}
+	for _, e := range pl.Entries {
+		if e.Position < 1 {
+			continue
+		}
+		album.Tracks[e.Position-1] = e.Title
+		for _, f := range files[e.URL] {
+			if dst, ok := mergedPaths[f]; ok {
+				album.Files[dst] = e.Position
+			}
+		}
+	}
+	return album
 }
 
 func RunImportOnly(ctx context.Context, cfg config.Config, log *logger.Logger, dir string) error {
