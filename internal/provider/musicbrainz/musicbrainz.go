@@ -2,6 +2,7 @@ package musicbrainz
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -256,10 +257,17 @@ type releaseListResponse struct {
 }
 
 type releaseLookupResponse struct {
-	ID           string                `json:"id"`
-	Title        string                `json:"title"`
-	ArtistCredit []artistCredit        `json:"artist-credit"`
-	Media        []releaseLookupMedium `json:"media"`
+	ID              string                `json:"id"`
+	Title           string                `json:"title"`
+	Status          string                `json:"status"`
+	Date            string                `json:"date"`
+	ArtistCredit    []artistCredit        `json:"artist-credit"`
+	CoverArtArchive coverArtArchive       `json:"cover-art-archive"`
+	Media           []releaseLookupMedium `json:"media"`
+}
+
+type coverArtArchive struct {
+	Front bool `json:"front"`
 }
 
 type releaseLookupMedium struct {
@@ -275,13 +283,18 @@ type releaseLookupTrack struct {
 }
 
 type releaseLookupRec struct {
-	ID string `json:"id"`
+	ID    string   `json:"id"`
+	ISRCs []string `json:"isrcs"`
 }
 
-func (c *Client) searchRelease(ctx context.Context, album, artist string) ([]release, error) {
+// tracks 0 means any track count.
+func (c *Client) searchRelease(ctx context.Context, album, artist string, tracks int) ([]release, error) {
 	q := fmt.Sprintf("release:%q", album)
 	if artist != "" {
 		q += fmt.Sprintf(" AND artist:%q", artist)
+	}
+	if tracks > 0 {
+		q += fmt.Sprintf(" AND tracks:%d", tracks)
 	}
 
 	var result releaseListResponse
@@ -294,17 +307,22 @@ func (c *Client) searchRelease(ctx context.Context, album, artist string) ([]rel
 
 func (c *Client) fetchRelease(ctx context.Context, releaseID string) (metadata.Tracklist, error) {
 	var result releaseLookupResponse
-	reqURL := fmt.Sprintf("%s/release/%s?inc=recordings+artist-credits&fmt=json", c.apiURL, releaseID)
+	reqURL := fmt.Sprintf("%s/release/%s?inc=recordings+artist-credits+isrcs&fmt=json", c.apiURL, releaseID)
 	if err := c.api.Get(ctx, reqURL, nil, &result); err != nil {
 		return metadata.Tracklist{}, fmt.Errorf("musicbrainz release %s: %w", releaseID, err)
 	}
 
 	tl := metadata.Tracklist{
-		ID:    result.ID,
-		Title: result.Title,
+		ID:     result.ID,
+		Title:  result.Title,
+		Status: result.Status,
+		Date:   result.Date,
 	}
 	if len(result.ArtistCredit) > 0 {
 		tl.Artist = result.ArtistCredit[0].Artist.Name
+	}
+	if result.CoverArtArchive.Front {
+		tl.ArtworkURL = fmt.Sprintf("%s/%s/front-500", c.artworkBaseURL, result.ID)
 	}
 
 	for _, m := range result.Media {
@@ -313,12 +331,16 @@ func (c *Client) fetchRelease(ctx context.Context, releaseID string) (metadata.T
 			if n, err := strconv.Atoi(t.Number); err == nil {
 				trackNum = n
 			}
-			tl.Tracks = append(tl.Tracks, metadata.ReleaseTrack{
+			track := metadata.ReleaseTrack{
 				TrackNumber: trackNum,
 				DiscNumber:  m.Position,
 				Title:       t.Title,
 				MBID:        t.Recording.ID,
-			})
+			}
+			if len(t.Recording.ISRCs) > 0 {
+				track.ISRC = t.Recording.ISRCs[0]
+			}
+			tl.Tracks = append(tl.Tracks, track)
 		}
 	}
 	return tl, nil
@@ -343,8 +365,28 @@ func (c *Client) LookupTracklist(ctx context.Context, releaseID string) (metadat
 	})
 }
 
+// The error reports the candidates that could not be looked up; the others are returned all the same.
+func (c *Client) FindReleases(ctx context.Context, title, artist string, tracks int) ([]metadata.Tracklist, error) {
+	candidates, err := c.searchRelease(ctx, title, artist, tracks)
+	if err != nil {
+		return nil, fmt.Errorf("release search failed: %w", err)
+	}
+
+	var found []metadata.Tracklist
+	var errs []error
+	for _, cand := range candidates {
+		tl, err := c.LookupTracklist(ctx, cand.ID)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		found = append(found, tl)
+	}
+	return found, errors.Join(errs...)
+}
+
 func (c *Client) ResolveAlbum(ctx context.Context, album, artist string) (metadata.Tracklist, bool, error) {
-	candidates, err := c.searchRelease(ctx, album, artist)
+	candidates, err := c.searchRelease(ctx, album, artist, 0)
 	if err != nil {
 		return metadata.Tracklist{}, false, fmt.Errorf("release search failed: %w", err)
 	}
