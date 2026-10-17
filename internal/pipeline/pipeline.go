@@ -75,7 +75,7 @@ func run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 		}
 	}
 
-	mergedDir, err := dl.MergeFiles()
+	mergedDir, _, err := dl.MergeFiles()
 	if err != nil {
 		return fmt.Errorf("failed to merge files: %w", err)
 	}

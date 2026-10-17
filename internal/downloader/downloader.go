@@ -118,14 +118,15 @@ func (d *Downloader) buildYtdlpArgs(url, producedList string) []string {
 	return args
 }
 
-func (d *Downloader) DownloadSingle(ctx context.Context, url string) error {
+// The paths are the files yt-dlp reports for url.
+func (d *Downloader) DownloadSingle(ctx context.Context, url string) ([]string, error) {
 	list, err := os.CreateTemp(d.TmpDir, "produced-*.txt")
 	if err != nil {
-		return fmt.Errorf("creating the download report file for %s: %w", url, err)
+		return nil, fmt.Errorf("creating the download report file for %s: %w", url, err)
 	}
 	listPath := list.Name()
 	if err := list.Close(); err != nil {
-		return fmt.Errorf("closing the download report file for %s: %w", url, err)
+		return nil, fmt.Errorf("closing the download report file for %s: %w", url, err)
 	}
 	// Best effort: the temp dir is removed as a whole anyway.
 	defer func() { _ = os.Remove(listPath) }()
@@ -143,50 +144,51 @@ func (d *Downloader) DownloadSingle(ctx context.Context, url string) error {
 
 	runErr := cmd.Run()
 	if ctx.Err() != nil {
-		return fmt.Errorf("downloading %s: %w", url, ctx.Err())
+		return nil, fmt.Errorf("downloading %s: %w", url, ctx.Err())
 	}
 	if runErr != nil && stderr.Len() > 0 {
-		return fmt.Errorf("yt-dlp error: %w\nDetails: %s", runErr, stderr.String())
+		return nil, fmt.Errorf("yt-dlp error: %w\nDetails: %s", runErr, stderr.String())
 	}
 	if runErr != nil {
-		return runErr
+		return nil, runErr
 	}
 
-	produced, err := os.ReadFile(listPath)
+	report, err := os.ReadFile(listPath)
 	if err != nil {
-		return fmt.Errorf("reading what yt-dlp produced for %s: %w", url, err)
+		return nil, fmt.Errorf("reading what yt-dlp produced for %s: %w", url, err)
 	}
-	return verifyProduced(url, string(produced))
+	return verifyProduced(url, string(report))
 }
 
 // Under --ignore-errors yt-dlp can exit 0 having downloaded nothing.
-func verifyProduced(url, report string) error {
-	var produced int
+func verifyProduced(url, report string) ([]string, error) {
+	var produced []string
 	for line := range strings.SplitSeq(report, "\n") {
 		path := strings.TrimSpace(line)
 		if path == "" {
 			continue
 		}
 		if _, err := os.Stat(path); err != nil {
-			return fmt.Errorf("yt-dlp reported %s for %s but the file is not there: %w", path, url, err)
+			return nil, fmt.Errorf("yt-dlp reported %s for %s but the file is not there: %w", path, url, err)
 		}
-		produced++
+		produced = append(produced, path)
 	}
 
-	if produced == 0 {
-		return fmt.Errorf("yt-dlp downloaded nothing for %s (it exited without an error, likely skipped under --ignore-errors)", url)
+	if len(produced) == 0 {
+		return nil, fmt.Errorf("yt-dlp downloaded nothing for %s (it exited without an error, likely skipped under --ignore-errors)", url)
 	}
-	return nil
+	return produced, nil
 }
 
 type DownloadStats struct {
 	Total      int
 	Successful int
 	Failed     int
+	Files      map[string][]string // URL → the files yt-dlp produced for it
 }
 
 func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadStats, error) {
-	stats := DownloadStats{Total: len(urls)}
+	stats := DownloadStats{Total: len(urls), Files: make(map[string][]string)}
 
 	if len(urls) == 0 {
 		return stats, fmt.Errorf("no URLs to download")
@@ -196,7 +198,7 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadSt
 
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, d.Config.ParallelJobs)
-	var failedMu sync.Mutex
+	var mu sync.Mutex // guards failed and stats.Files
 	var failed []string
 
 	for i, url := range urls {
@@ -217,9 +219,9 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadSt
 			defer func() {
 				if r := recover(); r != nil {
 					d.Logger.Error("panic while downloading %s: %v\n%s", u, r, debug.Stack())
-					failedMu.Lock()
+					mu.Lock()
 					failed = append(failed, u)
-					failedMu.Unlock()
+					mu.Unlock()
 				}
 			}()
 
@@ -228,14 +230,19 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadSt
 
 			d.Logger.Debug("Downloading [%d/%d]: %s", idx+1, len(urls), u)
 
-			if err := d.DownloadSingle(ctx, u); err != nil {
-				if ctx.Err() == nil {
-					d.Logger.Debug("Download error %s: %v", u, err)
-					failedMu.Lock()
-					failed = append(failed, u)
-					failedMu.Unlock()
-				}
+			files, err := d.DownloadSingle(ctx, u)
+			cancelled := ctx.Err() != nil
+			if err != nil && !cancelled {
+				d.Logger.Debug("Download error %s: %v", u, err)
 			}
+			mu.Lock()
+			switch {
+			case err == nil:
+				stats.Files[u] = files
+			case !cancelled:
+				failed = append(failed, u)
+			}
+			mu.Unlock()
 
 			if d.OnProgress != nil {
 				d.OnProgress()
@@ -263,25 +270,27 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadSt
 	return stats, nil
 }
 
-func (d *Downloader) MergeFiles() (string, error) {
+// moved maps each file's path before the merge to its path after.
+func (d *Downloader) MergeFiles() (dir string, moved map[string]string, err error) {
 	d.Logger.Info("merging audio files")
 
 	mergedDir := filepath.Join(d.TmpDir, "merged")
 	if err := os.MkdirAll(mergedDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create merged folder: %w", err)
+		return "", nil, fmt.Errorf("failed to create merged folder: %w", err)
 	}
 
 	files, err := utils.FindAudioFiles(d.TmpDir)
 	if err != nil {
-		return "", fmt.Errorf("failed to search for audio files: %w", err)
+		return "", nil, fmt.Errorf("failed to search for audio files: %w", err)
 	}
 
 	d.Logger.Debug("Found %d audio files", len(files))
 
 	if len(files) == 0 {
-		return "", fmt.Errorf("no audio files found - all downloads may have failed")
+		return "", nil, fmt.Errorf("no audio files found - all downloads may have failed")
 	}
 
+	moved = make(map[string]string, len(files))
 	var moveErrors int
 	seen := make(map[string]bool)
 	for _, file := range files {
@@ -296,7 +305,9 @@ func (d *Downloader) MergeFiles() (string, error) {
 		if err := utils.MoveFile(file, dst); err != nil {
 			d.Logger.Warn("Error moving %s: %v", file, err)
 			moveErrors++
+			continue
 		}
+		moved[file] = dst
 	}
 
 	if moveErrors > 0 {
@@ -304,5 +315,5 @@ func (d *Downloader) MergeFiles() (string, error) {
 	}
 
 	d.Logger.Info("Audio files moved to: %s", mergedDir)
-	return mergedDir, nil
+	return mergedDir, moved, nil
 }
