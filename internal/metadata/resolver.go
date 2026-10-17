@@ -73,9 +73,51 @@ func (r *Resolver) WithReleaseFinder(rf ReleaseFinder) *Resolver {
 	return r
 }
 
-func (r *Resolver) Resolve(ctx context.Context, files []string) error {
+// album is the download as its source presents it, nil outside an album download.
+func (r *Resolver) Resolve(ctx context.Context, files []string, album *Album) error {
 	r.logger.Info("resolving metadata for %d files", len(files))
 
+	var trackOnly map[string]bool
+	if album != nil {
+		r.resolveAlbum(ctx, album)
+		trackOnly = r.albumMembers(files, album)
+	} else {
+		r.resolveGroups(ctx, files)
+	}
+
+	failed := r.resolveFiles(ctx, files, trackOnly)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("resolving metadata: %w", err)
+	}
+
+	if failed == len(files) {
+		return fmt.Errorf("all %d files failed metadata resolution", len(files))
+	}
+
+	if failed > 0 {
+		r.logger.Warn("%d of %d files failed metadata resolution", failed, len(files))
+	}
+
+	r.logger.Info("Metadata resolution completed")
+	return nil
+}
+
+// The album phase wrote their album-level fields; a file it did not cover gets the whole per-file phase.
+func (r *Resolver) albumMembers(files []string, album *Album) map[string]bool {
+	members := make(map[string]bool)
+	for _, path := range albumPaths(album) {
+		members[path] = true
+	}
+	for _, path := range files {
+		if !members[path] {
+			r.logger.Warn("album %q: %s has no position in it, resolving it on its own", album.Title, path)
+		}
+	}
+	return members
+}
+
+// Phases A and B, which find a release per group of files sharing an album tag.
+func (r *Resolver) resolveGroups(ctx context.Context, files []string) {
 	groups := r.groupByAlbum(files)
 	resolvedByA := make(map[string]bool)
 
@@ -106,20 +148,4 @@ func (r *Resolver) Resolve(ctx context.Context, files []string) error {
 			}
 		}
 	}
-
-	failed := r.resolveFiles(ctx, files)
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("resolving metadata: %w", err)
-	}
-
-	if failed == len(files) {
-		return fmt.Errorf("all %d files failed metadata resolution", len(files))
-	}
-
-	if failed > 0 {
-		r.logger.Warn("%d of %d files failed metadata resolution", failed, len(files))
-	}
-
-	r.logger.Info("Metadata resolution completed")
-	return nil
 }

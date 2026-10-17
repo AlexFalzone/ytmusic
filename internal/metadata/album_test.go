@@ -394,7 +394,7 @@ func TestResolve_AlbumFirstPhaseWritesPositionalTags(t *testing.T) {
 	r := NewResolver([]Provider{mock}, log, 0.9)
 	r.WithAlbumResolver(ar)
 
-	if err := r.Resolve(context.Background(), []string{p1, p2}); err != nil {
+	if err := r.Resolve(context.Background(), []string{p1, p2}, nil); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 

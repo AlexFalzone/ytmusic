@@ -65,7 +65,7 @@ func (i *Importer) Import(ctx context.Context, dir string) error {
 	}
 	i.log.Debug("Found %d audio files", len(files))
 
-	if err := i.resolver.Resolve(ctx, files); err != nil {
+	if err := i.resolver.Resolve(ctx, files, nil); err != nil {
 		return fmt.Errorf("resolving %s: %w", dir, err)
 	}
 

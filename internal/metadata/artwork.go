@@ -13,7 +13,7 @@ import (
 func (r *Resolver) complete(ctx context.Context, src source, m match) (TrackInfo, []byte) {
 	failed := make(map[string]bool)
 	for {
-		info := r.fillGaps(ctx, src, m, failed)
+		info := r.fillGaps(ctx, src, m, failed, hasMissingFields)
 		if info.ArtworkURL == "" {
 			if len(failed) > 0 {
 				r.logger.Warn("  No artwork could be downloaded: %d URLs failed", len(failed))

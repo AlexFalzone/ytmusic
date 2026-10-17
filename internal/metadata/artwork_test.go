@@ -121,7 +121,7 @@ func TestResolveFile_FingerprintMatchFallsBackToFillerArtwork(t *testing.T) {
 		{Title: "Song", Artist: "Artist", Album: "Album", ArtworkURL: srv.URL + "/b"},
 	}}
 	r := NewResolver([]Provider{filler}, logger.New(false), 0).WithFingerprinter(fp)
-	if err := r.Resolve(context.Background(), []string{path}); err != nil {
+	if err := r.Resolve(context.Background(), []string{path}, nil); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 
@@ -144,7 +144,7 @@ func TestResolveFile_DroppedArtworkOfferedAgainIsSkipped(t *testing.T) {
 		{Title: "Song", Artist: "Artist", Album: "Album", ArtworkURL: srv.URL + "/b"},
 	}}
 	r := NewResolver([]Provider{sameRelease, later}, logger.New(false), 0).WithFingerprinter(fp)
-	if err := r.Resolve(context.Background(), []string{path}); err != nil {
+	if err := r.Resolve(context.Background(), []string{path}, nil); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 

@@ -28,7 +28,7 @@ func TestResolve_PanicFailsOnlyItsFile(t *testing.T) {
 	tagTestFile(t, fine, "Fine", "Artist")
 
 	r := NewResolver([]Provider{panickingProvider{on: "Boom"}}, logger.New(false), 0).WithWorkers(2)
-	if err := r.Resolve(context.Background(), []string{boom, fine}); err != nil {
+	if err := r.Resolve(context.Background(), []string{boom, fine}, nil); err != nil {
 		t.Fatalf("Resolve = %v, want nil: one file of two still resolved", err)
 	}
 
@@ -59,7 +59,7 @@ func TestResolve_StartsNoFileOnceCancelled(t *testing.T) {
 	defer cancel()
 	p := &cancellingProvider{cancel: cancel}
 
-	err := NewResolver([]Provider{p}, logger.New(false), 0).WithWorkers(1).Resolve(ctx, paths)
+	err := NewResolver([]Provider{p}, logger.New(false), 0).WithWorkers(1).Resolve(ctx, paths, nil)
 
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("Resolve = %v, want context.Canceled", err)

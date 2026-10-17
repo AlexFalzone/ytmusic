@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"sync/atomic"
 	"testing"
 
 	"ytmusic/internal/logger"
@@ -290,5 +291,76 @@ func TestAlbumPhaseAlbumArtistWithoutAMajority(t *testing.T) {
 
 	if got := readTestTag(t, pathAt(album, 1), taglib.AlbumArtist); got != "Various Artists" {
 		t.Errorf("album artist = %q, want Various Artists: no artist leads more than half the tracks", got)
+	}
+}
+
+type countingServer struct {
+	*httptest.Server
+	hits atomic.Int32
+}
+
+func newCountingServer(t *testing.T) *countingServer {
+	t.Helper()
+	cs := &countingServer{}
+	cs.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cs.hits.Add(1)
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(cs.Close)
+	return cs
+}
+
+// The scattered album: a track no provider recognises used to keep yt-dlp's album name and end up in another folder.
+func TestResolveKeepsEveryTrackOfAnAlbumDownloadInTheAlbum(t *testing.T) {
+	providerArt := newCountingServer(t)
+	album := newAlbum(t, "Take Care (Deluxe)", []string{"Over My Dead Body", "The Real Her"}, map[int]map[string][]string{
+		1: {taglib.Title: {"Over My Dead Body"}, taglib.Artist: {"Drake"}, taglib.Album: {"Take Care"}, taglib.Date: {"2011-11-15"}},
+		2: {taglib.Title: {"The Real Her"}, taglib.Artist: {"Drake, Lil Wayne, André 3000"}, taglib.Album: {"Take Care"}, taglib.Date: {"2011-11-15"}},
+	})
+	provider := corpusProvider{name: "p", byTitle: map[string][]TrackInfo{
+		"Over My Dead Body": {{
+			Title: "Over My Dead Body", Artist: "Drake", Album: "Take Care", AlbumArtist: "Drake",
+			TrackNumber: 12, DiscNumber: 2, ReleaseDate: "2018", Genre: "Hip-Hop", ArtworkURL: providerArt.URL + "/cover",
+		}},
+	}}
+
+	r := NewResolver([]Provider{provider}, logger.New(false), 0)
+	files := []string{pathAt(album, 1), pathAt(album, 2)}
+	if err := r.Resolve(context.Background(), files, album); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	for pos, want := range map[int]map[string]string{
+		1: {taglib.Album: "Take Care (Deluxe)", taglib.TrackNumber: "1/2", taglib.DiscNumber: "", taglib.Date: "2011-11-15", taglib.Genre: "Hip-Hop"},
+		2: {taglib.Album: "Take Care (Deluxe)", taglib.TrackNumber: "2/2", taglib.DiscNumber: "", taglib.Date: "2011-11-15", taglib.AlbumArtist: "Drake"},
+	} {
+		for key, value := range want {
+			if got := readTestTag(t, pathAt(album, pos), key); got != value {
+				t.Errorf("track %d %s = %q, want %q", pos, key, got, value)
+			}
+		}
+	}
+	if n := providerArt.hits.Load(); n != 0 {
+		t.Errorf("the provider's artwork was requested %d times: the album phase owns the cover", n)
+	}
+}
+
+func TestResolveKeepsTheReleaseISRCOfAnAlbumTrack(t *testing.T) {
+	album := newAlbum(t, "Persona", []string{"NEON - Le Ali"}, map[int]map[string][]string{
+		1: {taglib.Title: {"NEON - Le Ali"}, taglib.Artist: {"Marracash"}},
+	})
+	release := tracklist("r1", "Official", "2019-10-31", "NEON - Le Ali")
+	release.Tracks[0].ISRC = "ITUM72000289"
+	provider := corpusProvider{name: "p", byTitle: map[string][]TrackInfo{
+		"NEON - Le Ali": {{Title: "NEON - Le Ali", Artist: "Marracash", Album: "Persona", ISRC: "OTHER0000001"}},
+	}}
+
+	r := NewResolver([]Provider{provider}, logger.New(false), 0).WithReleaseFinder(&fakeFinder{byTitle: map[string][]Tracklist{"Persona": {release}}})
+	if err := r.Resolve(context.Background(), []string{pathAt(album, 1)}, album); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	if got := readTestTag(t, pathAt(album, 1), taglib.ISRC); got != "ITUM72000289" {
+		t.Errorf("ISRC = %q, want the release's ITUM72000289", got)
 	}
 }

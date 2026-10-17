@@ -39,7 +39,7 @@ func TestResolveFile(t *testing.T) {
 
 	log := logger.New(false)
 	resolver := NewResolver([]Provider{mock}, log, 0)
-	err = resolver.Resolve(context.Background(), []string{path})
+	err = resolver.Resolve(context.Background(), []string{path}, nil)
 	if err != nil {
 		t.Fatalf("Resolve failed: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestResolveFileLowConfidence(t *testing.T) {
 
 	log := logger.New(false)
 	resolver := NewResolver([]Provider{mock}, log, 0)
-	if err := resolver.Resolve(context.Background(), []string{path}); err != nil {
+	if err := resolver.Resolve(context.Background(), []string{path}, nil); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 
@@ -166,7 +166,7 @@ func TestGapFilling(t *testing.T) {
 		Year:   2020,
 	}
 
-	filled := r.fillGaps(context.Background(), source{query: query}, match{info: base}, nil)
+	filled := r.fillGaps(context.Background(), source{query: query}, match{info: base}, nil, hasMissingFields)
 
 	if filled.Genre != "Rock" {
 		t.Errorf("Genre = %q, want %q", filled.Genre, "Rock")
@@ -205,7 +205,7 @@ func TestGapFilling_CompleteMatch_SkipsSecondProvider(t *testing.T) {
 	r := NewResolver([]Provider{p1, p2}, log, 0.5)
 
 	query := SearchQuery{Title: "My Song", Artist: "My Artist"}
-	filled := r.fillGaps(context.Background(), source{query: query}, match{info: p1.results[0]}, nil)
+	filled := r.fillGaps(context.Background(), source{query: query}, match{info: p1.results[0]}, nil, hasMissingFields)
 
 	if p2.called {
 		t.Error("second provider should not be consulted when match is complete")
@@ -324,7 +324,7 @@ func TestResolveFile_PreservesYtdlpTrackNumber(t *testing.T) {
 
 	log := logger.New(false)
 	resolver := NewResolver([]Provider{mock}, log, 0)
-	if err := resolver.Resolve(context.Background(), []string{path}); err != nil {
+	if err := resolver.Resolve(context.Background(), []string{path}, nil); err != nil {
 		t.Fatalf("Resolve failed: %v", err)
 	}
 
@@ -363,7 +363,7 @@ func TestGapFilling_IgnoresFillerOfAnotherVersion(t *testing.T) {
 
 	filled := r.fillGaps(context.Background(),
 		source{query: SearchQuery{Title: "Song", Artist: "Artist"}},
-		match{info: TrackInfo{Title: "Song", Artist: "Artist"}}, nil)
+		match{info: TrackInfo{Title: "Song", Artist: "Artist"}}, nil, hasMissingFields)
 
 	if filled.Genre != "" {
 		t.Errorf("Genre = %q: a live recording must not fill the studio one", filled.Genre)
@@ -379,7 +379,7 @@ func TestGapFilling_DonorTakesOriginalAsFiller(t *testing.T) {
 	r := NewResolver([]Provider{p1, p2}, logger.New(false), 0.5)
 
 	filled := r.fillGaps(context.Background(), liveSource(),
-		match{info: TrackInfo{Title: "Song", Artist: "Artist"}, donor: true}, nil)
+		match{info: TrackInfo{Title: "Song", Artist: "Artist"}, donor: true}, nil, hasMissingFields)
 
 	if filled.Genre != "Rock" {
 		t.Errorf("Genre = %q, want %q", filled.Genre, "Rock")

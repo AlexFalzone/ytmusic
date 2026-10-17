@@ -194,7 +194,7 @@ func TestResolveCorpus(t *testing.T) {
 	}
 
 	r := NewResolver([]Provider{first, second}, logger.New(false), 0).WithWorkers(4)
-	if err := r.Resolve(context.Background(), paths); err != nil {
+	if err := r.Resolve(context.Background(), paths, nil); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 

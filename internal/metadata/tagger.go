@@ -46,6 +46,24 @@ func tagMap(info TrackInfo) map[string][]string {
 	return tags
 }
 
+// The fields of the track itself; an ISRC already on the file came from the album's release and stays.
+func trackTagMap(info TrackInfo, existing map[string][]string) map[string][]string {
+	tags := make(map[string][]string)
+	if info.Title != "" {
+		tags[taglib.Title] = []string{info.Title}
+	}
+	if info.Artist != "" {
+		tags[taglib.Artist] = []string{info.Artist}
+	}
+	if info.Genre != "" {
+		tags[taglib.Genre] = []string{info.Genre}
+	}
+	if info.ISRC != "" && FirstTag(existing, taglib.ISRC) == "" {
+		tags[taglib.ISRC] = []string{info.ISRC}
+	}
+	return tags
+}
+
 // "Artist/Album", or "" when the tags cannot be read.
 func SubDirFromTags(path string) string {
 	tags, err := taglib.ReadTags(path)

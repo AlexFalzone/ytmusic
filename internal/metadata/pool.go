@@ -9,7 +9,8 @@ import (
 )
 
 // Only the per-file phase is parallel: the MusicBrainz rate limit serialises the others anyway.
-func (r *Resolver) resolveFiles(ctx context.Context, files []string) int {
+// trackOnly holds the files whose album-level fields the album phase owns.
+func (r *Resolver) resolveFiles(ctx context.Context, files []string, trackOnly map[string]bool) int {
 	indexes := make(chan int)
 	var failed atomic.Int32
 	var wg sync.WaitGroup
@@ -23,7 +24,7 @@ func (r *Resolver) resolveFiles(ctx context.Context, files []string) int {
 				if ctx.Err() != nil {
 					continue
 				}
-				if err := r.forFile(i, len(files)).resolveSafely(ctx, files[i]); err != nil {
+				if err := r.forFile(i, len(files)).resolveSafely(ctx, files[i], trackOnly[files[i]]); err != nil {
 					failed.Add(1)
 				}
 			}
@@ -52,7 +53,7 @@ func (r *Resolver) forFile(i, n int) *Resolver {
 	return &fr
 }
 
-func (r *Resolver) resolveSafely(ctx context.Context, path string) (err error) {
+func (r *Resolver) resolveSafely(ctx context.Context, path string, trackOnly bool) (err error) {
 	defer func() {
 		if p := recover(); p != nil {
 			r.logger.Error("panic while resolving %s: %v\n%s", path, p, debug.Stack())
@@ -61,7 +62,7 @@ func (r *Resolver) resolveSafely(ctx context.Context, path string) (err error) {
 	}()
 
 	r.logger.Debug("Processing: %s", path)
-	if err := r.resolveFile(ctx, path); err != nil {
+	if err := r.resolveFile(ctx, path, trackOnly); err != nil {
 		r.logger.Warn("Failed to resolve metadata: %v", err)
 		return err
 	}

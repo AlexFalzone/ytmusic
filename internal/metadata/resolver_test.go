@@ -75,7 +75,7 @@ func readTestTag(t *testing.T, path, key string) string {
 func resolveOne(t *testing.T, path string, providers ...Provider) {
 	t.Helper()
 	r := NewResolver(providers, logger.New(false), 0)
-	if err := r.Resolve(context.Background(), []string{path}); err != nil {
+	if err := r.Resolve(context.Background(), []string{path}, nil); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 }
@@ -130,7 +130,7 @@ func TestResolve_PhaseA_RunsBeforePhaseB(t *testing.T) {
 	r.WithReleaseResolver(rr)
 	r.WithAlbumResolver(tar)
 
-	if err := r.Resolve(context.Background(), []string{p1, p2}); err != nil {
+	if err := r.Resolve(context.Background(), []string{p1, p2}, nil); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 

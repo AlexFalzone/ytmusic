@@ -9,7 +9,8 @@ import (
 	"go.senan.xyz/taglib"
 )
 
-func (r *Resolver) resolveFile(ctx context.Context, path string) error {
+// trackOnly: the album phase owns the album-level fields and the cover, so only the track's own fields are written.
+func (r *Resolver) resolveFile(ctx context.Context, path string, trackOnly bool) error {
 	existing, err := r.tags.read(path)
 	if err != nil {
 		return fmt.Errorf("failed to read existing tags: %w", err)
@@ -37,18 +38,35 @@ func (r *Resolver) resolveFile(ctx context.Context, path string) error {
 	if r.fingerprinter != nil {
 		if info, found, err := r.fingerprinter.LookupByFile(ctx, path, query.Album); err == nil && found {
 			r.logger.Debug("  Fingerprint match: %q by %q", info.Title, info.Artist)
-			info, art := r.complete(ctx, src, match{info: info, providerIdx: -1})
-			return r.writeResolved(path, existing, info, art)
+			return r.finish(ctx, path, existing, src, match{info: info, providerIdx: -1}, trackOnly)
 		}
 	}
 
 	m, ok := r.findPrimaryMatch(ctx, src)
 	if !ok {
 		r.logger.Debug("  No candidate above threshold %.2f, keeping original tags", r.threshold)
+		if trackOnly {
+			return nil
+		}
 		if artist := albumArtistFallback(existing, ""); artist != "" {
 			if err := r.tags.write(path, map[string][]string{taglib.AlbumArtist: {artist}}); err != nil {
 				r.logger.Warn("  writing album artist to %s: %v", path, err)
 			}
+		}
+		return nil
+	}
+
+	return r.finish(ctx, path, existing, src, m, trackOnly)
+}
+
+func (r *Resolver) finish(ctx context.Context, path string, existing map[string][]string, src source, m match, trackOnly bool) error {
+	if trackOnly {
+		info := r.fillGaps(ctx, src, m, nil, hasMissingTrackFields)
+		if m.donor {
+			info = asVariant(info, m.base, src.version)
+		}
+		if err := r.tags.write(path, trackTagMap(info, existing)); err != nil {
+			return fmt.Errorf("failed to write tags to %s: %w", path, err)
 		}
 		return nil
 	}
@@ -119,13 +137,13 @@ func (r *Resolver) findPrimaryMatch(ctx context.Context, src source) (match, boo
 	return match{}, false
 }
 
-// Artwork URLs in failedArtwork count as missing, wherever they come from.
-func (r *Resolver) fillGaps(ctx context.Context, src source, primary match, failedArtwork map[string]bool) TrackInfo {
+// Artwork URLs in failedArtwork count as missing, wherever they come from. missing says which gaps are worth another provider.
+func (r *Resolver) fillGaps(ctx context.Context, src source, primary match, failedArtwork map[string]bool, missing func(TrackInfo) bool) TrackInfo {
 	base := primary.info
 	if failedArtwork[base.ArtworkURL] {
 		base.ArtworkURL = ""
 	}
-	if !hasMissingFields(base) {
+	if !missing(base) {
 		return base
 	}
 
@@ -155,12 +173,16 @@ func (r *Resolver) fillGaps(ctx context.Context, src source, primary match, fail
 		}
 		base = mergeTrackInfo(base, fill)
 
-		if !hasMissingFields(base) {
+		if !missing(base) {
 			break
 		}
 	}
 
 	return base
+}
+
+func hasMissingTrackFields(t TrackInfo) bool {
+	return t.Genre == "" || t.ISRC == ""
 }
 
 func hasMissingFields(t TrackInfo) bool {
