@@ -3,8 +3,10 @@ package fingerprint
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
+	"strings"
 )
 
 type Result struct {
@@ -12,11 +14,16 @@ type Result struct {
 	Fingerprint string
 }
 
+// Without -raw fpcalc prints the compressed string AcoustID expects; -raw prints an integer array it rejects.
 func Generate(ctx context.Context, path string) (Result, error) {
-	cmd := exec.CommandContext(ctx, "fpcalc", "-raw", "-json", path)
+	cmd := exec.CommandContext(ctx, "fpcalc", "-json", path)
 	out, err := cmd.Output()
 	if err != nil {
-		return Result{}, fmt.Errorf("fpcalc failed for %q: %w", path, err)
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && len(exitErr.Stderr) > 0 {
+			return Result{}, fmt.Errorf("fpcalc: %w: %s", err, strings.TrimSpace(string(exitErr.Stderr)))
+		}
+		return Result{}, fmt.Errorf("fpcalc: %w", err)
 	}
 
 	var raw struct {
@@ -24,10 +31,10 @@ func Generate(ctx context.Context, path string) (Result, error) {
 		Fingerprint string  `json:"fingerprint"`
 	}
 	if err := json.Unmarshal(out, &raw); err != nil {
-		return Result{}, fmt.Errorf("fpcalc output parse failed: %w", err)
+		return Result{}, fmt.Errorf("parsing fpcalc output: %w", err)
 	}
 	if raw.Fingerprint == "" {
-		return Result{}, fmt.Errorf("fpcalc returned empty fingerprint for %q", path)
+		return Result{}, fmt.Errorf("fpcalc returned an empty fingerprint")
 	}
 
 	return Result{

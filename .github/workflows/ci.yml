@@ -15,9 +15,9 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      # Without ffmpeg the tagging tests skip silently.
-      - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      # Without ffmpeg and fpcalc the tagging and fingerprint tests skip silently.
+      - name: Install ffmpeg and fpcalc
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg libchromaprint-tools
       - run: make test
 
   lint:

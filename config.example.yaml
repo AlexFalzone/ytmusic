@@ -27,7 +27,8 @@ metadata_providers:
 spotify_client_id: ""
 spotify_client_secret: ""
 
-# Strongly recommended, needs fpcalc: https://acoustid.org/login
+# Strongly recommended, needs fpcalc. The key of an application registered at
+# https://acoustid.org/new-application, not your user key.
 acoustid_api_key: ""
 
 # 0.0-1.0. Below it, the yt-dlp tags stay.
