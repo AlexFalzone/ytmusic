@@ -19,6 +19,7 @@ type Resolver struct {
 	albumResolver      AlbumResolver
 	batchFingerprinter BatchFingerprinter
 	releaseResolver    ReleaseResolver
+	releaseFinder      ReleaseFinder
 	httpClient         *http.Client
 	tags               *tagStore
 	workers            int
@@ -64,6 +65,11 @@ func (r *Resolver) WithBatchFingerprinter(bf BatchFingerprinter) *Resolver {
 
 func (r *Resolver) WithReleaseResolver(rr ReleaseResolver) *Resolver {
 	r.releaseResolver = rr
+	return r
+}
+
+func (r *Resolver) WithReleaseFinder(rf ReleaseFinder) *Resolver {
+	r.releaseFinder = rf
 	return r
 }
 

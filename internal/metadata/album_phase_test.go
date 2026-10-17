@@ -1,6 +1,21 @@
 package metadata
 
-import "testing"
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"image"
+	"image/jpeg"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"testing"
+
+	"ytmusic/internal/logger"
+	"ytmusic/internal/testaudio"
+
+	"go.senan.xyz/taglib"
+)
 
 func tracklist(id, status, date string, titles ...string) Tracklist {
 	tl := Tracklist{ID: id, Status: status, Date: date}
@@ -105,5 +120,175 @@ func TestMatchReleaseTieBreak(t *testing.T) {
 				t.Errorf("matchRelease = %q, %v; want %q", got.ID, ok, tt.want)
 			}
 		})
+	}
+}
+
+type fakeFinder struct {
+	byTitle map[string][]Tracklist
+	queries []string
+}
+
+func (f *fakeFinder) FindReleases(_ context.Context, title, artist string, tracks int) ([]Tracklist, error) {
+	f.queries = append(f.queries, fmt.Sprintf("%s|%s|%d", title, artist, tracks))
+	return f.byTitle[title], nil
+}
+
+// One MP3 per entry of files, keyed by position, each carrying YouTube's letterboxed thumbnail.
+func newAlbum(t *testing.T, title string, tracks []string, files map[int]map[string][]string) *Album {
+	t.Helper()
+	dir := t.TempDir()
+	album := &Album{Title: title, Tracks: tracks, Files: make(map[string]int)}
+	thumb := letterboxed(t, 160, 90)
+	for pos, tags := range files {
+		path := testaudio.MP3(t, dir, fmt.Sprintf("%02d.mp3", pos), "0.1")
+		writeTestTags(t, path, tags)
+		if err := taglib.WriteImage(path, thumb); err != nil {
+			t.Fatalf("write thumbnail: %v", err)
+		}
+		album.Files[path] = pos
+	}
+	return album
+}
+
+func pathAt(album *Album, pos int) string {
+	for path, p := range album.Files {
+		if p == pos {
+			return path
+		}
+	}
+	return ""
+}
+
+func coverServer(t *testing.T, status int) (*httptest.Server, []byte) {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 8, 8)), nil); err != nil {
+		t.Fatal(err)
+	}
+	cover := buf.Bytes()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(status)
+		if _, err := w.Write(cover); err != nil {
+			t.Errorf("writing the cover: %v", err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, cover
+}
+
+func TestEditionTitles(t *testing.T) {
+	tests := []struct {
+		title, described string
+		want             []string
+	}{
+		{"Take Care (Deluxe)", "Take Care", []string{"Take Care (Deluxe)", "Take Care"}},
+		{"The Divine Feminine (10th Anniversary)", "The Divine Feminine (10th Anniversary)", []string{"The Divine Feminine (10th Anniversary)", "The Divine Feminine"}},
+		{"Tree - Roots & Crown [New Edition]", "", []string{"Tree - Roots & Crown [New Edition]", "Tree - Roots & Crown"}},
+		{"Persona", "Persona", []string{"Persona"}},
+	}
+	for _, tt := range tests {
+		if got := editionTitles(tt.title, tt.described); !slices.Equal(got, tt.want) {
+			t.Errorf("editionTitles(%q, %q) = %q, want %q", tt.title, tt.described, got, tt.want)
+		}
+	}
+}
+
+func TestAlbumPhaseWritesTheMatchingEdition(t *testing.T) {
+	srv, cover := coverServer(t, http.StatusOK)
+	album := newAlbum(t, "Take Care (Deluxe)", []string{"Over My Dead Body", "Shot For Me", "Headlines"},
+		map[int]map[string][]string{
+			1: {taglib.Title: {"Over My Dead Body"}, taglib.Artist: {"Drake"}, taglib.Album: {"Take Care"}, taglib.Date: {"2011-11-15"}},
+			3: {taglib.Title: {"Headlines"}, taglib.Artist: {"Drake, Birdman"}, taglib.Album: {"Take Care"}, taglib.Date: {"2011-11-15"}},
+		})
+	release := tracklist("r1", "Official", "2012-03-20", "Over My Dead Body", "Shot for Me", "Headlines")
+	release.Tracks[0].ISRC, release.Tracks[2].ISRC = "USCM51100544", "USCM51100290"
+	release.ArtworkURL = srv.URL + "/front-500"
+	finder := &fakeFinder{byTitle: map[string][]Tracklist{"Take Care": {release}}}
+
+	r := NewResolver(nil, logger.New(false), 0).WithReleaseFinder(finder)
+	r.resolveAlbum(context.Background(), album)
+
+	if want := []string{"Take Care (Deluxe)|Drake|3", "Take Care|Drake|3"}; !slices.Equal(finder.queries, want) {
+		t.Errorf("queries = %q, want %q", finder.queries, want)
+	}
+	for pos, isrc := range map[int]string{1: "USCM51100544", 3: "USCM51100290"} {
+		path := pathAt(album, pos)
+		want := map[string]string{
+			taglib.Album: "Take Care (Deluxe)", taglib.AlbumArtist: "Drake", taglib.TrackNumber: fmt.Sprintf("%d/3", pos),
+			taglib.Date: "2012-03-20", taglib.ISRC: isrc,
+		}
+		for key, value := range want {
+			if got := readTestTag(t, path, key); got != value {
+				t.Errorf("track %d %s = %q, want %q", pos, key, got, value)
+			}
+		}
+		if !bytes.Equal(readTestImage(t, path), cover) {
+			t.Errorf("track %d does not carry the release's cover", pos)
+		}
+	}
+}
+
+func TestAlbumPhaseWithoutAnEditionKeepsYouTubeData(t *testing.T) {
+	album := newAlbum(t, "The Divine Feminine (10th Anniversary)", []string{"Congratulations", "Dang!", "Grand"},
+		map[int]map[string][]string{
+			1: {taglib.Title: {"Congratulations"}, taglib.Artist: {"Mac Miller, Bilal"}, taglib.Date: {"2016"}},
+			2: {taglib.Title: {"Dang!"}, taglib.Artist: {"Mac Miller"}, taglib.Date: {"2016"}},
+			3: {taglib.Title: {"Grand"}, taglib.Artist: {"Mac Miller"}, taglib.Date: {"2026"}},
+		})
+
+	NewResolver(nil, logger.New(false), 0).resolveAlbum(context.Background(), album)
+
+	var first []byte
+	for pos := 1; pos <= 3; pos++ {
+		path := pathAt(album, pos)
+		if got := readTestTag(t, path, taglib.TrackNumber); got != fmt.Sprintf("%d/3", pos) {
+			t.Errorf("track %d number = %q, want %d/3", pos, got, pos)
+		}
+		if got := readTestTag(t, path, taglib.Date); got != "2016" {
+			t.Errorf("track %d date = %q, want the album's most common date 2016", pos, got)
+		}
+		if got := readTestTag(t, path, taglib.AlbumArtist); got != "Mac Miller" {
+			t.Errorf("track %d album artist = %q, want Mac Miller", pos, got)
+		}
+		img := readTestImage(t, path)
+		cfg, _, err := image.DecodeConfig(bytes.NewReader(img))
+		if err != nil || cfg.Width != cfg.Height {
+			t.Errorf("track %d cover is %dx%d (%v), want a square", pos, cfg.Width, cfg.Height, err)
+		}
+		if first == nil {
+			first = img
+		} else if !bytes.Equal(img, first) {
+			t.Errorf("track %d carries another cover than track 1", pos)
+		}
+	}
+}
+
+func TestAlbumPhaseFallsBackToTheThumbnailWhenTheCoverFails(t *testing.T) {
+	srv, _ := coverServer(t, http.StatusNotFound)
+	album := newAlbum(t, "Persona", []string{"BODY PARTS - I denti"},
+		map[int]map[string][]string{1: {taglib.Title: {"BODY PARTS - I denti"}, taglib.Artist: {"Marracash"}}})
+	release := tracklist("r1", "Official", "2019-10-31", "BODY PARTS - I denti")
+	release.ArtworkURL = srv.URL + "/front-500"
+
+	r := NewResolver(nil, logger.New(false), 0).WithReleaseFinder(&fakeFinder{byTitle: map[string][]Tracklist{"Persona": {release}}})
+	r.resolveAlbum(context.Background(), album)
+
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(readTestImage(t, pathAt(album, 1))))
+	if err != nil || cfg.Width != 90 || cfg.Height != 90 {
+		t.Errorf("cover is %dx%d (%v), want the 90x90 crop of the thumbnail", cfg.Width, cfg.Height, err)
+	}
+}
+
+func TestAlbumPhaseAlbumArtistWithoutAMajority(t *testing.T) {
+	album := newAlbum(t, "Mix", []string{"A", "B", "C"}, map[int]map[string][]string{
+		1: {taglib.Title: {"A"}, taglib.Artist: {"Alpha"}},
+		2: {taglib.Title: {"B"}, taglib.Artist: {"Bravo"}},
+		3: {taglib.Title: {"C"}, taglib.Artist: {"Charlie, Alpha"}},
+	})
+
+	NewResolver(nil, logger.New(false), 0).resolveAlbum(context.Background(), album)
+
+	if got := readTestTag(t, pathAt(album, 1), taglib.AlbumArtist); got != "Various Artists" {
+		t.Errorf("album artist = %q, want Various Artists: no artist leads more than half the tracks", got)
 	}
 }
