@@ -154,3 +154,39 @@ func TestAcoustIDClient_Lookup_HTTPErrorKeepsTheMessage(t *testing.T) {
 		t.Errorf("err = %v, want one naming AcoustID's message", err)
 	}
 }
+
+func TestAcoustIDClient_Lookup_SendsTheKeyInTheBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		if r.URL.RawQuery != "" {
+			t.Errorf("query = %q, want nothing in the URL", r.URL.RawQuery)
+		}
+		if got := r.PostFormValue("client"); got != "test-key" {
+			t.Errorf("client = %q, want test-key", got)
+		}
+		testhttp.JSON(t, w, map[string]any{"status": "ok", "results": []any{}})
+	}))
+	defer srv.Close()
+
+	client := fingerprint.NewAcoustIDClient("test-key", srv.URL)
+	if _, _, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"}); err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+}
+
+// A network error carries the request URL, and errors end up in logs.
+func TestAcoustIDClient_Lookup_KeyStaysOutOfErrors(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	srv.Close()
+
+	client := fingerprint.NewAcoustIDClient("secret-key-123", srv.URL)
+	_, _, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"})
+	if err == nil {
+		t.Fatal("Lookup = nil, want the network error")
+	}
+	if strings.Contains(err.Error(), "secret-key-123") {
+		t.Errorf("err = %q, want it without the key", err)
+	}
+}

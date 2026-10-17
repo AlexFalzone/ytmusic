@@ -7,6 +7,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -41,9 +42,31 @@ func (e *StatusError) Error() string {
 	return fmt.Sprintf("HTTP %d: %s", e.Code, e.Body)
 }
 
+// Built anew for each attempt: a retried POST needs its body again.
+type newRequest func(ctx context.Context) (*http.Request, error)
+
 // Any status other than 200 is a *StatusError.
 func (c *Client) Get(ctx context.Context, url string, header http.Header, dest any) error {
-	resp, err := c.do(ctx, url, header)
+	return c.fetch(ctx, header, dest, func(ctx context.Context) (*http.Request, error) {
+		return http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	})
+}
+
+// Like Get, with form in the body: unlike a query string, it stays out of the URL every error quotes.
+func (c *Client) PostForm(ctx context.Context, url string, header http.Header, form url.Values, dest any) error {
+	body := form.Encode()
+	return c.fetch(ctx, header, dest, func(ctx context.Context) (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		return req, nil
+	})
+}
+
+func (c *Client) fetch(ctx context.Context, header http.Header, dest any, build newRequest) error {
+	resp, err := c.do(ctx, header, build)
 	if err != nil {
 		return err
 	}
@@ -60,9 +83,9 @@ func (c *Client) Get(ctx context.Context, url string, header http.Header, dest a
 	return nil
 }
 
-func (c *Client) do(ctx context.Context, url string, header http.Header) (*http.Response, error) {
+func (c *Client) do(ctx context.Context, header http.Header, build newRequest) (*http.Response, error) {
 	for attempt := 0; ; attempt++ {
-		resp, err := c.send(ctx, url, header)
+		resp, err := c.send(ctx, header, build)
 		if err != nil || attempt == c.Retries || !slowDown(resp.StatusCode) {
 			return resp, err
 		}
@@ -89,8 +112,8 @@ func sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-func (c *Client) send(ctx context.Context, url string, header http.Header) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+func (c *Client) send(ctx context.Context, header http.Header, build newRequest) (*http.Response, error) {
+	req, err := build(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("building request: %w", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -221,5 +222,61 @@ func TestGetFailsOnInvalidJSON(t *testing.T) {
 	srv, _ := serve(t, reply{status: http.StatusOK, body: `not json`})
 	if err := newClient().Get(context.Background(), srv.URL, nil, &struct{}{}); err == nil {
 		t.Error("Get = nil, want a decoding error")
+	}
+}
+
+func TestPostFormSendsTheFormInTheBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/x-www-form-urlencoded" {
+			t.Errorf("Content-Type = %q, want a form", got)
+		}
+		if r.URL.RawQuery != "" {
+			t.Errorf("query = %q, want the form only in the body", r.URL.RawQuery)
+		}
+		if got := r.PostFormValue("a"); got != "b" {
+			t.Errorf("a = %q, want b", got)
+		}
+		if got := r.Header.Get("User-Agent"); got != buildinfo.UserAgent() {
+			t.Errorf("User-Agent = %q, want %q", got, buildinfo.UserAgent())
+		}
+		if _, err := w.Write([]byte(`{}`)); err != nil {
+			t.Errorf("write reply: %v", err)
+		}
+	}))
+	defer srv.Close()
+
+	if err := newClient().PostForm(context.Background(), srv.URL, nil, url.Values{"a": {"b"}}, &struct{}{}); err != nil {
+		t.Fatalf("PostForm: %v", err)
+	}
+}
+
+// A body reader consumed by the first attempt would send the retry empty.
+func TestPostFormRetriesWithTheWholeBody(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.PostFormValue("a"); got != "b" {
+			t.Errorf("request %d: a = %q, want b", calls.Load()+1, got)
+		}
+		if calls.Add(1) == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		if _, err := w.Write([]byte(`{}`)); err != nil {
+			t.Errorf("write reply: %v", err)
+		}
+	}))
+	defer srv.Close()
+	c := newClient()
+	c.Retries = 1
+
+	if err := c.PostForm(context.Background(), srv.URL, nil, url.Values{"a": {"b"}}, &struct{}{}); err != nil {
+		t.Fatalf("PostForm: %v", err)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Errorf("%d requests, want 2", got)
 	}
 }

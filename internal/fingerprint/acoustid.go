@@ -66,7 +66,7 @@ func (c *AcoustIDClient) Lookup(ctx context.Context, fp Result) (string, bool, e
 	params.Set("meta", "recordingids")
 
 	var result acoustidResponse
-	if err := c.api.Get(ctx, c.baseURL+"?"+params.Encode(), nil, &result); err != nil {
+	if err := c.api.PostForm(ctx, c.baseURL, nil, params, &result); err != nil {
 		return "", false, fmt.Errorf("acoustid lookup: %w", err)
 	}
 	if result.Status != "ok" {
