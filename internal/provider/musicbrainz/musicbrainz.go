@@ -260,6 +260,7 @@ type releaseLookupResponse struct {
 	ID              string                `json:"id"`
 	Title           string                `json:"title"`
 	Status          string                `json:"status"`
+	Disambiguation  string                `json:"disambiguation"`
 	Date            string                `json:"date"`
 	ArtistCredit    []artistCredit        `json:"artist-credit"`
 	CoverArtArchive coverArtArchive       `json:"cover-art-archive"`
@@ -313,10 +314,11 @@ func (c *Client) fetchRelease(ctx context.Context, releaseID string) (metadata.T
 	}
 
 	tl := metadata.Tracklist{
-		ID:     result.ID,
-		Title:  result.Title,
-		Status: result.Status,
-		Date:   result.Date,
+		ID:             result.ID,
+		Title:          result.Title,
+		Status:         result.Status,
+		Disambiguation: result.Disambiguation,
+		Date:           result.Date,
 	}
 	if len(result.ArtistCredit) > 0 {
 		tl.Artist = result.ArtistCredit[0].Artist.Name

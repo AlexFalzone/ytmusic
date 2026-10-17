@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 
 	"go.senan.xyz/taglib"
 )
@@ -205,8 +206,12 @@ func editionRatio(tracks []string, tl Tracklist) (float64, bool) {
 	return float64(matched) / float64(known), true
 }
 
-// Official first, then the earliest date (any date before none), then the lowest ID so the choice is stable.
+// A clean edit carries other ISRCs than the explicit album YouTube Music presents when both exist. Then Official,
+// the earliest year (any date before none) with the fullest date, and the lowest ID so the choice is stable.
 func preferRelease(a, b Tracklist) bool {
+	if isClean(a) != isClean(b) {
+		return !isClean(a)
+	}
 	if (a.Status == "Official") != (b.Status == "Official") {
 		return a.Status == "Official"
 	}
@@ -214,7 +219,17 @@ func preferRelease(a, b Tracklist) bool {
 		if a.Date == "" || b.Date == "" {
 			return a.Date != ""
 		}
+		if ya, yb := ParseYear(a.Date), ParseYear(b.Date); ya != yb {
+			return ya < yb
+		}
+		if len(a.Date) != len(b.Date) {
+			return len(a.Date) > len(b.Date)
+		}
 		return a.Date < b.Date
 	}
 	return a.ID < b.ID
+}
+
+func isClean(tl Tracklist) bool {
+	return strings.Contains(strings.ToLower(tl.Disambiguation), "clean")
 }

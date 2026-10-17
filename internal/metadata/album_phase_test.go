@@ -109,6 +109,18 @@ func TestMatchReleaseTieBreak(t *testing.T) {
 			tracklist("undated", "Official", "", album...),
 			tracklist("dated", "Official", "2020", album...),
 		}, "dated"},
+		{"explicit over clean", []Tracklist{
+			{ID: "clean", Status: "Official", Date: "2011", Disambiguation: "deluxe, clean", Tracks: tracklist("", "", "", album...).Tracks},
+			{ID: "explicit", Status: "Official", Date: "2012", Disambiguation: "deluxe, explicit", Tracks: tracklist("", "", "", album...).Tracks},
+		}, "explicit"},
+		{"a full date over a year alone", []Tracklist{
+			tracklist("year", "Official", "2012", album...),
+			tracklist("day", "Official", "2012-03-20", album...),
+		}, "day"},
+		{"an earlier year over a full date", []Tracklist{
+			tracklist("later", "Official", "2012-03-20", album...),
+			tracklist("earlier", "Official", "2011", album...),
+		}, "earlier"},
 		{"lowest ID last", []Tracklist{
 			tracklist("b", "Official", "2016", album...),
 			tracklist("a", "Official", "2016", album...),

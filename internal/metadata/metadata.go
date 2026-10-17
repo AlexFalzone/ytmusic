@@ -54,13 +54,14 @@ type ReleaseTrack struct {
 }
 
 type Tracklist struct {
-	ID         string
-	Title      string
-	Artist     string
-	Status     string // "Official", "Bootleg", …
-	Date       string
-	ArtworkURL string // "" when the release has no front cover
-	Tracks     []ReleaseTrack
+	ID             string
+	Title          string
+	Artist         string
+	Status         string // "Official", "Bootleg", …
+	Disambiguation string // what tells editions apart: "deluxe, clean", "10th Anniversary"
+	Date           string
+	ArtworkURL     string // "" when the release has no front cover
+	Tracks         []ReleaseTrack
 }
 
 // An album as its source presents it: its title, order and track count win over any provider.

@@ -28,7 +28,7 @@ func TestFindReleasesSearchesByTrackCountAndLooksUpEachCandidate(t *testing.T) {
 		if !strings.Contains(r.URL.Query().Get("inc"), "isrcs") {
 			t.Errorf("lookup inc = %q, want isrcs among them", r.URL.Query().Get("inc"))
 		}
-		respond(t, w, `{"id": "r1", "title": "The Divine Feminine", "status": "Official", "date": "2026-10-02",
+		respond(t, w, `{"id": "r1", "title": "The Divine Feminine", "status": "Official", "date": "2026-10-02", "disambiguation": "10th Anniversary",
 			"cover-art-archive": {"front": true},
 			"media": [{"position": 1, "tracks": [{"number": "1", "position": 1, "title": "Congratulations", "recording": {"id": "rec-1", "isrcs": ["USWB11601443"]}}]}]}`)
 	})
@@ -51,8 +51,9 @@ func TestFindReleasesSearchesByTrackCountAndLooksUpEachCandidate(t *testing.T) {
 		t.Fatalf("got %d releases, want 2", len(got))
 	}
 	r1 := got[0]
-	if r1.ID != "r1" || r1.Status != "Official" || r1.Date != "2026-10-02" || r1.ArtworkURL != "https://caa.test/release/r1/front-500" {
-		t.Errorf("r1 = %+v, want Official, 2026-10-02, its front cover", r1)
+	if r1.ID != "r1" || r1.Status != "Official" || r1.Date != "2026-10-02" || r1.Disambiguation != "10th Anniversary" ||
+		r1.ArtworkURL != "https://caa.test/release/r1/front-500" {
+		t.Errorf("r1 = %+v, want Official, 2026-10-02, 10th Anniversary, its front cover", r1)
 	}
 	if len(r1.Tracks) != 1 || r1.Tracks[0].ISRC != "USWB11601443" {
 		t.Errorf("r1 tracks = %+v, want the recording's ISRC", r1.Tracks)
