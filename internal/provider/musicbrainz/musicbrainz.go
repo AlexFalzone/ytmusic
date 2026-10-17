@@ -39,7 +39,7 @@ func NewWithURL(apiURL, artworkBaseURL string) *Client {
 		api: &httpjson.Client{
 			HTTP:     &http.Client{Timeout: 10 * time.Second},
 			Throttle: throttle.New(requestInterval),
-			Retry:    true,
+			Retries:  3,
 		},
 		apiURL:         apiURL,
 		artworkBaseURL: artworkBaseURL,

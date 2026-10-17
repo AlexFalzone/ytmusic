@@ -77,7 +77,7 @@ func TestFindReleasesKeepsTheCandidatesThatLoaded(t *testing.T) {
 		respond(t, w, `{"releases": [{"id": "bad"}, {"id": "good"}]}`)
 	})
 	mux.HandleFunc("/release/bad", func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "busy", http.StatusServiceUnavailable)
+		http.Error(w, "broken", http.StatusInternalServerError)
 	})
 	mux.HandleFunc("/release/good", func(w http.ResponseWriter, r *http.Request) {
 		respond(t, w, `{"id": "good", "media": [{"position": 1, "tracks": [{"number": "1", "title": "A", "recording": {"id": "x"}}]}]}`)

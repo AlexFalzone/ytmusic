@@ -93,7 +93,7 @@ func TestGetRetriesOnceWhenAskedToSlowDown(t *testing.T) {
 			reply{status: status, retryAfter: "0"},
 			reply{status: http.StatusOK, body: `{}`})
 		c := newClient()
-		c.Retry = true
+		c.Retries = 1
 
 		if err := c.Get(context.Background(), srv.URL, nil, &struct{}{}); err != nil {
 			t.Errorf("%d: Get = %v, want the retry to succeed", status, err)
@@ -104,18 +104,60 @@ func TestGetRetriesOnceWhenAskedToSlowDown(t *testing.T) {
 	}
 }
 
-func TestGetRetriesOnlyOnce(t *testing.T) {
+func TestGetRetriesUpToRetries(t *testing.T) {
 	srv, calls := serve(t, reply{status: http.StatusServiceUnavailable, retryAfter: "0"})
 	c := newClient()
-	c.Retry = true
+	c.Retries = 3
 
 	err := c.Get(context.Background(), srv.URL, nil, &struct{}{})
 	var se *StatusError
 	if !errors.As(err, &se) || se.Code != http.StatusServiceUnavailable {
-		t.Errorf("err = %v, want the second 503", err)
+		t.Errorf("err = %v, want the last 503", err)
 	}
-	if got := calls.Load(); got != 2 {
-		t.Errorf("%d requests, want 2", got)
+	if got := calls.Load(); got != 4 {
+		t.Errorf("%d requests, want 4", got)
+	}
+}
+
+func TestGetDoesNotWaitBeyondTheCap(t *testing.T) {
+	srv, calls := serve(t, reply{status: http.StatusTooManyRequests, retryAfter: "3600"})
+	c := newClient()
+	c.Retries = 1
+
+	start := time.Now()
+	err := c.Get(context.Background(), srv.URL, nil, &struct{}{})
+	var se *StatusError
+	if !errors.As(err, &se) || se.Code != http.StatusTooManyRequests {
+		t.Errorf("err = %v, want the 429", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Errorf("%d requests, want 1", got)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("Get returned after %v, want at once", elapsed)
+	}
+}
+
+func TestRetryWait(t *testing.T) {
+	tests := []struct {
+		retryAfter string
+		attempt    int
+		want       time.Duration
+		ok         bool
+	}{
+		{"", 0, 2 * time.Second, true},
+		{"", 1, 4 * time.Second, true},
+		{"", 2, 8 * time.Second, true},
+		{"5", 0, 5 * time.Second, true},
+		{"30", 0, 30 * time.Second, true},
+		{"31", 0, 0, false},
+		{"Wed, 21 Oct 2015 07:28:00 GMT", 1, 4 * time.Second, true},
+	}
+	for _, tt := range tests {
+		got, ok := retryWait(tt.retryAfter, tt.attempt)
+		if ok != tt.ok || (ok && got != tt.want) {
+			t.Errorf("retryWait(%q, %d) = %v, %v; want %v, %v", tt.retryAfter, tt.attempt, got, ok, tt.want, tt.ok)
+		}
 	}
 }
 
@@ -131,9 +173,9 @@ func TestGetDoesNotRetryUnlessTold(t *testing.T) {
 }
 
 func TestGetStopsWaitingToRetryWhenCancelled(t *testing.T) {
-	srv, _ := serve(t, reply{status: http.StatusTooManyRequests, retryAfter: "3600"})
+	srv, _ := serve(t, reply{status: http.StatusTooManyRequests, retryAfter: "20"})
 	c := newClient()
-	c.Retry = true
+	c.Retries = 1
 	ctx, cancel := context.WithCancel(context.Background())
 	time.AfterFunc(50*time.Millisecond, cancel)
 

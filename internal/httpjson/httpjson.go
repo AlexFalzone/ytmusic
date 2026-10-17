@@ -20,10 +20,13 @@ const maxErrorBody = 512
 
 const defaultRetryAfter = 2 * time.Second
 
+// A service asking for a longer wait is down for longer than a run should hang on it.
+const maxRetryAfter = 30 * time.Second
+
 type Client struct {
 	HTTP     *http.Client
 	Throttle *throttle.Throttle
-	Retry    bool // once, on 429 and 503
+	Retries  int // on 429 and 503
 }
 
 type StatusError struct {
@@ -58,21 +61,32 @@ func (c *Client) Get(ctx context.Context, url string, header http.Header, dest a
 }
 
 func (c *Client) do(ctx context.Context, url string, header http.Header) (*http.Response, error) {
-	resp, err := c.send(ctx, url, header)
-	if err != nil || !c.Retry || !slowDown(resp.StatusCode) {
-		return resp, err
-	}
-	wait := retryAfter(resp.Header.Get("Retry-After"))
-	resp.Body.Close()
+	for attempt := 0; ; attempt++ {
+		resp, err := c.send(ctx, url, header)
+		if err != nil || attempt == c.Retries || !slowDown(resp.StatusCode) {
+			return resp, err
+		}
+		wait, ok := retryWait(resp.Header.Get("Retry-After"), attempt)
+		if !ok {
+			return resp, nil
+		}
+		resp.Body.Close()
 
-	timer := time.NewTimer(wait)
+		if err := sleep(ctx, wait); err != nil {
+			return nil, fmt.Errorf("waiting to retry: %w", err)
+		}
+	}
+}
+
+func sleep(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
-		return nil, fmt.Errorf("waiting to retry: %w", ctx.Err())
+		return ctx.Err()
 	case <-timer.C:
+		return nil
 	}
-	return c.send(ctx, url, header)
 }
 
 func (c *Client) send(ctx context.Context, url string, header http.Header) (*http.Response, error) {
@@ -100,10 +114,12 @@ func slowDown(status int) bool {
 	return status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable
 }
 
-// The HTTP-date form of Retry-After waits the default.
-func retryAfter(v string) time.Duration {
-	if s, err := strconv.Atoi(v); err == nil && s >= 0 {
-		return time.Duration(s) * time.Second
+// Without a Retry-After in seconds (the HTTP-date form included), each wait doubles the last. false: the service asks for more than maxRetryAfter.
+func retryWait(retryAfter string, attempt int) (time.Duration, bool) {
+	s, err := strconv.Atoi(retryAfter)
+	if err != nil || s < 0 {
+		return defaultRetryAfter << attempt, true
 	}
-	return defaultRetryAfter
+	wait := time.Duration(s) * time.Second
+	return wait, wait <= maxRetryAfter
 }

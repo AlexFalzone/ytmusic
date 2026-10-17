@@ -37,7 +37,7 @@ func New(clientID, clientSecret string) *Client {
 	return &Client{
 		clientID:     clientID,
 		clientSecret: clientSecret,
-		api:          &httpjson.Client{HTTP: &http.Client{Timeout: 10 * time.Second}, Retry: true},
+		api:          &httpjson.Client{HTTP: &http.Client{Timeout: 10 * time.Second}, Retries: 1},
 		tokenURL:     "https://accounts.spotify.com/api/token",
 		apiURL:       "https://api.spotify.com/v1",
 	}
