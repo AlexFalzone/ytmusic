@@ -23,6 +23,7 @@ type components struct {
 	fingerprinter   fingerprinter
 	albumResolver   metadata.AlbumResolver
 	releaseResolver metadata.ReleaseResolver
+	releaseFinder   metadata.ReleaseFinder
 }
 
 // One MusicBrainz client for everything: its throttle and caches live in the instance.
@@ -57,9 +58,11 @@ func buildComponents(cfg config.Config) components {
 
 	var ar metadata.AlbumResolver
 	var rr metadata.ReleaseResolver
+	var rf metadata.ReleaseFinder
 	if mbClient != nil {
 		ar = mbClient
 		rr = mbClient
+		rf = mbClient
 	}
 
 	return components{
@@ -67,5 +70,6 @@ func buildComponents(cfg config.Config) components {
 		fingerprinter:   fp,
 		albumResolver:   ar,
 		releaseResolver: rr,
+		releaseFinder:   rf,
 	}
 }

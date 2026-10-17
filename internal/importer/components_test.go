@@ -43,6 +43,9 @@ func TestComponentsShareOneMusicBrainzClient(t *testing.T) {
 	if c.releaseResolver != metadata.ReleaseResolver(mb) {
 		t.Error("the release resolver is not the provider's MusicBrainz client")
 	}
+	if c.releaseFinder != metadata.ReleaseFinder(mb) {
+		t.Error("the release finder is not the provider's MusicBrainz client")
+	}
 }
 
 func TestComponentsBuildMusicBrainzForAcoustIDAlone(t *testing.T) {

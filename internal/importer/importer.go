@@ -36,11 +36,15 @@ func newImporter(cfg config.Config, log *logger.Logger, c components) *Importer 
 	if c.releaseResolver != nil {
 		r.WithReleaseResolver(c.releaseResolver)
 	}
+	if c.releaseFinder != nil {
+		r.WithReleaseFinder(c.releaseFinder)
+	}
 	imp.resolver = r
 	return imp
 }
 
-func (i *Importer) Import(ctx context.Context, dir string) error {
+// album is nil unless dir holds an album download.
+func (i *Importer) Import(ctx context.Context, dir string, album *metadata.Album) error {
 	if i.resolver == nil {
 		i.log.Info("No metadata providers configured, skipping metadata resolution")
 		return nil
@@ -65,7 +69,7 @@ func (i *Importer) Import(ctx context.Context, dir string) error {
 	}
 	i.log.Debug("Found %d audio files", len(files))
 
-	if err := i.resolver.Resolve(ctx, files, nil); err != nil {
+	if err := i.resolver.Resolve(ctx, files, album); err != nil {
 		return fmt.Errorf("resolving %s: %w", dir, err)
 	}
 

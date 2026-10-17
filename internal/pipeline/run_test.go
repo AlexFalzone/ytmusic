@@ -11,6 +11,7 @@ import (
 	"ytmusic/internal/config"
 	"ytmusic/internal/logger"
 	"ytmusic/internal/lyrics"
+	"ytmusic/internal/metadata"
 	"ytmusic/pkg/utils"
 
 	"go.senan.xyz/taglib"
@@ -57,7 +58,7 @@ type retagger struct {
 	err  error
 }
 
-func (r *retagger) Import(_ context.Context, dir string) error {
+func (r *retagger) Import(_ context.Context, dir string, _ *metadata.Album) error {
 	r.dirs = append(r.dirs, dir)
 	files, err := utils.FindAudioFiles(dir)
 	if err != nil {

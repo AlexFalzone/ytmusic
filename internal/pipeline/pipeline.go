@@ -27,7 +27,7 @@ type Hooks struct {
 }
 
 type dirImporter interface {
-	Import(ctx context.Context, dir string) error
+	Import(ctx context.Context, dir string, album *metadata.Album) error
 }
 
 type lyricsFetcher interface {
@@ -80,7 +80,7 @@ func run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 		return fmt.Errorf("failed to merge files: %w", err)
 	}
 
-	if err := imp.Import(ctx, mergedDir); err != nil {
+	if err := imp.Import(ctx, mergedDir, nil); err != nil {
 		msg := fmt.Sprintf("metadata resolution failed: %v", err)
 		log.Warn("%s", msg)
 		if hooks.OnWarning != nil {
@@ -109,7 +109,7 @@ func run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 }
 
 func RunImportOnly(ctx context.Context, cfg config.Config, log *logger.Logger, dir string) error {
-	if err := importer.New(cfg, log).Import(ctx, dir); err != nil {
+	if err := importer.New(cfg, log).Import(ctx, dir, nil); err != nil {
 		return fmt.Errorf("metadata resolution failed: %w", err)
 	}
 
