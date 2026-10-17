@@ -75,7 +75,14 @@ AcoustID is limited to 3 requests per second. Resolution runs in three phases:
 3. **Per-file search**: providers in order, `metadata_workers` files at a time. The first result above
    `confidence_threshold` wins; later providers fill missing fields and replace artwork that fails to download.
 
-Phase 3 never overwrites the track and disc numbers of phases 1 and 2.
+Phase 3 never overwrites the track and disc numbers of phases 1 and 2. Later providers fill track number, date and
+artwork only from a result on the same album as the first.
+
+**Album URLs** (`music.youtube.com/browse/MPREb_…` or `playlist?list=OLAK5uy_…`) replace phases 1 and 2: the album
+keeps YouTube Music's title, order and track count (`5/19`), and every track gets the same album artist, date and
+cover, recognised by a provider or not. A MusicBrainz release with the same track count and titles in the same order
+adds its date, ISRCs and cover; without one, the date is the release date YouTube Music gives and the cover its
+thumbnail cropped square. Phase 3 then sets only title, artist, genre and ISRC.
 
 ### Matching rules
 
