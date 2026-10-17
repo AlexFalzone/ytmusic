@@ -125,7 +125,7 @@ func parseRecordings(recordings []recording, preferAlbum, artworkBaseURL string)
 			info.Year = metadata.ParseYear(rel.Date)
 			info.ReleaseDate = rel.Date
 
-			info.ArtworkURL = fmt.Sprintf("%s/%s/front-500", artworkBaseURL, rel.ID)
+			info.ArtworkURL = frontCover(artworkBaseURL, rel.ID)
 
 			if len(rel.Media) > 0 && len(rel.Media[0].Track) > 0 {
 				m := rel.Media[0]
@@ -142,6 +142,10 @@ func parseRecordings(recordings []recording, preferAlbum, artworkBaseURL string)
 		results = append(results, info)
 	}
 	return results
+}
+
+func frontCover(artworkBaseURL, releaseID string) string {
+	return fmt.Sprintf("%s/%s/front-500", artworkBaseURL, releaseID)
 }
 
 func joinArtistCredits(credits []artistCredit) string {
@@ -324,7 +328,7 @@ func (c *Client) fetchRelease(ctx context.Context, releaseID string) (metadata.T
 		tl.Artist = result.ArtistCredit[0].Artist.Name
 	}
 	if result.CoverArtArchive.Front {
-		tl.ArtworkURL = fmt.Sprintf("%s/%s/front-500", c.artworkBaseURL, result.ID)
+		tl.ArtworkURL = frontCover(c.artworkBaseURL, result.ID)
 	}
 
 	for _, m := range result.Media {
