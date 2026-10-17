@@ -5,13 +5,6 @@ import (
 	"time"
 )
 
-// "Take Care" and "Take Care (Deluxe)" fall below it: another edition, other track numbers.
-const sameAlbumSimilarity = 0.8
-
-func sameAlbum(a, b string) bool {
-	return a != "" && b != "" && Similarity(a, b) > sameAlbumSimilarity
-}
-
 // Silence and fades differ between two uploads of the same recording.
 const minDurationTolerance = 3 * time.Second
 
@@ -81,8 +74,11 @@ func score(query SearchQuery, result TrackInfo) float64 {
 		s = titleScore*0.6 + artistScore*0.4
 	}
 
-	if sameAlbum(query.Album, result.Album) {
-		s *= 1.1
+	if query.Album != "" && result.Album != "" {
+		albumScore := Similarity(query.Album, result.Album)
+		if albumScore > 0.8 {
+			s *= 1.1
+		}
 	}
 
 	if strings.EqualFold(result.AlbumArtist, "Various Artists") {

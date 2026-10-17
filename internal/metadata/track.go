@@ -194,18 +194,11 @@ func hasMissingFields(t TrackInfo) bool {
 		t.ArtworkURL == ""
 }
 
-// Title, Artist, Album and AlbumArtist come from the primary match only, the album-level fields from a filler on the same album.
+// Title, Artist, Album and AlbumArtist come from the primary match only.
 func mergeTrackInfo(base, filler TrackInfo) TrackInfo {
 	if base.Genre == "" && filler.Genre != "" {
 		base.Genre = filler.Genre
 	}
-	if base.ISRC == "" && filler.ISRC != "" {
-		base.ISRC = filler.ISRC
-	}
-	if !sameAlbum(base.Album, filler.Album) {
-		return base
-	}
-
 	if base.TrackNumber == 0 && filler.TrackNumber != 0 {
 		base.TrackNumber = filler.TrackNumber
 	}
@@ -220,6 +213,9 @@ func mergeTrackInfo(base, filler TrackInfo) TrackInfo {
 	}
 	if base.ReleaseDate == "" && filler.ReleaseDate != "" {
 		base.ReleaseDate = filler.ReleaseDate
+	}
+	if base.ISRC == "" && filler.ISRC != "" {
+		base.ISRC = filler.ISRC
 	}
 	if base.ArtworkURL == "" && filler.ArtworkURL != "" {
 		base.ArtworkURL = filler.ArtworkURL
