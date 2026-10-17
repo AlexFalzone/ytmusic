@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"ytmusic/internal/logger"
@@ -23,6 +24,7 @@ type Resolver struct {
 	httpClient         *http.Client
 	tags               *tagStore
 	workers            int
+	fingerprintOff     *sync.Once // a pointer: forFile copies the Resolver, and the warning is once per run
 }
 
 func NewResolver(providers []Provider, log *logger.Logger, threshold float64) *Resolver {
@@ -34,12 +36,13 @@ func NewResolver(providers []Provider, log *logger.Logger, threshold float64) *R
 		cached[i] = &cachedProvider{Provider: p}
 	}
 	return &Resolver{
-		providers:  cached,
-		logger:     log,
-		threshold:  threshold,
-		httpClient: &http.Client{Timeout: 15 * time.Second},
-		tags:       &tagStore{},
-		workers:    1,
+		providers:      cached,
+		logger:         log,
+		threshold:      threshold,
+		httpClient:     &http.Client{Timeout: 15 * time.Second},
+		tags:           &tagStore{},
+		workers:        1,
+		fingerprintOff: &sync.Once{},
 	}
 }
 
