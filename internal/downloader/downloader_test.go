@@ -296,3 +296,17 @@ func TestMergeFilesReportsWhereEachFileWent(t *testing.T) {
 		}
 	}
 }
+
+// The date tag would otherwise hold the upload date, years after the release for most songs.
+func TestYtdlpArgsWriteTheReleaseDate(t *testing.T) {
+	d := New(config.DefaultConfig(), logger.New(false), t.TempDir())
+	args := d.buildYtdlpArgs("https://example.com/watch?v=x", "list.txt")
+
+	want := "%(release_date>%Y-%m-%d,release_year|)s:(?P<meta_date>.+)"
+	for i, a := range args[:len(args)-1] {
+		if a == "--parse-metadata" && args[i+1] == want {
+			return
+		}
+	}
+	t.Errorf("args %q lack --parse-metadata %q", args, want)
+}

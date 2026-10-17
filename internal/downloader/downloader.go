@@ -104,6 +104,8 @@ func (d *Downloader) buildYtdlpArgs(url, producedList string) []string {
 		"--write-thumbnail",
 		"--embed-thumbnail",
 		"--embed-metadata",
+		// The release date instead of the upload date; with neither release field the upload date stays.
+		"--parse-metadata", "%(release_date>%Y-%m-%d,release_year|)s:(?P<meta_date>.+)",
 		"-i",
 		// Not --print: it implies --quiet, silencing the progress verbose mode shows.
 		"--print-to-file", "after_move:filepath", producedList,
