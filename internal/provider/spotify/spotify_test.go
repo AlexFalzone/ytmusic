@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"ytmusic/internal/buildinfo"
@@ -20,6 +21,12 @@ func TestSearch(t *testing.T) {
 		}
 		if r.Method != http.MethodPost {
 			t.Errorf("token: expected POST, got %s", r.Method)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/x-www-form-urlencoded" {
+			t.Errorf("token: Content-Type = %q, want a form", got)
+		}
+		if got := r.PostFormValue("grant_type"); got != "client_credentials" {
+			t.Errorf("token: grant_type = %q, want client_credentials", got)
 		}
 		user, pass, ok := r.BasicAuth()
 		if !ok || user != "test-id" || pass != "test-secret" {
@@ -227,5 +234,21 @@ func TestSearchAddsTheArtistsGenres(t *testing.T) {
 	}
 	if len(results) != 1 || results[0].Genre != "Hip Hop, Pop Rap, Trap" {
 		t.Errorf("results = %+v, want one with genre %q", results, "Hip Hop, Pop Rap, Trap")
+	}
+}
+
+func TestTokenErrorKeepsTheStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		testhttp.JSON(t, w, map[string]string{"error": "invalid_client"})
+	}))
+	defer server.Close()
+
+	client := New("bad-id", "bad-secret")
+	client.tokenURL = server.URL
+
+	_, err := client.Search(context.Background(), metadata.SearchQuery{Title: "Song"})
+	if err == nil || !strings.Contains(err.Error(), "401") || !strings.Contains(err.Error(), "invalid_client") {
+		t.Errorf("err = %v, want one with the status and the reason", err)
 	}
 }

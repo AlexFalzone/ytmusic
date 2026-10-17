@@ -2,9 +2,8 @@ package spotify
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/base64"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -12,7 +11,6 @@ import (
 	"time"
 	"unicode"
 
-	"ytmusic/internal/buildinfo"
 	"ytmusic/internal/httpjson"
 	"ytmusic/internal/memo"
 	"ytmusic/internal/metadata"
@@ -145,29 +143,13 @@ func (c *Client) getToken(ctx context.Context) (string, error) {
 		return c.accessToken, nil
 	}
 
-	data := url.Values{"grant_type": {"client_credentials"}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.tokenURL, strings.NewReader(data.Encode()))
-	if err != nil {
-		return "", fmt.Errorf("failed to create token request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", buildinfo.UserAgent())
-	req.SetBasicAuth(c.clientID, c.clientSecret)
-
-	resp, err := c.api.HTTP.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("token request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("token request returned %d: %s", resp.StatusCode, body)
-	}
+	credentials := base64.StdEncoding.EncodeToString([]byte(c.clientID + ":" + c.clientSecret))
+	header := http.Header{"Authorization": {"Basic " + credentials}}
+	form := url.Values{"grant_type": {"client_credentials"}}
 
 	var tokenResp tokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
-		return "", fmt.Errorf("failed to decode token response: %w", err)
+	if err := c.api.PostForm(ctx, c.tokenURL, header, form, &tokenResp); err != nil {
+		return "", fmt.Errorf("spotify token: %w", err)
 	}
 
 	c.accessToken = tokenResp.AccessToken
