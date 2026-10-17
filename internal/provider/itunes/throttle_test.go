@@ -36,7 +36,8 @@ func TestSearchWaitsForTheThrottle(t *testing.T) {
 
 // Apple counts requests per address: two clients each spacing their own would together exceed the limit.
 func TestClientsShareTheRateLimit(t *testing.T) {
-	if New().api.Throttle != New().api.Throttle {
+	a, b := New(), New()
+	if a.api.Throttle != b.api.Throttle {
 		t.Error("two clients have their own throttles, want the one shared limit")
 	}
 }
