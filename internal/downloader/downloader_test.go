@@ -140,7 +140,7 @@ func TestCancellationWrapsContextCanceled(t *testing.T) {
 		name string
 		call func() error
 	}{
-		{"ExtractURLs", func() error { _, err := d.ExtractURLs(ctx); return err }},
+		{"Extract", func() error { _, err := d.Extract(ctx); return err }},
 		{"FetchMetadata", func() error { return d.FetchMetadata(ctx, []string{"https://example.com/v"}) }},
 		{"DownloadSingle", func() error { return d.DownloadSingle(ctx, "https://example.com/v") }},
 		{"DownloadAll", func() error { _, err := d.DownloadAll(ctx, []string{"https://example.com/v"}); return err }},

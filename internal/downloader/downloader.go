@@ -1,7 +1,6 @@
 package downloader
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -32,13 +31,13 @@ func New(cfg config.Config, log *logger.Logger, tmpDir string) *Downloader {
 	}
 }
 
-func (d *Downloader) ExtractURLs(ctx context.Context) ([]string, error) {
+func (d *Downloader) Extract(ctx context.Context) (Playlist, error) {
 	d.Logger.Info("extracting urls from playlist")
 	d.Logger.Debug("Playlist URL: %s", d.Config.PlaylistURL)
 
 	cmd := exec.CommandContext(ctx, "yt-dlp",
 		"--flat-playlist",
-		"--print", "https://www.youtube.com/watch?v=%(id)s",
+		"--print", entryTemplate,
 		d.Config.PlaylistURL,
 	)
 
@@ -48,26 +47,18 @@ func (d *Downloader) ExtractURLs(ctx context.Context) ([]string, error) {
 
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("extracting URLs: %w", ctx.Err())
+			return Playlist{}, fmt.Errorf("extracting URLs: %w", ctx.Err())
 		}
-		return nil, fmt.Errorf("yt-dlp failed to extract URLs: %w\nDetails: %s", err, stderr.String())
+		return Playlist{}, fmt.Errorf("yt-dlp failed to extract URLs: %w\nDetails: %s", err, stderr.String())
 	}
 
-	var urls []string
-	scanner := bufio.NewScanner(&stdout)
-	for scanner.Scan() {
-		url := scanner.Text()
-		if url != "" {
-			urls = append(urls, url)
-		}
+	pl, err := parsePlaylist(&stdout)
+	if err != nil {
+		return Playlist{}, err
 	}
 
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading yt-dlp output: %w", err)
-	}
-
-	d.Logger.Info("Found %d videos", len(urls))
-	return urls, nil
+	d.Logger.Info("Found %d videos", len(pl.Entries))
+	return pl, nil
 }
 
 func (d *Downloader) FetchMetadata(ctx context.Context, urls []string) error {

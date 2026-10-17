@@ -42,9 +42,13 @@ func run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 	dl := downloader.New(cfg, log, tmpDir)
 	dl.OnProgress = hooks.OnProgress
 
-	urls, err := dl.ExtractURLs(ctx)
+	pl, err := dl.Extract(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to extract URLs: %w", err)
+	}
+	urls := make([]string, len(pl.Entries))
+	for i, e := range pl.Entries {
+		urls[i] = e.URL
 	}
 	if len(urls) == 0 {
 		return fmt.Errorf("no videos found in playlist - the playlist may be empty or private")

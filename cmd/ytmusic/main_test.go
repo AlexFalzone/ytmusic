@@ -12,7 +12,7 @@ import (
 
 func TestRunRemovesItsTempDir(t *testing.T) {
 	bin := t.TempDir()
-	ytdlp := "#!/bin/sh\necho https://www.youtube.com/watch?v=x\n"
+	ytdlp := "#!/bin/sh\necho '{\"id\": \"x\"}'\n"
 	if err := os.WriteFile(filepath.Join(bin, "yt-dlp"), []byte(ytdlp), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -23,8 +23,8 @@ func fakeYtdlp(t *testing.T, fixture string) {
 for a in "$@"; do last="$a"; done
 case " $* " in
 *" --flat-playlist "*)
-	echo "https://www.youtube.com/watch?v=song"
-	echo "https://www.youtube.com/watch?v=dead"
+	echo '{"id": "song", "title": "Song", "playlist_id": "PLx", "playlist_title": "Mix", "playlist_count": 2, "playlist_index": 1}'
+	echo '{"id": "dead", "title": "Dead", "playlist_id": "PLx", "playlist_title": "Mix", "playlist_count": 2, "playlist_index": 2}'
 	exit 0;;
 esac
 next=""
