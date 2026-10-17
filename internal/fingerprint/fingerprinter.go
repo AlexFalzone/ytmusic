@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 
 	"ytmusic/internal/memo"
 	"ytmusic/internal/metadata"
@@ -18,6 +19,8 @@ type fpcalcGenerator interface {
 type acoustidLookup interface {
 	Lookup(ctx context.Context, fp Result) (string, bool, error)
 }
+
+var errFingerprintOff = fmt.Errorf("%w: %w", metadata.ErrFingerprintOff, ErrKeyRejected)
 
 type defaultFpcalc struct{}
 
@@ -32,6 +35,9 @@ type Fingerprinter struct {
 
 	// Phase A and the per-file phase look up the same files.
 	recordings memo.Cache[string, recordingMatch]
+
+	// A rejected key fails every lookup: the rest of the run skips fpcalc and AcoustID.
+	rejected atomic.Bool
 }
 
 // found=false is an answer too, and is remembered like one.
@@ -75,6 +81,7 @@ func (f *Fingerprinter) BatchLookupByFiles(ctx context.Context, paths []string) 
 				}
 			}()
 
+			// Errors are dropped: the per-file phase looks each file up again and reports its error there.
 			mbid, found, err := f.recordingID(ctx, path)
 			if err != nil || !found {
 				return
@@ -100,12 +107,12 @@ func (f *Fingerprinter) BatchLookupByFiles(ctx context.Context, paths []string) 
 func (f *Fingerprinter) LookupByFile(ctx context.Context, path, preferAlbum string) (metadata.TrackInfo, bool, error) {
 	mbid, found, err := f.recordingID(ctx, path)
 	if err != nil || !found {
-		return metadata.TrackInfo{}, false, nil
+		return metadata.TrackInfo{}, false, err
 	}
 
 	info, err := f.mbidLookup(ctx, mbid, preferAlbum)
 	if err != nil {
-		return metadata.TrackInfo{}, false, nil
+		return metadata.TrackInfo{}, false, err
 	}
 
 	info.Confidence = 1.0
@@ -113,12 +120,19 @@ func (f *Fingerprinter) LookupByFile(ctx context.Context, path, preferAlbum stri
 }
 
 func (f *Fingerprinter) recordingID(ctx context.Context, path string) (string, bool, error) {
+	if f.rejected.Load() {
+		return "", false, errFingerprintOff
+	}
 	m, err := f.recordings.Do(path, func() (recordingMatch, error) {
 		fp, err := f.fpcalc.Generate(ctx, path)
 		if err != nil {
 			return recordingMatch{}, err
 		}
 		mbid, found, err := f.acoustid.Lookup(ctx, fp)
+		if errors.Is(err, ErrKeyRejected) {
+			f.rejected.Store(true)
+			return recordingMatch{}, errFingerprintOff
+		}
 		if err != nil {
 			return recordingMatch{}, err
 		}

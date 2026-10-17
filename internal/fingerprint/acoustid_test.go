@@ -2,6 +2,7 @@ package fingerprint_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -131,13 +132,13 @@ func TestAcoustIDClient_Lookup_IdentifiesItself(t *testing.T) {
 // An error remembered as "no match" would stop the per-file phase from retrying.
 func TestAcoustIDClient_Lookup_ErrorStatusIsAnError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		testhttp.JSON(t, w, map[string]any{"status": "error", "error": map[string]any{"code": 4, "message": "invalid API key"}})
+		testhttp.JSON(t, w, map[string]any{"status": "error", "error": map[string]any{"code": 3, "message": "invalid fingerprint"}})
 	}))
 	defer srv.Close()
 
 	client := newTestClient("key", srv.URL)
 	_, _, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"})
-	if err == nil || !strings.Contains(err.Error(), "invalid API key") {
+	if err == nil || !strings.Contains(err.Error(), "invalid fingerprint") {
 		t.Errorf("err = %v, want one naming AcoustID's message", err)
 	}
 }
@@ -206,4 +207,31 @@ func newTestClient(key, url string) *fingerprint.AcoustIDClient {
 	c := fingerprint.NewAcoustIDClient(key, url)
 	fingerprint.SetThrottle(c, throttle.New(0))
 	return c
+}
+
+func TestAcoustIDClient_Lookup_RejectedKey(t *testing.T) {
+	for _, status := range []int{http.StatusBadRequest, http.StatusOK} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(status)
+			testhttp.JSON(t, w, map[string]any{"status": "error", "error": map[string]any{"code": 4, "message": "invalid API key"}})
+		}))
+		_, _, err := newTestClient("key", srv.URL).Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"})
+		srv.Close()
+		if !errors.Is(err, fingerprint.ErrKeyRejected) {
+			t.Errorf("HTTP %d: err = %v, want ErrKeyRejected", status, err)
+		}
+	}
+}
+
+func TestAcoustIDClient_Lookup_OtherErrorsAreNotARejectedKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		testhttp.JSON(t, w, map[string]any{"status": "error", "error": map[string]any{"code": 3, "message": "invalid fingerprint"}})
+	}))
+	defer srv.Close()
+
+	_, _, err := newTestClient("key", srv.URL).Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"})
+	if err == nil || errors.Is(err, fingerprint.ErrKeyRejected) || !strings.Contains(err.Error(), "invalid fingerprint") {
+		t.Errorf("err = %v, want AcoustID's message and not ErrKeyRejected", err)
+	}
 }

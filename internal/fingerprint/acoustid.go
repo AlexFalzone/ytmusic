@@ -2,6 +2,8 @@ package fingerprint
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -19,6 +21,11 @@ const requestInterval = time.Second / 3
 
 // Shared by every client: AcoustID counts requests per address, so concurrent runs split one rate.
 var limiter = throttle.New(requestInterval)
+
+var ErrKeyRejected = errors.New("AcoustID rejected the API key; acoustid_api_key must be an application's key, from https://acoustid.org/new-application")
+
+// Not documented by AcoustID: observed answering a user key, with HTTP 400.
+const codeInvalidKey = 4
 
 type AcoustIDClient struct {
 	apiKey  string
@@ -48,6 +55,7 @@ type acoustidResponse struct {
 }
 
 type acoustidError struct {
+	Code    int    `json:"code"`
 	Message string `json:"message"`
 }
 
@@ -70,7 +78,14 @@ func (c *AcoustIDClient) Lookup(ctx context.Context, fp Result) (string, bool, e
 
 	var result acoustidResponse
 	if err := c.api.PostForm(ctx, c.baseURL, nil, params, &result); err != nil {
+		var se *httpjson.StatusError
+		if errors.As(err, &se) && json.Unmarshal([]byte(se.Body), &result) == nil && rejectedKey(result) {
+			return "", false, fmt.Errorf("acoustid lookup: %w", ErrKeyRejected)
+		}
 		return "", false, fmt.Errorf("acoustid lookup: %w", err)
+	}
+	if rejectedKey(result) {
+		return "", false, fmt.Errorf("acoustid lookup: %w", ErrKeyRejected)
 	}
 	if result.Status != "ok" {
 		msg := "no message"
@@ -92,4 +107,8 @@ func (c *AcoustIDClient) Lookup(ctx context.Context, fp Result) (string, bool, e
 	}
 
 	return "", false, nil
+}
+
+func rejectedKey(r acoustidResponse) bool {
+	return r.Error != nil && r.Error.Code == codeInvalidKey
 }

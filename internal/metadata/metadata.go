@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 )
@@ -74,6 +75,9 @@ type Album struct {
 type AlbumResolver interface {
 	ResolveAlbum(ctx context.Context, album, artist string) (Tracklist, bool, error)
 }
+
+// A Fingerprinter returns it once it can no longer look anything up, such as after a rejected key.
+var ErrFingerprintOff = errors.New("fingerprinting is off for the rest of this run")
 
 type Fingerprinter interface {
 	LookupByFile(ctx context.Context, path, preferAlbum string) (TrackInfo, bool, error)
