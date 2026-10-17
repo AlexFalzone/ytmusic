@@ -482,3 +482,37 @@ func TestResolveFile_VariantBorrowsOriginalMetadata(t *testing.T) {
 		t.Errorf("track number = %q: the variant is not that track of the album", got)
 	}
 }
+
+// Another release's track number, date or cover would mix two releases in one file.
+func TestGapFilling_AlbumFieldsComeOnlyFromTheSameAlbum(t *testing.T) {
+	base := TrackInfo{Title: "Headlines", Artist: "Drake", Album: "Take Care"}
+	tests := []struct {
+		name      string
+		filler    TrackInfo
+		wantAlbum bool
+	}{
+		{"another album", TrackInfo{Title: "Headlines", Artist: "Drake", Album: "Care Package"}, false},
+		{"another edition", TrackInfo{Title: "Headlines", Artist: "Drake", Album: "Take Care (Deluxe)"}, false},
+		{"no album", TrackInfo{Title: "Headlines", Artist: "Drake"}, false},
+		{"same album", TrackInfo{Title: "Headlines", Artist: "Drake", Album: "Take Care"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fill := tt.filler
+			fill.TrackNumber, fill.TotalTracks, fill.DiscNumber = 3, 17, 1
+			fill.Year, fill.ReleaseDate, fill.ArtworkURL = 2011, "2011-11-15", "https://example.com/cover.jpg"
+			fill.Genre, fill.ISRC = "Hip-Hop", "USCM51100290"
+
+			got := mergeTrackInfo(base, fill)
+
+			if got.Genre != "Hip-Hop" || got.ISRC != "USCM51100290" {
+				t.Errorf("genre %q, ISRC %q: the track's own fields come from any filler", got.Genre, got.ISRC)
+			}
+			hasAlbum := got.TrackNumber != 0 || got.TotalTracks != 0 || got.DiscNumber != 0 ||
+				got.Year != 0 || got.ReleaseDate != "" || got.ArtworkURL != ""
+			if hasAlbum != tt.wantAlbum {
+				t.Errorf("album-level fields taken = %v, want %v (got %+v)", hasAlbum, tt.wantAlbum, got)
+			}
+		})
+	}
+}
