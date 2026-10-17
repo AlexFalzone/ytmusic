@@ -50,13 +50,24 @@ type ReleaseTrack struct {
 	DiscNumber  int
 	Title       string
 	MBID        string
+	ISRC        string
 }
 
 type Tracklist struct {
-	ID     string
+	ID         string
+	Title      string
+	Artist     string
+	Status     string // "Official", "Bootleg", …
+	Date       string
+	ArtworkURL string // "" when the release has no front cover
+	Tracks     []ReleaseTrack
+}
+
+// An album as its source presents it: its title, order and track count win over any provider.
+type Album struct {
 	Title  string
-	Artist string
-	Tracks []ReleaseTrack
+	Tracks []string       // titles in album order, "" where unknown; the length is the track count
+	Files  map[string]int // path → 1-based position in Tracks
 }
 
 type AlbumResolver interface {
@@ -75,6 +86,11 @@ type FileMatch struct {
 // The error carries recovered panics, each of which failed only its own file.
 type BatchFingerprinter interface {
 	BatchLookupByFiles(ctx context.Context, paths []string) ([]FileMatch, error)
+}
+
+// Releases with exactly tracks tracks, each with its tracklist.
+type ReleaseFinder interface {
+	FindReleases(ctx context.Context, title, artist string, tracks int) ([]Tracklist, error)
 }
 
 type ReleaseResolver interface {
