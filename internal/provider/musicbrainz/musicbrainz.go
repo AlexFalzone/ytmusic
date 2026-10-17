@@ -19,7 +19,10 @@ import (
 // MusicBrainz throttles clients that exceed it.
 const requestInterval = time.Second
 
-// One Client per run: the throttle and the caches live in the instance.
+// Shared by every Client: MusicBrainz counts requests per address, so concurrent runs split one rate.
+var limiter = throttle.New(requestInterval)
+
+// One Client per run: the caches live in the instance.
 type Client struct {
 	api            *httpjson.Client
 	apiURL         string
@@ -38,7 +41,7 @@ func NewWithURL(apiURL, artworkBaseURL string) *Client {
 	return &Client{
 		api: &httpjson.Client{
 			HTTP:     &http.Client{Timeout: 10 * time.Second},
-			Throttle: throttle.New(requestInterval),
+			Throttle: limiter,
 			Retries:  3,
 		},
 		apiURL:         apiURL,

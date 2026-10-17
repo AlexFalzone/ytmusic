@@ -11,6 +11,7 @@ import (
 	"ytmusic/internal/buildinfo"
 	"ytmusic/internal/fingerprint"
 	"ytmusic/internal/testhttp"
+	"ytmusic/internal/throttle"
 )
 
 func TestAcoustIDClient_Lookup_Found(t *testing.T) {
@@ -36,7 +37,7 @@ func TestAcoustIDClient_Lookup_Found(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := fingerprint.NewAcoustIDClient("test-key", srv.URL)
+	client := newTestClient("test-key", srv.URL)
 	mbid, found, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 240, Fingerprint: "AQADtMm..."})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -56,7 +57,7 @@ func TestAcoustIDClient_Lookup_NoResults(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := fingerprint.NewAcoustIDClient("test-key", srv.URL)
+	client := newTestClient("test-key", srv.URL)
 	_, found, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 240, Fingerprint: "AQADtMm..."})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -83,7 +84,7 @@ func TestAcoustIDClient_Lookup_NoRecordings(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := fingerprint.NewAcoustIDClient("test-key", srv.URL)
+	client := newTestClient("test-key", srv.URL)
 	_, found, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 240, Fingerprint: "AQADtMm..."})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -121,7 +122,7 @@ func TestAcoustIDClient_Lookup_IdentifiesItself(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := fingerprint.NewAcoustIDClient("key", srv.URL)
+	client := newTestClient("key", srv.URL)
 	if _, _, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"}); err != nil {
 		t.Fatalf("Lookup: %v", err)
 	}
@@ -134,7 +135,7 @@ func TestAcoustIDClient_Lookup_ErrorStatusIsAnError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := fingerprint.NewAcoustIDClient("key", srv.URL)
+	client := newTestClient("key", srv.URL)
 	_, _, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"})
 	if err == nil || !strings.Contains(err.Error(), "invalid API key") {
 		t.Errorf("err = %v, want one naming AcoustID's message", err)
@@ -148,7 +149,7 @@ func TestAcoustIDClient_Lookup_HTTPErrorKeepsTheMessage(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := fingerprint.NewAcoustIDClient("key", srv.URL)
+	client := newTestClient("key", srv.URL)
 	_, _, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"})
 	if err == nil || !strings.Contains(err.Error(), "invalid fingerprint") {
 		t.Errorf("err = %v, want one naming AcoustID's message", err)
@@ -170,7 +171,7 @@ func TestAcoustIDClient_Lookup_SendsTheKeyInTheBody(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := fingerprint.NewAcoustIDClient("test-key", srv.URL)
+	client := newTestClient("test-key", srv.URL)
 	if _, _, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"}); err != nil {
 		t.Fatalf("Lookup: %v", err)
 	}
@@ -181,7 +182,7 @@ func TestAcoustIDClient_Lookup_KeyStaysOutOfErrors(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	srv.Close()
 
-	client := fingerprint.NewAcoustIDClient("secret-key-123", srv.URL)
+	client := newTestClient("secret-key-123", srv.URL)
 	_, _, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"})
 	if err == nil {
 		t.Fatal("Lookup = nil, want the network error")
@@ -189,4 +190,20 @@ func TestAcoustIDClient_Lookup_KeyStaysOutOfErrors(t *testing.T) {
 	if strings.Contains(err.Error(), "secret-key-123") {
 		t.Errorf("err = %q, want it without the key", err)
 	}
+}
+
+// The limit is AcoustID's per address: two clients each spacing their own requests would together exceed it.
+func TestAcoustIDClientsShareTheRateLimit(t *testing.T) {
+	a := fingerprint.NewAcoustIDClient("key-a", "")
+	b := fingerprint.NewAcoustIDClient("key-b", "http://acoustid.test")
+	if fingerprint.ThrottleOf(a) != fingerprint.ThrottleOf(b) {
+		t.Error("two clients have their own throttles, want the one shared limit")
+	}
+}
+
+// Its own unthrottled limiter, so tests do not wait on each other through the shared one.
+func newTestClient(key, url string) *fingerprint.AcoustIDClient {
+	c := fingerprint.NewAcoustIDClient(key, url)
+	fingerprint.SetThrottle(c, throttle.New(0))
+	return c
 }

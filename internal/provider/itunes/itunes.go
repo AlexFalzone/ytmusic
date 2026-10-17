@@ -16,6 +16,9 @@ import (
 // Apple's limit is about 20 calls a minute; past it the genre, often only iTunes has, silently goes.
 const requestInterval = 3 * time.Second
 
+// Shared by every Client: Apple counts requests per address, so concurrent runs split one rate.
+var limiter = throttle.New(requestInterval)
+
 type Client struct {
 	api    *httpjson.Client
 	apiURL string
@@ -25,7 +28,7 @@ func New() *Client {
 	return &Client{
 		api: &httpjson.Client{
 			HTTP:     &http.Client{Timeout: 10 * time.Second},
-			Throttle: throttle.New(requestInterval),
+			Throttle: limiter,
 		},
 		apiURL: "https://itunes.apple.com/search",
 	}

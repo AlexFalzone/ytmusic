@@ -17,6 +17,9 @@ const defaultAcoustIDURL = "https://api.acoustid.org/v2/lookup"
 // AcoustID's published limit.
 const requestInterval = time.Second / 3
 
+// Shared by every client: AcoustID counts requests per address, so concurrent runs split one rate.
+var limiter = throttle.New(requestInterval)
+
 type AcoustIDClient struct {
 	apiKey  string
 	baseURL string
@@ -33,7 +36,7 @@ func NewAcoustIDClient(apiKey, baseURL string) *AcoustIDClient {
 		baseURL: baseURL,
 		api: &httpjson.Client{
 			HTTP:     &http.Client{Timeout: 10 * time.Second},
-			Throttle: throttle.New(requestInterval),
+			Throttle: limiter,
 		},
 	}
 }

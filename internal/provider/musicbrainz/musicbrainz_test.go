@@ -693,3 +693,10 @@ func TestReleaseAlbumSim_NoPreferredAlbum(t *testing.T) {
 		t.Errorf("releaseAlbumSim(\"\", \"\") = %v, want 0", got)
 	}
 }
+
+// MusicBrainz counts requests per address: two clients each spacing their own would together exceed the limit.
+func TestClientsShareTheRateLimit(t *testing.T) {
+	if New().api.Throttle != NewWithURL("http://a", "").api.Throttle {
+		t.Error("two clients have their own throttles, want the one shared limit")
+	}
+}

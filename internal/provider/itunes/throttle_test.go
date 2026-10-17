@@ -33,3 +33,10 @@ func TestSearchWaitsForTheThrottle(t *testing.T) {
 		t.Errorf("three searches took %v, want at least 200ms", elapsed)
 	}
 }
+
+// Apple counts requests per address: two clients each spacing their own would together exceed the limit.
+func TestClientsShareTheRateLimit(t *testing.T) {
+	if New().api.Throttle != New().api.Throttle {
+		t.Error("two clients have their own throttles, want the one shared limit")
+	}
+}
