@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"ytmusic/internal/config"
+	"ytmusic/internal/downloader"
 )
 
 func TestCheckToolsNeedsFpcalcOnlyWithAcoustID(t *testing.T) {
@@ -56,5 +57,22 @@ func TestCheckToolsDryRunNeedsOnlyYtdlp(t *testing.T) {
 		if strings.Contains(err.Error(), tool) {
 			t.Errorf("dry run requires %s, which it never runs: %v", tool, err)
 		}
+	}
+}
+
+// YouTube can hide an unavailable track from the list while still counting it.
+func TestAlbumForKeepsYouTubesTrackCount(t *testing.T) {
+	pl := downloader.Playlist{ID: "OLAK5uy_x", Title: "Album - Record", Count: 3, Entries: []downloader.Entry{
+		{URL: "u1", Title: "One", Position: 1},
+		{URL: "u2", Title: "Two", Position: 2},
+	}}
+
+	album := albumFor(pl, map[string][]string{"u2": {"/tmp/a/Two.mp3"}}, map[string]string{"/tmp/a/Two.mp3": "/tmp/merged/Two.mp3"})
+
+	if len(album.Tracks) != 3 || album.Tracks[0] != "One" || album.Tracks[2] != "" {
+		t.Errorf("tracks = %q, want [One Two \"\"]: three tracks, the third unknown", album.Tracks)
+	}
+	if album.Files["/tmp/merged/Two.mp3"] != 2 || len(album.Files) != 1 {
+		t.Errorf("files = %v, want the merged Two.mp3 at 2", album.Files)
 	}
 }
