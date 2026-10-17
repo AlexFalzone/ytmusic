@@ -61,7 +61,10 @@ func (r *Resolver) resolveFile(ctx context.Context, path string, trackOnly bool)
 
 func (r *Resolver) finish(ctx context.Context, path string, existing map[string][]string, src source, m match, trackOnly bool) error {
 	if trackOnly {
-		info := r.fillGaps(ctx, src, m, nil, hasMissingTrackFields)
+		hasISRC := FirstTag(existing, taglib.ISRC) != ""
+		info := r.fillGaps(ctx, src, m, nil, func(t TrackInfo) bool {
+			return t.Genre == "" || (t.ISRC == "" && !hasISRC)
+		})
 		if m.donor {
 			info = asVariant(info, m.base, src.version)
 		}
@@ -179,10 +182,6 @@ func (r *Resolver) fillGaps(ctx context.Context, src source, primary match, fail
 	}
 
 	return base
-}
-
-func hasMissingTrackFields(t TrackInfo) bool {
-	return t.Genre == "" || t.ISRC == ""
 }
 
 func hasMissingFields(t TrackInfo) bool {

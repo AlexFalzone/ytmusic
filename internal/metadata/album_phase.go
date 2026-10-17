@@ -91,8 +91,9 @@ func (r *Resolver) findEdition(ctx context.Context, album *Album, artist, descri
 	}
 	for _, title := range editionTitles(album.Title, described) {
 		candidates, err := r.releaseFinder.FindReleases(ctx, title, artist, len(album.Tracks))
+		// Shown by default: MusicBrainz often answers 503, which would otherwise read as "no such release".
 		if err != nil {
-			r.logger.Debug("  album: release search for %q: %v", title, err)
+			r.logger.Warn("album: MusicBrainz search for %q: %v", title, err)
 		}
 		if tl, ok := matchRelease(album.Tracks, candidates); ok {
 			return tl, true
@@ -206,8 +207,7 @@ func editionRatio(tracks []string, tl Tracklist) (float64, bool) {
 	return float64(matched) / float64(known), true
 }
 
-// A clean edit carries other ISRCs than the explicit album YouTube Music presents when both exist. Then Official,
-// the earliest year (any date before none) with the fullest date, and the lowest ID so the choice is stable.
+// Not a clean edit (its ISRCs differ from the explicit album YouTube Music shows), Official, earliest year, fullest date, ID.
 func preferRelease(a, b Tracklist) bool {
 	if isClean(a) != isClean(b) {
 		return !isClean(a)

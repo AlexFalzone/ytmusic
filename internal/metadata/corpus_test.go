@@ -208,8 +208,7 @@ func TestResolveCorpus(t *testing.T) {
 	}
 }
 
-// Take Care (Deluxe) before W7: one provider put The Motto at 12, another on a compilation, and the track nobody
-// recognised kept yt-dlp's "Take Care" and went to its own folder.
+// Providers that disagree on album and numbering, and a track none of them recognises, still make one album.
 func TestResolveCorpusScatteredAlbum(t *testing.T) {
 	tracks := make([]string, 19)
 	tracks[3], tracks[13], tracks[18] = "Crew Love", "The Real Her", "The Motto"

@@ -322,7 +322,7 @@ func newCountingServer(t *testing.T) *countingServer {
 	return cs
 }
 
-// The scattered album: a track no provider recognises used to keep yt-dlp's album name and end up in another folder.
+// A track no provider recognises must not keep yt-dlp's album name, or it lands in another folder.
 func TestResolveKeepsEveryTrackOfAnAlbumDownloadInTheAlbum(t *testing.T) {
 	providerArt := newCountingServer(t)
 	album := newAlbum(t, "Take Care (Deluxe)", []string{"Over My Dead Body", "The Real Her"}, map[int]map[string][]string{
@@ -355,6 +355,9 @@ func TestResolveKeepsEveryTrackOfAnAlbumDownloadInTheAlbum(t *testing.T) {
 	if n := providerArt.hits.Load(); n != 0 {
 		t.Errorf("the provider's artwork was requested %d times: the album phase owns the cover", n)
 	}
+	if !bytes.Equal(readTestImage(t, pathAt(album, 1)), readTestImage(t, pathAt(album, 2))) {
+		t.Error("the recognised track lost the album's cover")
+	}
 }
 
 func TestResolveKeepsTheReleaseISRCOfAnAlbumTrack(t *testing.T) {
@@ -374,5 +377,65 @@ func TestResolveKeepsTheReleaseISRCOfAnAlbumTrack(t *testing.T) {
 
 	if got := readTestTag(t, pathAt(album, 1), taglib.ISRC); got != "ITUM72000289" {
 		t.Errorf("ISRC = %q, want the release's ITUM72000289", got)
+	}
+}
+
+// iTunes allows one search every 3 s: asking it for an ISRC the release already gave only slows the album down.
+func TestResolveSearchesNoFurtherForAnISRCTheReleaseGave(t *testing.T) {
+	album := newAlbum(t, "Persona", []string{"NEON - Le Ali"}, map[int]map[string][]string{
+		1: {taglib.Title: {"NEON - Le Ali"}, taglib.Artist: {"Marracash"}},
+	})
+	release := tracklist("r1", "Official", "2019-10-31", "NEON - Le Ali")
+	release.Tracks[0].ISRC = "ITUM72000289"
+	primary := corpusProvider{name: "primary", byTitle: map[string][]TrackInfo{
+		"NEON - Le Ali": {{Title: "NEON - Le Ali", Artist: "Marracash", Album: "Persona", Genre: "Hip-Hop"}},
+	}}
+	filler := &mockProvider{name: "filler"}
+
+	r := NewResolver([]Provider{primary, filler}, logger.New(false), 0).WithReleaseFinder(&fakeFinder{byTitle: map[string][]Tracklist{"Persona": {release}}})
+	if err := r.Resolve(context.Background(), []string{pathAt(album, 1)}, album); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	if filler.called {
+		t.Error("the filler was searched although the primary match left only the release's ISRC missing")
+	}
+}
+
+func TestAlbumPhaseStopsAtTheFirstMatchingEdition(t *testing.T) {
+	album := newAlbum(t, "Persona (Deluxe)", []string{"NEON - Le Ali"}, map[int]map[string][]string{
+		1: {taglib.Title: {"NEON - Le Ali"}, taglib.Artist: {"Marracash"}, taglib.Album: {"Persona"}},
+	})
+	release := tracklist("r1", "Official", "2019-10-31", "NEON - Le Ali")
+	finder := &fakeFinder{byTitle: map[string][]Tracklist{"Persona (Deluxe)": {release}, "Persona": {release}}}
+
+	NewResolver(nil, logger.New(false), 0).WithReleaseFinder(finder).resolveAlbum(context.Background(), album)
+
+	if want := []string{"Persona (Deluxe)|Marracash|1"}; !slices.Equal(finder.queries, want) {
+		t.Errorf("queries = %q, want %q: the first title already found the edition", finder.queries, want)
+	}
+}
+
+// A file the album does not place gets the whole per-file phase rather than half-tagged album fields.
+func TestResolveTagsAFileWithoutAPositionOnItsOwn(t *testing.T) {
+	album := newAlbum(t, "Persona", []string{"NEON - Le Ali"}, map[int]map[string][]string{
+		1: {taglib.Title: {"NEON - Le Ali"}, taglib.Artist: {"Marracash"}},
+	})
+	stray := testaudio.MP3(t, t.TempDir(), "stray.mp3", "0.1")
+	tagTestFile(t, stray, "Stray", "Someone")
+	provider := corpusProvider{name: "p", byTitle: map[string][]TrackInfo{
+		"Stray": {{Title: "Stray", Artist: "Someone", Album: "Elsewhere", TrackNumber: 7}},
+	}}
+
+	r := NewResolver([]Provider{provider}, logger.New(false), 0)
+	if err := r.Resolve(context.Background(), []string{pathAt(album, 1), stray}, album); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	if got := readTestTag(t, stray, taglib.Album); got != "Elsewhere" {
+		t.Errorf("album = %q, want the provider's Elsewhere", got)
+	}
+	if got := readTestTag(t, stray, taglib.TrackNumber); got != "7" {
+		t.Errorf("track number = %q, want the provider's 7", got)
 	}
 }
