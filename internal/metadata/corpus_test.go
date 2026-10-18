@@ -246,3 +246,47 @@ func TestResolveCorpusScatteredAlbum(t *testing.T) {
 		}
 	}
 }
+
+// Through the whole per-file phase: the confirmed recording's tags are the ones written.
+func TestResolveCorpusFingerprintWrongRecordingFirst(t *testing.T) {
+	lwyd := newTestMP3Len(t, "301")
+	tagTestFile(t, lwyd, "Look What You've Done", "Drake")
+	takeCare := newTestMP3Len(t, "277")
+	writeTestTags(t, takeCare, map[string][]string{taglib.Title: {"Take Care"}, taglib.Artist: {"Drake, Rihanna"}, taglib.Album: {"Take Care"}})
+
+	album := RecordingAlbum{Title: "Take Care", Artist: "Drake"}
+	stub := &fingerprintStub{
+		byPath: map[string][]Recording{
+			lwyd: {
+				{MBID: "hyfr", Title: "HYFR (Hell Ya Fuckin’ Right)", Artist: "Drake, Lil Wayne", Duration: seconds(206), Albums: []RecordingAlbum{album}},
+				{MBID: "lwyd", Title: "Look What You’ve Done", Artist: "Drake", Duration: seconds(301), Albums: []RecordingAlbum{album}},
+			},
+			takeCare: {
+				{MBID: "comp", Title: "Take Care", Artist: "Drake", Duration: seconds(280),
+					Albums: []RecordingAlbum{{Title: "Heart & Soul", Artist: "Various Artists", Secondary: true}}},
+				{MBID: "album", Title: "Take Care", Artist: "Drake, Rihanna", Duration: seconds(277), Albums: []RecordingAlbum{album}},
+			},
+		},
+		tracks: map[string]TrackInfo{
+			"hyfr":  {Title: "HYFR (Hell Ya Fuckin’ Right)", Artist: "Drake, Lil Wayne", Album: "Take Care", TrackNumber: 16},
+			"lwyd":  {Title: "Look What You’ve Done", Artist: "Drake", Album: "Take Care", TrackNumber: 15},
+			"comp":  {Title: "Take Care", Artist: "Drake", Album: "Heart & Soul", AlbumArtist: "Various Artists"},
+			"album": {Title: "Take Care", Artist: "Drake, Rihanna", Album: "Take Care", AlbumArtist: "Drake", TrackNumber: 5},
+		},
+	}
+	r := NewResolver([]Provider{corpusProvider{name: "empty"}}, logger.New(false), 0).WithFingerprinter(stub).WithWorkers(2)
+	if err := r.Resolve(context.Background(), []string{lwyd, takeCare}, nil); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	for path, want := range map[string]map[string]string{
+		lwyd:     {taglib.Title: "Look What You’ve Done", taglib.TrackNumber: "15"},
+		takeCare: {taglib.Album: "Take Care", taglib.AlbumArtist: "Drake", taglib.TrackNumber: "5"},
+	} {
+		for key, value := range want {
+			if got := readTestTag(t, path, key); got != value {
+				t.Errorf("%s: %s = %q, want %q", path, key, got, value)
+			}
+		}
+	}
+}

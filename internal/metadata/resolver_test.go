@@ -225,7 +225,7 @@ func TestFingerprintErrorIsQuietWhenCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if _, found := r.fingerprintMatch(ctx, "/a.mp3", ""); found {
+	if _, found := r.fingerprintMatch(ctx, "/a.mp3", source{}, "", ""); found {
 		t.Error("found a match from a failed lookup")
 	}
 	if got := warnings(read(), ""); got != 0 {

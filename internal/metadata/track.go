@@ -2,7 +2,6 @@ package metadata
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -36,7 +35,7 @@ func (r *Resolver) resolveFile(ctx context.Context, path string, trackOnly bool)
 	r.logger.Debug("  Normalized: title=%q artist=%q album=%q version=%q length=%s",
 		query.Title, query.Artist, query.Album, version.Key, src.duration.Round(time.Second))
 
-	if info, found := r.fingerprintMatch(ctx, path, query.Album); found {
+	if info, found := r.fingerprintMatch(ctx, path, src, rawTitle, rawArtist); found {
 		r.logger.Debug("  Fingerprint match: %q by %q", info.Title, info.Artist)
 		return r.finish(ctx, path, existing, src, match{info: info, providerIdx: -1}, trackOnly)
 	}
@@ -219,35 +218,4 @@ func mergeTrackInfo(base, filler TrackInfo) TrackInfo {
 		base.ArtworkURL = filler.ArtworkURL
 	}
 	return base
-}
-
-func (r *Resolver) fingerprintMatch(ctx context.Context, path, album string) (TrackInfo, bool) {
-	if r.fingerprinter == nil {
-		return TrackInfo{}, false
-	}
-	info, found, err := r.fingerprintLookup(ctx, path, album)
-	switch {
-	case err == nil:
-		return info, found
-	case ctx.Err() != nil:
-		// A cancel kills every fpcalc in flight: those errors say nothing about the files.
-	case errors.Is(err, ErrFingerprintOff):
-		r.fingerprintOff.Do(func() { r.logger.Warn("%v", err) })
-	default:
-		r.logger.Warn("  fingerprint lookup failed for %s: %v", path, err)
-	}
-	return TrackInfo{}, false
-}
-
-func (r *Resolver) fingerprintLookup(ctx context.Context, path, album string) (TrackInfo, bool, error) {
-	recs, err := r.fingerprinter.Recordings(ctx, path)
-	if err != nil || len(recs) == 0 {
-		return TrackInfo{}, false, err
-	}
-	info, err := r.fingerprinter.Track(ctx, recs[0].MBID, album)
-	if err != nil {
-		return TrackInfo{}, false, err
-	}
-	info.Confidence = 1.0
-	return info, true, nil
 }

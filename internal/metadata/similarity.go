@@ -52,16 +52,34 @@ func similarity(a, b string) float64 {
 		return 0.0
 	}
 
-	matches := 0
-	for _, ta := range tokensA {
-		for _, tb := range tokensB {
-			if tokensMatch(ta, tb) {
-				matches++
+	return float64(countFound(tokensA, tokensB)) / float64(max(len(tokensA), len(tokensB)))
+}
+
+// The share of words' tokens found in within: unlike Similarity, the words around them do not count.
+func coverage(within, words string) float64 {
+	wordTokens := strings.Fields(normalize(words))
+	if len(wordTokens) == 0 {
+		return 0
+	}
+	return float64(countFound(wordTokens, strings.Fields(normalize(within)))) / float64(len(wordTokens))
+}
+
+// Whether any token of names appears in within.
+func mentions(within, names string) bool {
+	return countFound(strings.Fields(normalize(names)), strings.Fields(normalize(within))) > 0
+}
+
+func countFound(tokens, in []string) int {
+	found := 0
+	for _, t := range tokens {
+		for _, other := range in {
+			if tokensMatch(t, other) {
+				found++
 				break
 			}
 		}
 	}
-	return float64(matches) / float64(max(len(tokensA), len(tokensB)))
+	return found
 }
 
 func tokensMatch(a, b string) bool {
