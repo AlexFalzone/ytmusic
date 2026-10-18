@@ -50,7 +50,7 @@ func fingerprintCandidates(rawTitle, rawArtist, album string, recs []Recording) 
 	var candidates []TrackInfo
 	for _, rec := range recs {
 		base, _ := cleanTitle(rec.Title)
-		if coverage(rawTitle, base) < fingerprintTitleCoverage || !mentions(rawArtist+" "+rawTitle, rec.Artist) {
+		if coverage(stripNoise(rawTitle), base) < fingerprintTitleCoverage || !mentions(rawArtist+" "+unused(rawTitle, base), rec.Artist) {
 			continue
 		}
 		home := homeAlbum(rec.Albums, album)

@@ -1,6 +1,7 @@
 package metadata
 
 import (
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -61,12 +62,38 @@ func coverage(within, words string) float64 {
 	if len(wordTokens) == 0 {
 		return 0
 	}
-	return float64(countFound(wordTokens, strings.Fields(normalize(within)))) / float64(len(wordTokens))
+	found, _ := consume(strings.Fields(normalize(within)), wordTokens)
+	return float64(found) / float64(len(wordTokens))
 }
 
-// Whether any token of names appears in within.
+// within without the tokens words takes, one each: the title's own words must not vouch for an artist.
+func unused(within, words string) string {
+	_, left := consume(strings.Fields(normalize(within)), strings.Fields(normalize(words)))
+	return strings.Join(left, " ")
+}
+
+func consume(within, tokens []string) (found int, left []string) {
+	left = slices.Clone(within)
+	for _, t := range tokens {
+		if i := slices.IndexFunc(left, func(w string) bool { return tokensMatch(t, w) }); i >= 0 {
+			left = slices.Delete(left, i, i+1)
+			found++
+		}
+	}
+	return found, left
+}
+
+// Shared by unrelated names: The Weeknd and The Civil Wars, Simon & Garfunkel and Hall & Oates.
+var connectors = map[string]bool{"the": true, "and": true}
+
 func mentions(within, names string) bool {
-	return countFound(strings.Fields(normalize(names)), strings.Fields(normalize(within))) > 0
+	var tokens []string
+	for _, t := range strings.Fields(normalize(names)) {
+		if !connectors[t] {
+			tokens = append(tokens, t)
+		}
+	}
+	return countFound(tokens, strings.Fields(normalize(within))) > 0
 }
 
 func countFound(tokens, in []string) int {

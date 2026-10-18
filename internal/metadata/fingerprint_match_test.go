@@ -34,6 +34,8 @@ func seconds(n int) time.Duration { return time.Duration(n) * time.Second }
 // The cases measured on real AcoustID answers, where the first recording linked to the audio was the wrong one.
 func TestFingerprintMatchTakesOnlyARecordingTheFileConfirms(t *testing.T) {
 	takeCare := RecordingAlbum{Title: "Take Care", Artist: "Drake"}
+	civilWars := Recording{MBID: "civil", Title: "The One That Got Away", Artist: "The Civil Wars", Duration: seconds(227),
+		Albums: []RecordingAlbum{{Title: "Barton Hollow", Artist: "The Civil Wars"}}}
 	tests := []struct {
 		name                 string
 		title, artist, album string
@@ -96,6 +98,28 @@ func TestFingerprintMatchTakesOnlyARecordingTheFileConfirms(t *testing.T) {
 					Albums: []RecordingAlbum{{Title: "Absolute Music 70", Artist: "Various Artists", Secondary: true}, takeCare}},
 			},
 			want: "album@Take Care",
+		},
+		{
+			name:  "a topic upload whose only recording is another artist's song of that title",
+			title: "The One That Got Away", artist: "Katy Perry - Topic", length: 227,
+			recs: []Recording{civilWars},
+		},
+		{
+			name:  "the title's words do not vouch for an artist sharing them",
+			title: "Katy Perry - The One That Got Away (Official Music Video)", artist: "KatyPerryVEVO", length: 289,
+			recs: []Recording{civilWars},
+		},
+		{
+			name:  "a promotional word is no part of the title",
+			title: "Madonna - Frozen (Official Music Video)", artist: "Madonna", length: 380,
+			recs: []Recording{{MBID: "music", Title: "Music", Artist: "Madonna", Duration: seconds(225),
+				Albums: []RecordingAlbum{{Title: "Music", Artist: "Madonna"}}}},
+		},
+		{
+			name:  "an artist named like a word of the title",
+			title: "Love Story", artist: "Taylor Swift", length: 235,
+			recs: []Recording{{MBID: "love", Title: "Love Story", Artist: "Love", Duration: seconds(235),
+				Albums: []RecordingAlbum{{Title: "Love Story", Artist: "Love"}}}},
 		},
 		{
 			name:  "without an album, the release group that is no compilation",
