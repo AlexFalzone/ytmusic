@@ -37,8 +37,12 @@ func tag(t *testing.T, path, key string) string {
 
 type fingerprints struct{ mbids map[string]string }
 
-func (f fingerprints) LookupByFile(context.Context, string, string) (metadata.TrackInfo, bool, error) {
-	return metadata.TrackInfo{}, false, nil
+func (f fingerprints) Recordings(context.Context, string) ([]metadata.Recording, error) {
+	return nil, nil
+}
+
+func (f fingerprints) Track(context.Context, string, string) (metadata.TrackInfo, error) {
+	return metadata.TrackInfo{}, nil
 }
 
 func (f fingerprints) BatchLookupByFiles(_ context.Context, paths []string) ([]metadata.FileMatch, error) {

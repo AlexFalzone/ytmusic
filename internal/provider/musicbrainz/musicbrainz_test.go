@@ -427,6 +427,9 @@ func TestLookupByMBID_Found(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if info.MBID != "mbid-abc" {
+		t.Errorf("MBID = %q, want mbid-abc", info.MBID)
+	}
 	if info.Title != "Test Track" {
 		t.Errorf("title: got %q, want %q", info.Title, "Test Track")
 	}

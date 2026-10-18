@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -19,16 +20,17 @@ func makeMBIDLookup(info metadata.TrackInfo, err error) func(context.Context, st
 }
 
 type stubAcoustID struct {
-	mbid  string
-	found bool
+	recs  []metadata.Recording
 	err   error
 	calls atomic.Int32
 }
 
-func (s *stubAcoustID) Lookup(_ context.Context, _ fingerprint.Result) (string, bool, error) {
+func (s *stubAcoustID) Lookup(_ context.Context, _ fingerprint.Result) ([]metadata.Recording, error) {
 	s.calls.Add(1)
-	return s.mbid, s.found, s.err
+	return s.recs, s.err
 }
+
+var oneRecording = []metadata.Recording{{MBID: "mbid-1", Title: "Song", Artist: "Band"}}
 
 type stubFpcalc struct {
 	result fingerprint.Result
@@ -41,42 +43,50 @@ func (s *stubFpcalc) Generate(_ context.Context, _ string) (fingerprint.Result, 
 	return s.result, s.err
 }
 
-func TestFingerprinter_LookupByFile_Success(t *testing.T) {
-	want := metadata.TrackInfo{Title: "Song", Artist: "Band", Album: "Record", Confidence: 1.0}
+func TestFingerprinter_Recordings_ReturnsWhatAcoustIDMatched(t *testing.T) {
 	fp := fingerprint.NewFingerprinter(
 		&stubFpcalc{result: fingerprint.Result{Duration: 200, Fingerprint: "AQx"}},
-		&stubAcoustID{mbid: "mbid-1", found: true},
-		makeMBIDLookup(want, nil),
-	)
-
-	got, found, err := fp.LookupByFile(context.Background(), "/fake/path.mp3", "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !found {
-		t.Fatal("expected found=true")
-	}
-	if got.Title != want.Title || got.Artist != want.Artist {
-		t.Errorf("got %+v, want %+v", got, want)
-	}
-	if got.Confidence != 1.0 {
-		t.Errorf("expected confidence 1.0, got %f", got.Confidence)
-	}
-}
-
-func TestFingerprinter_LookupByFile_AcoustIDNotFound(t *testing.T) {
-	fp := fingerprint.NewFingerprinter(
-		&stubFpcalc{result: fingerprint.Result{Duration: 200, Fingerprint: "AQx"}},
-		&stubAcoustID{found: false},
+		&stubAcoustID{recs: oneRecording},
 		makeMBIDLookup(metadata.TrackInfo{}, nil),
 	)
 
-	_, found, err := fp.LookupByFile(context.Background(), "/fake/path.mp3", "")
+	got, err := fp.Recordings(context.Background(), "/fake/path.mp3")
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("Recordings: %v", err)
 	}
-	if found {
-		t.Fatal("expected found=false when AcoustID finds nothing")
+	if !reflect.DeepEqual(got, oneRecording) {
+		t.Errorf("got %+v, want %+v", got, oneRecording)
+	}
+}
+
+func TestFingerprinter_Recordings_NoneIsAnAnswer(t *testing.T) {
+	fp := fingerprint.NewFingerprinter(
+		&stubFpcalc{result: fingerprint.Result{Duration: 200, Fingerprint: "AQx"}},
+		&stubAcoustID{},
+		makeMBIDLookup(metadata.TrackInfo{}, nil),
+	)
+
+	got, err := fp.Recordings(context.Background(), "/fake/path.mp3")
+	if err != nil || len(got) != 0 {
+		t.Errorf("Recordings = %+v, %v; want none and no error", got, err)
+	}
+}
+
+func TestFingerprinter_Track(t *testing.T) {
+	want := metadata.TrackInfo{Title: "Song", Artist: "Band", Album: "Record"}
+	var gotMBID, gotAlbum string
+	fp := fingerprint.NewFingerprinter(&stubFpcalc{}, &stubAcoustID{},
+		func(_ context.Context, mbid, album string) (metadata.TrackInfo, error) {
+			gotMBID, gotAlbum = mbid, album
+			return want, nil
+		})
+
+	got, err := fp.Track(context.Background(), "mbid-1", "Record")
+	if err != nil || got != want {
+		t.Errorf("Track = %+v, %v; want %+v", got, err, want)
+	}
+	if gotMBID != "mbid-1" || gotAlbum != "Record" {
+		t.Errorf("looked up %q on %q, want mbid-1 on Record", gotMBID, gotAlbum)
 	}
 }
 
@@ -87,20 +97,14 @@ func TestFingerprinter_LookupByFile_ReportsErrors(t *testing.T) {
 		&stubAcoustID{},
 		makeMBIDLookup(metadata.TrackInfo{}, nil),
 	)
-	_, found, err := fp.LookupByFile(context.Background(), "/fake/path.mp3", "")
-	if !errors.Is(err, stubErr) || found {
-		t.Errorf("fpcalc failing: found=%v err=%v, want not found and the fpcalc error", found, err)
+	if _, err := fp.Recordings(context.Background(), "/fake/path.mp3"); !errors.Is(err, stubErr) {
+		t.Errorf("fpcalc failing: err = %v, want the fpcalc error", err)
 	}
 
 	mbErr := errors.New("mb down")
-	fp = fingerprint.NewFingerprinter(
-		&stubFpcalc{result: fingerprint.Result{Duration: 200, Fingerprint: "AQx"}},
-		&stubAcoustID{mbid: "mbid-1", found: true},
-		makeMBIDLookup(metadata.TrackInfo{}, mbErr),
-	)
-	_, found, err = fp.LookupByFile(context.Background(), "/fake/path.mp3", "")
-	if !errors.Is(err, mbErr) || found {
-		t.Errorf("MusicBrainz failing: found=%v err=%v, want not found and the lookup error", found, err)
+	fp = fingerprint.NewFingerprinter(&stubFpcalc{}, &stubAcoustID{}, makeMBIDLookup(metadata.TrackInfo{}, mbErr))
+	if _, err := fp.Track(context.Background(), "mbid-1", ""); !errors.Is(err, mbErr) {
+		t.Errorf("MusicBrainz failing: err = %v, want the lookup error", err)
 	}
 }
 
@@ -111,7 +115,7 @@ func TestFingerprinter_StopsAfterTheKeyIsRejected(t *testing.T) {
 	fp := fingerprint.NewFingerprinter(fpcalc, acoustid, makeMBIDLookup(metadata.TrackInfo{}, nil))
 
 	for _, path := range []string{"/a.mp3", "/b.mp3"} {
-		_, _, err := fp.LookupByFile(context.Background(), path, "")
+		_, err := fp.Recordings(context.Background(), path)
 		if !errors.Is(err, metadata.ErrFingerprintOff) || !errors.Is(err, fingerprint.ErrKeyRejected) {
 			t.Errorf("%s: err = %v, want fingerprinting off because of the rejected key", path, err)
 		}
@@ -127,7 +131,7 @@ func TestFingerprinter_StopsAfterTheKeyIsRejected(t *testing.T) {
 func TestBatchLookupByFiles_CollectsMBIDs(t *testing.T) {
 	fp := fingerprint.NewFingerprinter(
 		&stubFpcalc{result: fingerprint.Result{Duration: 200, Fingerprint: "AQx"}},
-		&stubAcoustID{mbid: "mbid-1", found: true},
+		&stubAcoustID{recs: oneRecording},
 		makeMBIDLookup(metadata.TrackInfo{}, nil),
 	)
 
@@ -150,7 +154,7 @@ func TestBatchLookupByFiles_CollectsMBIDs(t *testing.T) {
 func TestBatchLookupByFiles_FpcalcFails_Skipped(t *testing.T) {
 	fp := fingerprint.NewFingerprinter(
 		&stubFpcalc{err: errors.New("fpcalc not found")},
-		&stubAcoustID{mbid: "mbid-1", found: true},
+		&stubAcoustID{recs: oneRecording},
 		makeMBIDLookup(metadata.TrackInfo{}, nil),
 	)
 
@@ -166,7 +170,7 @@ func TestBatchLookupByFiles_FpcalcFails_Skipped(t *testing.T) {
 func TestBatchLookupByFiles_AcoustIDNotFound_Skipped(t *testing.T) {
 	fp := fingerprint.NewFingerprinter(
 		&stubFpcalc{result: fingerprint.Result{Duration: 200, Fingerprint: "AQx"}},
-		&stubAcoustID{found: false},
+		&stubAcoustID{},
 		makeMBIDLookup(metadata.TrackInfo{}, nil),
 	)
 
@@ -182,7 +186,7 @@ func TestBatchLookupByFiles_AcoustIDNotFound_Skipped(t *testing.T) {
 func TestBatchLookupByFiles_EmptyPaths(t *testing.T) {
 	fp := fingerprint.NewFingerprinter(
 		&stubFpcalc{result: fingerprint.Result{Duration: 200, Fingerprint: "AQx"}},
-		&stubAcoustID{mbid: "mbid-1", found: true},
+		&stubAcoustID{recs: oneRecording},
 		makeMBIDLookup(metadata.TrackInfo{}, nil),
 	)
 
@@ -207,7 +211,7 @@ func (p panickingFpcalc) Generate(_ context.Context, path string) (fingerprint.R
 func TestBatchLookupByFiles_PanicFailsOnlyItsFile(t *testing.T) {
 	fp := fingerprint.NewFingerprinter(
 		panickingFpcalc{on: "/b.mp3"},
-		&stubAcoustID{mbid: "mbid-1", found: true},
+		&stubAcoustID{recs: oneRecording},
 		makeMBIDLookup(metadata.TrackInfo{}, nil),
 	)
 

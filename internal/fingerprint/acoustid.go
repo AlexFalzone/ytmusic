@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"ytmusic/internal/httpjson"
+	"ytmusic/internal/metadata"
 	"ytmusic/internal/throttle"
 )
 
@@ -66,47 +68,92 @@ type acoustidResult struct {
 }
 
 type acoustidRecording struct {
-	ID string `json:"id"`
+	ID            string                 `json:"id"`
+	Title         string                 `json:"title"`
+	Duration      float64                `json:"duration"` // seconds
+	Artists       []acoustidName         `json:"artists"`
+	ReleaseGroups []acoustidReleaseGroup `json:"releasegroups"`
 }
 
-func (c *AcoustIDClient) Lookup(ctx context.Context, fp Result) (string, bool, error) {
+type acoustidReleaseGroup struct {
+	Title          string         `json:"title"`
+	Artists        []acoustidName `json:"artists"`
+	SecondaryTypes []string       `json:"secondarytypes"`
+}
+
+type acoustidName struct {
+	Name string `json:"name"`
+}
+
+const minScore = 0.5
+
+// Every recording of every result above minScore, best first: one fingerprint is often linked to several, some wrong.
+func (c *AcoustIDClient) Lookup(ctx context.Context, fp Result) ([]metadata.Recording, error) {
 	params := url.Values{}
 	params.Set("client", c.apiKey)
 	params.Set("duration", strconv.Itoa(fp.Duration))
 	params.Set("fingerprint", fp.Fingerprint)
-	params.Set("meta", "recordingids")
+	params.Set("meta", "recordings releasegroups")
 
 	var result acoustidResponse
 	if err := c.api.PostForm(ctx, c.baseURL, nil, params, &result); err != nil {
 		var se *httpjson.StatusError
 		if errors.As(err, &se) && json.Unmarshal([]byte(se.Body), &result) == nil && rejectedKey(result) {
-			return "", false, fmt.Errorf("acoustid lookup: %w", ErrKeyRejected)
+			return nil, fmt.Errorf("acoustid lookup: %w", ErrKeyRejected)
 		}
-		return "", false, fmt.Errorf("acoustid lookup: %w", err)
+		return nil, fmt.Errorf("acoustid lookup: %w", err)
 	}
 	if rejectedKey(result) {
-		return "", false, fmt.Errorf("acoustid lookup: %w", ErrKeyRejected)
+		return nil, fmt.Errorf("acoustid lookup: %w", ErrKeyRejected)
 	}
 	if result.Status != "ok" {
 		msg := "no message"
 		if result.Error != nil {
 			msg = result.Error.Message
 		}
-		return "", false, fmt.Errorf("acoustid lookup: status %q: %s", result.Status, msg)
+		return nil, fmt.Errorf("acoustid lookup: status %q: %s", result.Status, msg)
 	}
 
+	var recs []metadata.Recording
+	seen := make(map[string]bool)
 	for _, r := range result.Results {
-		if r.Score < 0.5 {
+		if r.Score < minScore {
 			continue
 		}
 		for _, rec := range r.Recordings {
-			if rec.ID != "" {
-				return rec.ID, true, nil
+			if rec.ID == "" || seen[rec.ID] {
+				continue
 			}
+			seen[rec.ID] = true
+			recs = append(recs, toRecording(rec))
 		}
 	}
+	return recs, nil
+}
 
-	return "", false, nil
+func toRecording(rec acoustidRecording) metadata.Recording {
+	r := metadata.Recording{
+		MBID:     rec.ID,
+		Title:    rec.Title,
+		Artist:   joinNames(rec.Artists),
+		Duration: time.Duration(rec.Duration * float64(time.Second)),
+	}
+	for _, g := range rec.ReleaseGroups {
+		r.Albums = append(r.Albums, metadata.RecordingAlbum{
+			Title:     g.Title,
+			Artist:    joinNames(g.Artists),
+			Secondary: len(g.SecondaryTypes) > 0,
+		})
+	}
+	return r
+}
+
+func joinNames(names []acoustidName) string {
+	parts := make([]string, len(names))
+	for i, n := range names {
+		parts[i] = n.Name
+	}
+	return strings.Join(parts, ", ")
 }
 
 func rejectedKey(r acoustidResponse) bool {

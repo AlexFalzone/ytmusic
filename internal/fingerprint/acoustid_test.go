@@ -5,12 +5,14 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"ytmusic/internal/buildinfo"
 	"ytmusic/internal/fingerprint"
+	"ytmusic/internal/metadata"
 	"ytmusic/internal/testhttp"
 	"ytmusic/internal/throttle"
 )
@@ -39,15 +41,12 @@ func TestAcoustIDClient_Lookup_Found(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient("test-key", srv.URL)
-	mbid, found, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 240, Fingerprint: "AQADtMm..."})
+	recs, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 240, Fingerprint: "AQADtMm..."})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !found {
-		t.Fatal("expected found=true")
-	}
-	if mbid != "mbid-abc-123" {
-		t.Fatalf("expected mbid %q, got %q", "mbid-abc-123", mbid)
+	if len(recs) != 1 || recs[0].MBID != "mbid-abc-123" {
+		t.Fatalf("recordings = %+v, want mbid-abc-123", recs)
 	}
 }
 
@@ -59,12 +58,12 @@ func TestAcoustIDClient_Lookup_NoResults(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient("test-key", srv.URL)
-	_, found, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 240, Fingerprint: "AQADtMm..."})
+	recs, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 240, Fingerprint: "AQADtMm..."})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if found {
-		t.Fatal("expected found=false")
+	if len(recs) != 0 {
+		t.Fatalf("recordings = %+v, want none", recs)
 	}
 }
 
@@ -86,12 +85,12 @@ func TestAcoustIDClient_Lookup_NoRecordings(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient("test-key", srv.URL)
-	_, found, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 240, Fingerprint: "AQADtMm..."})
+	recs, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 240, Fingerprint: "AQADtMm..."})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if found {
-		t.Fatal("expected found=false for result with no recordings")
+	if len(recs) != 0 {
+		t.Fatalf("recordings = %+v, want none for a result without recordings", recs)
 	}
 }
 
@@ -105,7 +104,7 @@ func TestAcoustIDClient_SpacesRequests(t *testing.T) {
 	client := fingerprint.NewAcoustIDClient("test-key", srv.URL)
 	start := time.Now()
 	for range 3 {
-		if _, _, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 240, Fingerprint: "AQ"}); err != nil {
+		if _, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 240, Fingerprint: "AQ"}); err != nil {
 			t.Fatalf("Lookup: %v", err)
 		}
 	}
@@ -124,7 +123,7 @@ func TestAcoustIDClient_Lookup_IdentifiesItself(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient("key", srv.URL)
-	if _, _, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"}); err != nil {
+	if _, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"}); err != nil {
 		t.Fatalf("Lookup: %v", err)
 	}
 }
@@ -137,7 +136,7 @@ func TestAcoustIDClient_Lookup_ErrorStatusIsAnError(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient("key", srv.URL)
-	_, _, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"})
+	_, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"})
 	if err == nil || !strings.Contains(err.Error(), "invalid fingerprint") {
 		t.Errorf("err = %v, want one naming AcoustID's message", err)
 	}
@@ -151,7 +150,7 @@ func TestAcoustIDClient_Lookup_HTTPErrorKeepsTheMessage(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient("key", srv.URL)
-	_, _, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"})
+	_, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"})
 	if err == nil || !strings.Contains(err.Error(), "invalid fingerprint") {
 		t.Errorf("err = %v, want one naming AcoustID's message", err)
 	}
@@ -173,7 +172,7 @@ func TestAcoustIDClient_Lookup_SendsTheKeyInTheBody(t *testing.T) {
 	defer srv.Close()
 
 	client := newTestClient("test-key", srv.URL)
-	if _, _, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"}); err != nil {
+	if _, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"}); err != nil {
 		t.Fatalf("Lookup: %v", err)
 	}
 }
@@ -184,7 +183,7 @@ func TestAcoustIDClient_Lookup_KeyStaysOutOfErrors(t *testing.T) {
 	srv.Close()
 
 	client := newTestClient("secret-key-123", srv.URL)
-	_, _, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"})
+	_, err := client.Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"})
 	if err == nil {
 		t.Fatal("Lookup = nil, want the network error")
 	}
@@ -215,7 +214,7 @@ func TestAcoustIDClient_Lookup_RejectedKey(t *testing.T) {
 			w.WriteHeader(status)
 			testhttp.JSON(t, w, map[string]any{"status": "error", "error": map[string]any{"code": 4, "message": "invalid API key"}})
 		}))
-		_, _, err := newTestClient("key", srv.URL).Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"})
+		_, err := newTestClient("key", srv.URL).Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"})
 		srv.Close()
 		if !errors.Is(err, fingerprint.ErrKeyRejected) {
 			t.Errorf("HTTP %d: err = %v, want ErrKeyRejected", status, err)
@@ -230,8 +229,45 @@ func TestAcoustIDClient_Lookup_OtherErrorsAreNotARejectedKey(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, _, err := newTestClient("key", srv.URL).Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"})
+	_, err := newTestClient("key", srv.URL).Lookup(context.Background(), fingerprint.Result{Duration: 1, Fingerprint: "AQ"})
 	if err == nil || errors.Is(err, fingerprint.ErrKeyRejected) || !strings.Contains(err.Error(), "invalid fingerprint") {
 		t.Errorf("err = %v, want AcoustID's message and not ErrKeyRejected", err)
+	}
+}
+
+// Every recording of every result that counts, so the resolver can tell the right one from AcoustID's wrong links.
+func TestAcoustIDClient_Lookup_ReturnsEveryRecording(t *testing.T) {
+	payload := map[string]any{
+		"status": "ok",
+		"results": []map[string]any{
+			{"score": 0.9, "recordings": []map[string]any{
+				{"id": "rec-hyfr", "title": "HYFR", "duration": 206.6, "artists": []map[string]any{{"name": "Drake"}, {"name": "Lil Wayne"}},
+					"releasegroups": []map[string]any{{"title": "Take Care", "type": "Album", "artists": []map[string]any{{"name": "Drake"}}}}},
+				{"id": "rec-lwyd", "title": "Look What You've Done", "duration": 301.9, "artists": []map[string]any{{"name": "Drake"}},
+					"releasegroups": []map[string]any{{"title": "Heart & Soul", "type": "Album", "secondarytypes": []string{"Compilation"}, "artists": []map[string]any{{"name": "Various Artists"}}}}},
+			}},
+			{"score": 0.4, "recordings": []map[string]any{{"id": "rec-weak", "title": "Other"}}},
+		},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.PostFormValue("meta"); got != "recordings releasegroups" {
+			t.Errorf("meta = %q, want recordings and their release groups", got)
+		}
+		testhttp.JSON(t, w, payload)
+	}))
+	defer srv.Close()
+
+	recs, err := newTestClient("key", srv.URL).Lookup(context.Background(), fingerprint.Result{Duration: 301, Fingerprint: "AQ"})
+	if err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+	want := []metadata.Recording{
+		{MBID: "rec-hyfr", Title: "HYFR", Artist: "Drake, Lil Wayne", Duration: 206600 * time.Millisecond,
+			Albums: []metadata.RecordingAlbum{{Title: "Take Care", Artist: "Drake"}}},
+		{MBID: "rec-lwyd", Title: "Look What You've Done", Artist: "Drake", Duration: 301900 * time.Millisecond,
+			Albums: []metadata.RecordingAlbum{{Title: "Heart & Soul", Artist: "Various Artists", Secondary: true}}},
+	}
+	if !reflect.DeepEqual(recs, want) {
+		t.Errorf("recordings = %+v\nwant %+v", recs, want)
 	}
 }

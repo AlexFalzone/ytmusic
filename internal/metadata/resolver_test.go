@@ -35,8 +35,17 @@ type stubFingerprinter struct {
 	err   error
 }
 
-func (s *stubFingerprinter) LookupByFile(_ context.Context, _, _ string) (TrackInfo, bool, error) {
-	return s.info, s.found, s.err
+// Matches the file to one recording that is info, when found.
+func (s *stubFingerprinter) Recordings(_ context.Context, _ string) ([]Recording, error) {
+	if s.err != nil || !s.found {
+		return nil, s.err
+	}
+	return []Recording{{MBID: "mbid-stub", Title: s.info.Title, Artist: s.info.Artist, Duration: s.info.Duration,
+		Albums: []RecordingAlbum{{Title: s.info.Album}}}}, nil
+}
+
+func (s *stubFingerprinter) Track(_ context.Context, _, _ string) (TrackInfo, error) {
+	return s.info, nil
 }
 
 func TestResolver_WithFingerprinter_NotNil(t *testing.T) {

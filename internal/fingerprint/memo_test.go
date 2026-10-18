@@ -24,9 +24,9 @@ func (c *countingFpcalc) Generate(_ context.Context, _ string) (fingerprint.Resu
 
 type countingAcoustID struct{ calls atomic.Int32 }
 
-func (c *countingAcoustID) Lookup(_ context.Context, _ fingerprint.Result) (string, bool, error) {
+func (c *countingAcoustID) Lookup(_ context.Context, _ fingerprint.Result) ([]metadata.Recording, error) {
 	c.calls.Add(1)
-	return "mbid-1", true, nil
+	return []metadata.Recording{{MBID: "mbid-1"}}, nil
 }
 
 func TestFingerprinter_FingerprintsEachFileOnce(t *testing.T) {
@@ -36,8 +36,11 @@ func TestFingerprinter_FingerprintsEachFileOnce(t *testing.T) {
 	if got, err := fp.BatchLookupByFiles(context.Background(), []string{"/a.mp3", "/b.mp3"}); err != nil || len(got) != 2 {
 		t.Fatalf("batch matched %d files (err %v), want 2", len(got), err)
 	}
-	if _, found, err := fp.LookupByFile(context.Background(), "/a.mp3", ""); err != nil || !found {
-		t.Fatalf("LookupByFile = %v, %v, want found", found, err)
+	if recs, err := fp.Recordings(context.Background(), "/a.mp3"); err != nil || len(recs) != 1 {
+		t.Fatalf("Recordings = %v, %v, want the batch's recording", recs, err)
+	}
+	if recs, err := fp.Recordings(context.Background(), "/a.mp3"); err != nil || len(recs) != 1 {
+		t.Fatalf("Recordings again = %v, %v, want it from the cache", recs, err)
 	}
 
 	if n := fc.calls.Load(); n != 2 {
@@ -52,10 +55,10 @@ func TestFingerprinter_RetriesAfterAFailure(t *testing.T) {
 	fc := &countingFpcalc{failFirst: true}
 	fp := fingerprint.NewFingerprinter(fc, &countingAcoustID{}, makeMBIDLookup(metadata.TrackInfo{Title: "Song"}, nil))
 
-	if _, found, _ := fp.LookupByFile(context.Background(), "/a.mp3", ""); found {
-		t.Fatal("first lookup: want no match, fpcalc failed")
+	if _, err := fp.Recordings(context.Background(), "/a.mp3"); err == nil {
+		t.Fatal("first lookup: want the fpcalc error")
 	}
-	if _, found, err := fp.LookupByFile(context.Background(), "/a.mp3", ""); err != nil || !found {
-		t.Fatalf("second lookup = %v, %v, want found", found, err)
+	if recs, err := fp.Recordings(context.Background(), "/a.mp3"); err != nil || len(recs) != 1 {
+		t.Fatalf("second lookup = %v, %v, want the recording", recs, err)
 	}
 }

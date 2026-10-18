@@ -225,7 +225,7 @@ func (r *Resolver) fingerprintMatch(ctx context.Context, path, album string) (Tr
 	if r.fingerprinter == nil {
 		return TrackInfo{}, false
 	}
-	info, found, err := r.fingerprinter.LookupByFile(ctx, path, album)
+	info, found, err := r.fingerprintLookup(ctx, path, album)
 	switch {
 	case err == nil:
 		return info, found
@@ -237,4 +237,17 @@ func (r *Resolver) fingerprintMatch(ctx context.Context, path, album string) (Tr
 		r.logger.Warn("  fingerprint lookup failed for %s: %v", path, err)
 	}
 	return TrackInfo{}, false
+}
+
+func (r *Resolver) fingerprintLookup(ctx context.Context, path, album string) (TrackInfo, bool, error) {
+	recs, err := r.fingerprinter.Recordings(ctx, path)
+	if err != nil || len(recs) == 0 {
+		return TrackInfo{}, false, err
+	}
+	info, err := r.fingerprinter.Track(ctx, recs[0].MBID, album)
+	if err != nil {
+		return TrackInfo{}, false, err
+	}
+	info.Confidence = 1.0
+	return info, true, nil
 }

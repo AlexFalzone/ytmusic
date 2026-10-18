@@ -110,6 +110,7 @@ func parseRecordings(recordings []recording, preferAlbum, artworkBaseURL string)
 	var results []metadata.TrackInfo
 	for _, rec := range recordings {
 		info := metadata.TrackInfo{
+			MBID:     rec.ID,
 			Title:    rec.Title,
 			Artist:   joinArtistCredits(rec.ArtistCredit),
 			Duration: time.Duration(rec.Length) * time.Millisecond,
@@ -218,6 +219,7 @@ type searchResponse struct {
 }
 
 type recording struct {
+	ID           string         `json:"id"`
 	Title        string         `json:"title"`
 	Length       int            `json:"length"`
 	ArtistCredit []artistCredit `json:"artist-credit"`

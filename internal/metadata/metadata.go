@@ -8,6 +8,7 @@ import (
 )
 
 type TrackInfo struct {
+	MBID        string // MusicBrainz recording ID, when the source knows it
 	Title       string
 	Artist      string
 	Album       string
@@ -79,8 +80,26 @@ type AlbumResolver interface {
 // A Fingerprinter returns it once it can no longer look anything up, such as after a rejected key.
 var ErrFingerprintOff = errors.New("fingerprinting is off for the rest of this run")
 
+// A recording a file's audio matched, as the fingerprint service describes it.
+type Recording struct {
+	MBID     string
+	Title    string
+	Artist   string
+	Duration time.Duration
+	Albums   []RecordingAlbum
+}
+
+type RecordingAlbum struct {
+	Title     string
+	Artist    string
+	Secondary bool // a compilation, soundtrack, live album, mixtape…: a less likely home for the recording
+}
+
 type Fingerprinter interface {
-	LookupByFile(ctx context.Context, path, preferAlbum string) (TrackInfo, bool, error)
+	// Best first; none is an answer too.
+	Recordings(ctx context.Context, path string) ([]Recording, error)
+	// The recording on the release closest to album.
+	Track(ctx context.Context, mbid, album string) (TrackInfo, error)
 }
 
 type FileMatch struct {
