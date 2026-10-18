@@ -26,7 +26,7 @@ type components struct {
 	releaseFinder   metadata.ReleaseFinder
 }
 
-// One MusicBrainz client for everything: its throttle and caches live in the instance.
+// One MusicBrainz client for everything: its caches live in the instance.
 func buildComponents(cfg config.Config) components {
 	var mbClient *musicbrainz.Client
 	if slices.Contains(cfg.MetadataProviders, "musicbrainz") || cfg.AcoustIDAPIKey != "" {
