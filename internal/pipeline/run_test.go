@@ -121,6 +121,15 @@ func songLyrics() *fakeLyrics {
 	return &fakeLyrics{byTitle: map[string]lyrics.Result{"Song": {Synced: "[00:01.00]la"}}}
 }
 
+func libraryFiles(t *testing.T, dir string) []string {
+	t.Helper()
+	files, err := utils.FindAudioFiles(dir)
+	if err != nil {
+		t.Fatalf("listing the library: %v", err)
+	}
+	return files
+}
+
 func hasWarning(warnings []string, part string) bool {
 	for _, w := range warnings {
 		if strings.Contains(w, part) {
@@ -151,7 +160,7 @@ func TestRunDownloadsImportsAndFilesTheTracks(t *testing.T) {
 			t.Errorf("%s not in the library under the imported album: %v", name, err)
 		}
 	}
-	if files, _ := utils.FindAudioFiles(res.out); len(files) != 1 {
+	if files := libraryFiles(t, res.out); len(files) != 1 {
 		t.Errorf("library holds %v, want only song.mp3: the failed download's leftover must stay out", files)
 	}
 }
@@ -200,7 +209,7 @@ func TestRunCancelledDuringDownloadMovesNothing(t *testing.T) {
 	if len(imp.dirs) != 0 {
 		t.Errorf("imported %v after the run was cancelled", imp.dirs)
 	}
-	if files, _ := utils.FindAudioFiles(res.out); len(files) != 0 {
+	if files := libraryFiles(t, res.out); len(files) != 0 {
 		t.Errorf("library holds %v after a cancelled run", files)
 	}
 }
@@ -223,7 +232,7 @@ func TestRunCancelledDuringImportMovesNothing(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("run = %v, want the cancellation", err)
 	}
-	if files, _ := utils.FindAudioFiles(res.out); len(files) != 0 {
+	if files := libraryFiles(t, res.out); len(files) != 0 {
 		t.Errorf("library holds %v after a cancelled run", files)
 	}
 	if hasWarning(res.warnings, "metadata resolution failed") {
