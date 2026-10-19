@@ -26,6 +26,20 @@ type Hooks struct {
 	OnWarning       func(msg string)
 }
 
+func (h Hooks) warn(log *logger.Logger, msg string) {
+	log.Warn("%s", msg)
+	if h.OnWarning != nil {
+		h.OnWarning(msg)
+	}
+}
+
+func checkCancelled(ctx context.Context, stage string) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("cancelled %s: %w", stage, err)
+	}
+	return nil
+}
+
 type dirImporter interface {
 	Import(ctx context.Context, dir string, album *metadata.Album) error
 }
@@ -66,13 +80,13 @@ func run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 	if err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
+	// DownloadAll notices a cancel only while starting downloads; one that comes later leaves them neither failed nor done.
+	if err := checkCancelled(ctx, "while downloading"); err != nil {
+		return err
+	}
 
 	if stats.Failed > 0 {
-		msg := fmt.Sprintf("%d of %d videos failed to download (private, unavailable, or geo-restricted)", stats.Failed, stats.Total)
-		log.Warn("%s", msg)
-		if hooks.OnWarning != nil {
-			hooks.OnWarning(msg)
-		}
+		hooks.warn(log, fmt.Sprintf("%d of %d videos failed to download (private, unavailable, or geo-restricted)", stats.Failed, stats.Total))
 	}
 
 	mergedDir, mergedPaths, err := dl.MergeFiles(stats.Produced())
@@ -80,16 +94,19 @@ func run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 		return fmt.Errorf("failed to merge files: %w", err)
 	}
 
-	if err := imp.Import(ctx, mergedDir, albumFor(pl, stats.Files, mergedPaths)); err != nil {
-		msg := fmt.Sprintf("metadata resolution failed: %v", err)
-		log.Warn("%s", msg)
-		if hooks.OnWarning != nil {
-			hooks.OnWarning(msg)
-		}
+	importErr := imp.Import(ctx, mergedDir, albumFor(pl, stats.Files, mergedPaths))
+	if err := checkCancelled(ctx, "while resolving metadata"); err != nil {
+		return err
+	}
+	if importErr != nil {
+		hooks.warn(log, fmt.Sprintf("metadata resolution failed: %v", importErr))
 	}
 
 	if !cfg.SkipLyrics {
 		resolveLyrics(ctx, mergedDir, log, lf)
+		if err := checkCancelled(ctx, "while fetching lyrics"); err != nil {
+			return err
+		}
 	}
 
 	log.Info("moving files to %s", cfg.OutputDir)
@@ -98,10 +115,10 @@ func run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 		return fmt.Errorf("failed to move files to output: %w", err)
 	}
 	if failed > 0 {
-		log.Warn("%d files could not be moved", failed)
+		hooks.warn(log, fmt.Sprintf("%d files could not be moved", failed))
 	}
 	if lyricsFailed > 0 {
-		log.Warn("%d lyrics files could not be moved next to their track", lyricsFailed)
+		hooks.warn(log, fmt.Sprintf("%d lyrics files could not be moved next to their track", lyricsFailed))
 	}
 	log.Info("Moved %d files to %s", moved, cfg.OutputDir)
 

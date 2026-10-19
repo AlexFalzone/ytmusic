@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -89,12 +90,22 @@ func runFake(t *testing.T, imp dirImporter) runResult {
 
 func runFakePlaylist(t *testing.T, imp dirImporter, id, title string) runResult {
 	t.Helper()
+	cfg, hooks, res := setupFakeRun(t, id, title)
+	if err := run(context.Background(), cfg, logger.New(false), res.tmp, hooks, imp, songLyrics()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	return *res
+}
+
+// The fake yt-dlp, a config that writes into temp dirs, and hooks that record into the result.
+func setupFakeRun(t *testing.T, id, title string) (config.Config, Hooks, *runResult) {
+	t.Helper()
 	fixture := trackFile(t, t.TempDir(), "fixture.mp3", map[string][]string{
 		taglib.Title: {"Song"}, taglib.Artist: {"Artist"}, taglib.Album: {"Album"},
 	})
 	fakeYtdlp(t, fixture, id, title)
 
-	res := runResult{out: t.TempDir(), tmp: t.TempDir()}
+	res := &runResult{out: t.TempDir(), tmp: t.TempDir()}
 	cfg := config.DefaultConfig()
 	cfg.PlaylistURL = "https://www.youtube.com/playlist?list=x"
 	cfg.OutputDir = res.out
@@ -103,12 +114,11 @@ func runFakePlaylist(t *testing.T, imp dirImporter, id, title string) runResult 
 		OnURLsExtracted: func(total int) { res.extracted = total },
 		OnWarning:       func(msg string) { res.warnings = append(res.warnings, msg) },
 	}
-	lf := &fakeLyrics{byTitle: map[string]lyrics.Result{"Song": {Synced: "[00:01.00]la"}}}
+	return cfg, hooks, res
+}
 
-	if err := run(context.Background(), cfg, logger.New(false), res.tmp, hooks, imp, lf); err != nil {
-		t.Fatalf("run: %v", err)
-	}
-	return res
+func songLyrics() *fakeLyrics {
+	return &fakeLyrics{byTitle: map[string]lyrics.Result{"Song": {Synced: "[00:01.00]la"}}}
 }
 
 func hasWarning(warnings []string, part string) bool {
@@ -172,5 +182,67 @@ func TestRunHandsAnAlbumPlaylistToTheImportAsAnAlbum(t *testing.T) {
 	want := map[string]int{filepath.Join(res.tmp, "merged", "song.mp3"): 1}
 	if fmt.Sprint(album.Files) != fmt.Sprint(want) {
 		t.Errorf("files = %v, want %v: the paths after merging", album.Files, want)
+	}
+}
+
+func TestRunCancelledDuringDownloadMovesNothing(t *testing.T) {
+	cfg, hooks, res := setupFakeRun(t, "PLx", "Mix")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	hooks.OnProgress = cancel
+	imp := &retagger{}
+
+	err := run(ctx, cfg, logger.New(false), res.tmp, hooks, imp, songLyrics())
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("run = %v, want the cancellation", err)
+	}
+	if len(imp.dirs) != 0 {
+		t.Errorf("imported %v after the run was cancelled", imp.dirs)
+	}
+	if files, _ := utils.FindAudioFiles(res.out); len(files) != 0 {
+		t.Errorf("library holds %v after a cancelled run", files)
+	}
+}
+
+// Cancels the run from inside the resolution, as a user pressing Cancel while tags are being resolved.
+type cancellingImporter struct{ cancel context.CancelFunc }
+
+func (c cancellingImporter) Import(ctx context.Context, _ string, _ *metadata.Album) error {
+	c.cancel()
+	return fmt.Errorf("resolving metadata: %w", ctx.Err())
+}
+
+func TestRunCancelledDuringImportMovesNothing(t *testing.T) {
+	cfg, hooks, res := setupFakeRun(t, "PLx", "Mix")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := run(ctx, cfg, logger.New(false), res.tmp, hooks, cancellingImporter{cancel}, songLyrics())
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("run = %v, want the cancellation", err)
+	}
+	if files, _ := utils.FindAudioFiles(res.out); len(files) != 0 {
+		t.Errorf("library holds %v after a cancelled run", files)
+	}
+	if hasWarning(res.warnings, "metadata resolution failed") {
+		t.Errorf("warnings = %q: a cancellation is not a failed resolution", res.warnings)
+	}
+}
+
+func TestRunReportsFilesItCouldNotMove(t *testing.T) {
+	cfg, hooks, res := setupFakeRun(t, "PLx", "Mix")
+	// A file where the artist's directory should go makes the move fail.
+	if err := os.WriteFile(filepath.Join(res.out, "Artist"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := run(context.Background(), cfg, logger.New(false), res.tmp, hooks, &retagger{}, songLyrics()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if !hasWarning(res.warnings, "1 files could not be moved") {
+		t.Errorf("warnings = %q, want the file that stayed out of the library reported", res.warnings)
 	}
 }
