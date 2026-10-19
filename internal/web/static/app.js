@@ -190,7 +190,7 @@ function buildCard(entry) {
     details.append(checkbox, document.createTextNode(' details'));
     toolbar.append(el('span', 'log-dropped hidden'), details);
     const pane = el('div', 'log-pane');
-    checkbox.addEventListener('change', () => pane.classList.toggle('show-debug', checkbox.checked));
+    checkbox.addEventListener('change', () => keepAtBottom(pane, () => pane.classList.toggle('show-debug', checkbox.checked)));
     log.append(toolbar, pane);
 
     card.append(header, bar, info, el('div', 'job-error hidden'), el('ul', 'job-warnings hidden'), actions, log);
@@ -338,11 +338,17 @@ async function toggleLog(entry) {
     pane.scrollTop = pane.scrollHeight;
 }
 
-// Lines carry their number in the job's log: one already shown, sent again after a reconnect, is skipped.
 function addLines(entry, lines) {
     const pane = entry.card.querySelector('.log-pane');
-    const atBottom = pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 4;
+    keepAtBottom(pane, () => appendLines(entry, pane, lines));
 
+    const dropped = entry.card.querySelector('.log-dropped');
+    dropped.textContent = `${entry.dropped} earlier lines dropped; the full log is in the server's log file`;
+    dropped.classList.toggle('hidden', entry.dropped === 0);
+}
+
+// Lines carry their number in the job's log: one already shown, sent again after a reconnect, is skipped.
+function appendLines(entry, pane, lines) {
     const fragment = document.createDocumentFragment();
     for (const line of lines) {
         if (line.seq < entry.nextSeq) {
@@ -356,11 +362,12 @@ function addLines(entry, lines) {
     while (pane.childElementCount > MAX_LOG_LINES) {
         pane.firstElementChild.remove();
     }
+}
 
-    const dropped = entry.card.querySelector('.log-dropped');
-    dropped.textContent = `${entry.dropped} earlier lines dropped; the full log is in the server's log file`;
-    dropped.classList.toggle('hidden', entry.dropped === 0);
-
+// Whoever reads at the bottom keeps following the log; whoever scrolled up stays where they are.
+function keepAtBottom(pane, change) {
+    const atBottom = pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 4;
+    change();
     if (atBottom) {
         pane.scrollTop = pane.scrollHeight;
     }
