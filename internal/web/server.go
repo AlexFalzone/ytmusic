@@ -134,10 +134,11 @@ func originMatchesHost(r *http.Request) bool {
 func (s *Server) staticCacheMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Never "public": a shared cache would serve one session's page to others.
+		// Assets are revalidated: after an upgrade a cached script would run against the new page and API.
 		if r.URL.Path == "/" || strings.HasSuffix(r.URL.Path, ".html") {
 			w.Header().Set("Cache-Control", "no-store")
 		} else {
-			w.Header().Set("Cache-Control", "private, max-age=3600")
+			w.Header().Set("Cache-Control", "private, no-cache")
 		}
 		next.ServeHTTP(w, r)
 	})

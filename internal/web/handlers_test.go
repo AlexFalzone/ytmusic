@@ -180,6 +180,22 @@ func TestAuthenticatedResponsesAreNotPubliclyCacheable(t *testing.T) {
 	}
 }
 
+// After an upgrade the browser must not run the old script against the new page and API.
+func TestStaticAssetsAreRevalidated(t *testing.T) {
+	s := newTestServer(t, nil)
+
+	for _, path := range []string{"/app.js", "/style.css", "/login.js"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.AddCookie(sessionCookie(t, s))
+		rec := httptest.NewRecorder()
+		s.Router().ServeHTTP(rec, req)
+
+		if got := rec.Header().Get("Cache-Control"); got != "private, no-cache" {
+			t.Errorf("%s: Cache-Control = %q, want private, no-cache", path, got)
+		}
+	}
+}
+
 func TestJobReadsDoNotRaceWithUpdates(t *testing.T) {
 	s := newTestServer(t, nil)
 	job, err := s.jobMgr.CreateJob(context.Background(), "https://example.com/playlist", s.config)
