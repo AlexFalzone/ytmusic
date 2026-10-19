@@ -122,3 +122,48 @@ func TestDebugRaceCondition(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func collectLines(lines *[]Line) func(Line) {
+	return func(l Line) { *lines = append(*lines, l) }
+}
+
+func TestSinkGetsEveryLevelEvenWithoutVerbose(t *testing.T) {
+	l, _ := newTestLogger(false)
+	var got []Line
+	job := l.WithPrefix("job_1").WithSink(collectLines(&got))
+
+	job.Debug("d")
+	job.Info("i")
+	job.Warn("w")
+	job.Error("e")
+
+	var levels, texts, prefixes []string
+	for _, line := range got {
+		levels = append(levels, line.Level)
+		texts = append(texts, line.Text)
+		prefixes = append(prefixes, line.Prefix)
+		if line.Time.IsZero() {
+			t.Errorf("line %q has no time", line.Text)
+		}
+	}
+	if strings.Join(levels, " ") != "DEBUG INFO WARN ERROR" || strings.Join(texts, " ") != "d i w e" {
+		t.Errorf("sink got levels %q texts %q, want DEBUG INFO WARN ERROR / d i w e", levels, texts)
+	}
+	if strings.Join(prefixes, "") != "" {
+		t.Errorf("prefixes = %q, want none: the sink's own prefix is implied", prefixes)
+	}
+}
+
+func TestSinkIsInheritedWithoutTheOwnersPrefix(t *testing.T) {
+	l, buf := newTestLogger(false)
+	var got []Line
+	l.WithPrefix("job_1").WithSink(collectLines(&got)).WithPrefix("3/20").Info("x")
+	l.Info("from the root")
+
+	if len(got) != 1 || got[0].Prefix != "[3/20]" || got[0].Text != "x" {
+		t.Errorf("sink got %+v, want one line [3/20] x", got)
+	}
+	if !strings.Contains(buf.String(), "[job_1] [3/20] x") {
+		t.Errorf("stdout lost the full prefix: %q", buf.String())
+	}
+}
