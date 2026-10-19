@@ -1,4 +1,10 @@
-let currentJobId = null;
+// One entry per job card: the last state seen, its socket and where its log has got to.
+const jobs = new Map();
+
+const FINISHED = new Set(['completed', 'failed', 'cancelled']);
+const MAX_RETRY_DELAY = 30000;
+// The server keeps as many; past them it drops the oldest too.
+const MAX_LOG_LINES = 5000;
 
 // A 401 means the session is gone: back to login, not an error on every refresh.
 async function apiFetch(url, options) {
@@ -23,8 +29,8 @@ async function logout() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    loadJobHistory();
-    setInterval(loadJobHistory, 10000);
+    refreshJobs();
+    setInterval(refreshJobs, 10000);
 });
 
 async function startDownload() {
@@ -54,79 +60,243 @@ async function startDownload() {
         }
 
         const job = await response.json();
-        currentJobId = job.id;
         urlInput.value = '';
-        displayCurrentJob(job);
-        connectWebSocket(job.id);
+        const entry = entryFor(job.id);
+        entry.job = job;
+        render(entry);
+        document.getElementById('jobs-list').prepend(entry.card);
+        updateEmptyState();
+        connect(job.id);
     } catch (error) {
         showError(error.message);
+    } finally {
         downloadBtn.disabled = false;
     }
 }
 
-function connectWebSocket(jobId) {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws?job_id=${jobId}`;
+// Polling catches jobs started elsewhere and those whose socket is not open; a socket's updates are fresher.
+async function refreshJobs() {
+    let list;
+    try {
+        const response = await apiFetch('/api/jobs');
+        if (!response.ok) {
+            throw new Error('Failed to load jobs');
+        }
+        list = (await response.json()) || [];
+    } catch (error) {
+        console.error('Failed to load jobs:', error);
+        return;
+    }
 
-    const ws = new WebSocket(wsUrl);
+    const listed = new Set();
+    for (const job of list) {
+        listed.add(job.id);
+        const entry = entryFor(job.id);
+        if (entry.ws || entry.retrying) {
+            continue;
+        }
+        entry.job = job;
+        render(entry);
+        if (!FINISHED.has(job.status)) {
+            connect(job.id);
+        }
+    }
+    placeCards(list);
+
+    for (const [id, entry] of jobs) {
+        if (!listed.has(id) && !entry.ws && !entry.retrying && !entry.lost) {
+            entry.card.remove();
+            jobs.delete(id);
+        }
+    }
+    updateEmptyState();
+}
+
+// list is newest first. Cards already shown stay where they are: moving one would reset its log's scroll.
+function placeCards(list) {
+    const jobsList = document.getElementById('jobs-list');
+    let older = null;
+    for (let i = list.length - 1; i >= 0; i--) {
+        const card = jobs.get(list[i].id).card;
+        if (!card.isConnected) {
+            jobsList.insertBefore(card, older);
+        }
+        older = card;
+    }
+}
+
+function updateEmptyState() {
+    document.getElementById('jobs-empty').classList.toggle('hidden', jobs.size > 0);
+}
+
+function entryFor(id) {
+    let entry = jobs.get(id);
+    if (!entry) {
+        entry = {
+            id,
+            job: null,
+            ws: null,
+            retrying: false,
+            retryDelay: 1000,
+            nextSeq: 0,
+            dropped: 0,
+            logOpen: false,
+            logLoaded: false,
+            cancelling: false,
+            lost: false,
+        };
+        entry.card = buildCard(entry);
+        jobs.set(id, entry);
+    }
+    return entry;
+}
+
+function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) {
+        node.className = className;
+    }
+    if (text) {
+        node.textContent = text;
+    }
+    return node;
+}
+
+function buildCard(entry) {
+    const card = el('div', 'job-card');
+    card.dataset.jobId = entry.id;
+
+    const header = el('div', 'job-header');
+    header.append(el('span', 'job-url'), el('span', 'status'));
+
+    const bar = el('div', 'progress-bar');
+    bar.append(el('div', 'progress-fill'));
+
+    const info = el('div', 'job-info');
+    info.append(el('span', 'job-progress'), el('span', 'job-time'));
+
+    const actions = el('div', 'job-actions');
+    const cancelBtn = el('button', 'cancel-btn', 'Cancel');
+    cancelBtn.addEventListener('click', () => cancelJob(entry));
+    const logBtn = el('button', 'log-btn', 'Log');
+    logBtn.addEventListener('click', () => toggleLog(entry));
+    actions.append(cancelBtn, logBtn);
+
+    const log = el('div', 'log hidden');
+    const toolbar = el('div', 'log-toolbar');
+    const details = el('label', 'log-details');
+    const checkbox = el('input');
+    checkbox.type = 'checkbox';
+    details.append(checkbox, document.createTextNode(' details'));
+    toolbar.append(el('span', 'log-dropped hidden'), details);
+    const pane = el('div', 'log-pane');
+    checkbox.addEventListener('change', () => pane.classList.toggle('show-debug', checkbox.checked));
+    log.append(toolbar, pane);
+
+    card.append(header, bar, info, el('div', 'job-error hidden'), el('ul', 'job-warnings hidden'), actions, log);
+    return card;
+}
+
+function render(entry) {
+    const job = entry.job;
+    const card = entry.card;
+
+    card.querySelector('.job-url').textContent = job.url;
+
+    const status = card.querySelector('.status');
+    const shown = entry.lost ? 'lost' : job.status;
+    status.textContent = shown;
+    status.className = `status ${shown}`;
+
+    const progress = job.total > 0 ? (job.progress / job.total) * 100 : 0;
+    card.querySelector('.progress-fill').style.width = `${progress}%`;
+    card.querySelector('.job-progress').textContent = `${job.progress}/${job.total}`;
+    card.querySelector('.job-time').textContent = job.started_at ? `Started: ${job.started_at}` : `Queued: ${job.created_at}`;
+
+    const error = card.querySelector('.job-error');
+    const errorText = entry.lost ? 'Lost when the server restarted' : job.error;
+    error.textContent = errorText || '';
+    error.classList.toggle('hidden', !errorText);
+
+    const warnings = card.querySelector('.job-warnings');
+    warnings.replaceChildren(...(job.warnings || []).map(w => el('li', '', w)));
+    warnings.classList.toggle('hidden', !job.warnings || job.warnings.length === 0);
+
+    const cancelBtn = card.querySelector('.cancel-btn');
+    cancelBtn.classList.toggle('hidden', entry.lost || FINISHED.has(job.status));
+    cancelBtn.disabled = entry.cancelling;
+    cancelBtn.textContent = entry.cancelling ? 'Cancelling…' : 'Cancel';
+}
+
+function connect(id) {
+    const entry = jobs.get(id);
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws?job_id=${encodeURIComponent(id)}`);
+    entry.ws = ws;
 
     ws.onmessage = (event) => {
-        const job = JSON.parse(event.data);
-        updateCurrentJob(job);
-
-        if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
-            loadJobHistory();
-            setTimeout(() => {
-                document.getElementById('current-job').classList.add('hidden');
-                document.getElementById('download-btn').disabled = false;
-                currentJobId = null;
-            }, 3000);
+        const msg = JSON.parse(event.data);
+        entry.retryDelay = 1000;
+        entry.job = msg.job;
+        if (FINISHED.has(msg.job.status)) {
+            entry.cancelling = false;
         }
-    };
-
-    ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
+        render(entry);
+        entry.dropped = msg.log_dropped;
+        entry.logLoaded = true;
+        addLines(entry, msg.log || []);
     };
 
     ws.onclose = () => {
-        document.getElementById('download-btn').disabled = false;
+        entry.ws = null;
+        if (!entry.job || !FINISHED.has(entry.job.status)) {
+            reconnect(id);
+        }
     };
 }
 
-function displayCurrentJob(job) {
-    const currentJobDiv = document.getElementById('current-job');
-    currentJobDiv.classList.remove('hidden');
+// Asks first whether the job still exists: after a restart the server no longer knows it.
+function reconnect(id) {
+    const entry = jobs.get(id);
+    const delay = entry.retryDelay;
+    entry.retryDelay = Math.min(delay * 2, MAX_RETRY_DELAY);
+    entry.retrying = true;
 
-    document.getElementById('job-url').textContent = job.url;
-    updateCurrentJob(job);
+    setTimeout(async () => {
+        let response;
+        try {
+            response = await apiFetch(`/api/jobs/${encodeURIComponent(id)}`);
+        } catch (error) {
+            if (error.message !== 'Not authenticated') {
+                reconnect(id);
+            }
+            return;
+        }
+        entry.retrying = false;
+
+        if (response.status === 404) {
+            entry.lost = true;
+            render(entry);
+            return;
+        }
+        if (!response.ok) {
+            reconnect(id);
+            return;
+        }
+        entry.job = await response.json();
+        render(entry);
+        if (!FINISHED.has(entry.job.status)) {
+            connect(id);
+        }
+    }, delay);
 }
 
-function updateCurrentJob(job) {
-    const statusElem = document.getElementById('job-status');
-    statusElem.textContent = job.status;
-    statusElem.className = `status ${job.status}`;
-
-    const progress = job.total > 0 ? (job.progress / job.total) * 100 : 0;
-    document.getElementById('progress-fill').style.width = `${progress}%`;
-    document.getElementById('job-progress').textContent = `${job.progress}/${job.total}`;
-
-    if (job.created_at) {
-        document.getElementById('job-time').textContent = `Started: ${job.created_at}`;
-    }
-
-    const cancelBtn = document.getElementById('cancel-btn');
-    if (job.status === 'pending' || job.status === 'running') {
-        cancelBtn.classList.remove('hidden');
-    } else {
-        cancelBtn.classList.add('hidden');
-    }
-}
-
-async function cancelJob() {
-    if (!currentJobId) return;
+async function cancelJob(entry) {
+    entry.cancelling = true;
+    render(entry);
 
     try {
-        const response = await apiFetch(`/api/jobs/${currentJobId}/cancel`, {
+        const response = await apiFetch(`/api/jobs/${encodeURIComponent(entry.id)}/cancel`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
         });
@@ -135,62 +305,65 @@ async function cancelJob() {
             throw new Error('Failed to cancel job');
         }
     } catch (error) {
+        entry.cancelling = false;
+        render(entry);
         showError(error.message);
     }
 }
 
-async function loadJobHistory() {
-    try {
-        const response = await apiFetch('/api/jobs');
-        if (!response.ok) {
-            throw new Error('Failed to load jobs');
-        }
-
-        const jobs = await response.json();
-        displayJobHistory(jobs);
-    } catch (error) {
-        console.error('Failed to load job history:', error);
-    }
-}
-
-function displayJobHistory(jobs) {
-    const jobsList = document.getElementById('jobs-list');
-
-    if (!jobs || jobs.length === 0) {
-        jobsList.innerHTML = '<p style="color: #999;">No jobs yet</p>';
+async function toggleLog(entry) {
+    entry.logOpen = !entry.logOpen;
+    const log = entry.card.querySelector('.log');
+    log.classList.toggle('hidden', !entry.logOpen);
+    entry.card.querySelector('.log-btn').textContent = entry.logOpen ? 'Hide log' : 'Log';
+    if (!entry.logOpen) {
         return;
     }
 
-    const history = jobs
-        .filter(job => job.id !== currentJobId)
-        .slice(0, 10);
-
-    jobsList.innerHTML = history.map(job => {
-        const progress = job.total > 0 ? (job.progress / job.total) * 100 : 0;
-        return `
-            <div class="job-list-item">
-                <div class="job-header">
-                    <span class="job-url">${escapeHTML(job.url)}</span>
-                    <span class="status ${job.status}">${job.status}</span>
-                </div>
-                ${job.total > 0 ? `
-                    <div class="progress-bar">
-                        <div class="progress-fill" style="width: ${progress}%"></div>
-                    </div>
-                ` : ''}
-                <div class="job-info">
-                    <span>${job.progress}/${job.total}</span>
-                    <span>${job.created_at}</span>
-                </div>
-            </div>
-        `;
-    }).join('');
+    if (!entry.logLoaded) {
+        try {
+            const response = await apiFetch(`/api/jobs/${encodeURIComponent(entry.id)}/log`);
+            if (!response.ok) {
+                throw new Error(response.status === 404 ? 'The log is gone with its job' : 'Failed to load the log');
+            }
+            const data = await response.json();
+            entry.dropped = data.dropped;
+            entry.logLoaded = true;
+            addLines(entry, data.lines || []);
+        } catch (error) {
+            showError(error.message);
+        }
+    }
+    const pane = log.querySelector('.log-pane');
+    pane.scrollTop = pane.scrollHeight;
 }
 
-function escapeHTML(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+// Lines carry their number in the job's log: one already shown, sent again after a reconnect, is skipped.
+function addLines(entry, lines) {
+    const pane = entry.card.querySelector('.log-pane');
+    const atBottom = pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 4;
+
+    const fragment = document.createDocumentFragment();
+    for (const line of lines) {
+        if (line.seq < entry.nextSeq) {
+            continue;
+        }
+        entry.nextSeq = line.seq + 1;
+        const text = [line.time, line.level.padEnd(5), line.prefix, line.text].filter(Boolean).join(' ');
+        fragment.append(el('div', `log-line lvl-${line.level}`, text));
+    }
+    pane.append(fragment);
+    while (pane.childElementCount > MAX_LOG_LINES) {
+        pane.firstElementChild.remove();
+    }
+
+    const dropped = entry.card.querySelector('.log-dropped');
+    dropped.textContent = `${entry.dropped} earlier lines dropped; the full log is in the server's log file`;
+    dropped.classList.toggle('hidden', entry.dropped === 0);
+
+    if (atBottom) {
+        pane.scrollTop = pane.scrollHeight;
+    }
 }
 
 function showError(message) {

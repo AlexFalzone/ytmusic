@@ -20,26 +20,9 @@
 
         <div id="error-message" class="error hidden"></div>
 
-        <div id="current-job" class="hidden">
-            <h2>Current Download</h2>
-            <div class="job-card">
-                <div class="job-header">
-                    <span id="job-url" class="job-url"></span>
-                    <span id="job-status" class="status"></span>
-                </div>
-                <div class="progress-bar">
-                    <div id="progress-fill" class="progress-fill"></div>
-                </div>
-                <div class="job-info">
-                    <span id="job-progress">0/0</span>
-                    <span id="job-time"></span>
-                </div>
-                <button id="cancel-btn" class="cancel-btn hidden" onclick="cancelJob()">Cancel</button>
-            </div>
-        </div>
-
-        <div id="job-history">
-            <h2>Job History</h2>
+        <div id="jobs">
+            <h2>Jobs</h2>
+            <p id="jobs-empty" class="empty hidden">No jobs yet</p>
             <div id="jobs-list" class="jobs-list"></div>
         </div>
     </div>
