@@ -104,7 +104,7 @@ async function refreshJobs() {
     placeCards(list);
 
     for (const [id, entry] of jobs) {
-        if (!listed.has(id) && !entry.ws && !entry.retrying && !entry.lost) {
+        if (!listed.has(id) && !entry.ws && !entry.retrying && !entry.lost && !entry.logOpen) {
             entry.card.remove();
             jobs.delete(id);
         }
@@ -287,6 +287,12 @@ function reconnect(id) {
         render(entry);
         if (!FINISHED.has(entry.job.status)) {
             connect(id);
+            return;
+        }
+        // The job ended while the socket was down: the end of its log never arrived.
+        entry.logLoaded = false;
+        if (entry.logOpen) {
+            loadLog(entry);
         }
     }, delay);
 }
@@ -321,21 +327,25 @@ async function toggleLog(entry) {
     }
 
     if (!entry.logLoaded) {
-        try {
-            const response = await apiFetch(`/api/jobs/${encodeURIComponent(entry.id)}/log`);
-            if (!response.ok) {
-                throw new Error(response.status === 404 ? 'The log is gone with its job' : 'Failed to load the log');
-            }
-            const data = await response.json();
-            entry.dropped = data.dropped;
-            entry.logLoaded = true;
-            addLines(entry, data.lines || []);
-        } catch (error) {
-            showError(error.message);
-        }
+        await loadLog(entry);
     }
     const pane = log.querySelector('.log-pane');
     pane.scrollTop = pane.scrollHeight;
+}
+
+async function loadLog(entry) {
+    try {
+        const response = await apiFetch(`/api/jobs/${encodeURIComponent(entry.id)}/log`);
+        if (!response.ok) {
+            throw new Error(response.status === 404 ? 'The log is gone with its job' : 'Failed to load the log');
+        }
+        const data = await response.json();
+        entry.dropped = data.dropped;
+        entry.logLoaded = true;
+        addLines(entry, data.lines || []);
+    } catch (error) {
+        showError(error.message);
+    }
 }
 
 function addLines(entry, lines) {
