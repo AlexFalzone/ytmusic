@@ -15,6 +15,12 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin:     originMatchesHost,
 }
 
+type wsMessage struct {
+	Job        *JobResponse `json:"job"`
+	Log        []LogLine    `json:"log"`
+	LogDropped int          `json:"log_dropped"`
+}
+
 type wsReader interface {
 	ReadMessage() (messageType int, p []byte, err error)
 }
@@ -56,14 +62,9 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	clientGone := make(chan struct{})
 	go s.readPump(conn, clientGone)
 
-	job, err := s.jobMgr.GetJob(jobID)
-	if err == nil {
-		data, err := json.Marshal(s.jobToResponse(job))
-		if err != nil {
-			s.logger.Error("failed to marshal initial job response: %v", err)
-		} else if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-			return
-		}
+	sender := &jobSender{s: s, conn: conn, jobID: jobID}
+	if sender.send() {
+		return
 	}
 
 	ticker := time.NewTicker(30 * time.Second)
@@ -75,25 +76,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			return
 
 		case _, ok := <-updates:
-			if !ok {
-				return
-			}
-			job, err := s.jobMgr.GetJob(jobID)
-			if err != nil {
-				return
-			}
-
-			data, err := json.Marshal(s.jobToResponse(job))
-			if err != nil {
-				s.logger.Error("Failed to marshal job: %v", err)
-				continue
-			}
-
-			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-				return
-			}
-
-			if job.Status == StatusCompleted || job.Status == StatusFailed || job.Status == StatusCancelled {
+			if !ok || sender.send() {
 				return
 			}
 
@@ -103,4 +86,37 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// Sends a job's current state with the log lines the client has not had yet.
+type jobSender struct {
+	s      *Server
+	conn   *websocket.Conn
+	jobID  string
+	cursor int
+}
+
+// done: the job is over or gone, or the client cannot be written to.
+func (js *jobSender) send() (done bool) {
+	job, err := js.s.jobMgr.GetJob(js.jobID)
+	if err != nil {
+		return true
+	}
+	lines, dropped, err := js.s.jobMgr.LogSince(js.jobID, js.cursor)
+	if err != nil {
+		return true
+	}
+	if n := len(lines); n > 0 {
+		js.cursor = lines[n-1].Seq + 1
+	}
+
+	data, err := json.Marshal(wsMessage{Job: js.s.jobToResponse(job), Log: lines, LogDropped: dropped})
+	if err != nil {
+		js.s.logger.Error("marshalling the update of job %s: %v", js.jobID, err)
+		return true
+	}
+	if err := js.conn.WriteMessage(websocket.TextMessage, data); err != nil {
+		return true
+	}
+	return job.Status.finished()
 }

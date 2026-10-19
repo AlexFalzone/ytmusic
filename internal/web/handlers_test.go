@@ -2,6 +2,8 @@ package web
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -34,6 +36,7 @@ func TestAllEndpointsRequireSession(t *testing.T) {
 	}{
 		{http.MethodGet, "/api/jobs"},
 		{http.MethodGet, "/api/jobs/job_abc"},
+		{http.MethodGet, "/api/jobs/job_abc/log"},
 		{http.MethodPost, "/api/jobs/job_abc/cancel"},
 		{http.MethodPost, "/api/download"},
 		{http.MethodGet, "/api/me"},
@@ -453,5 +456,139 @@ func TestJobCancelledWhileQueuedNeverStarts(t *testing.T) {
 
 	if got := ran.Load(); got != 1 {
 		t.Errorf("pipeline ran %d times, want 1: a cancelled job must never start", got)
+	}
+}
+
+func TestJobCollectsEveryWarning(t *testing.T) {
+	s := newTestServer(t, nil)
+	s.runPipeline = func(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir string, hooks pipeline.Hooks) error {
+		hooks.OnWarning("a")
+		hooks.OnWarning("b")
+		return nil
+	}
+
+	job := startJob(t, s, "https://youtube.com/x")
+	s.Wait()
+
+	got, err := s.jobMgr.GetJob(job.ID)
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+	if got.Status != StatusCompleted || fmt.Sprint(got.Warnings) != "[a b]" || got.Error != "" {
+		t.Errorf("job = %q, warnings %q, error %q; want completed, [a b], no error", got.Status, got.Warnings, got.Error)
+	}
+}
+
+func TestJobLogHoldsThePipelinesLines(t *testing.T) {
+	s := newTestServer(t, nil)
+	s.runPipeline = func(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir string, hooks pipeline.Hooks) error {
+		log.Debug("detail <&>")
+		return nil
+	}
+
+	job := startJob(t, s, "https://youtube.com/x")
+	s.Wait()
+
+	lines, _, err := s.jobMgr.LogSince(job.ID, 0)
+	if err != nil {
+		t.Fatalf("LogSince: %v", err)
+	}
+	for _, l := range lines {
+		if l.Level == "DEBUG" && l.Text == "detail <&>" && l.Prefix == "" {
+			return
+		}
+	}
+	t.Errorf("log = %+v, want the pipeline's debug line without the job's prefix", lines)
+}
+
+func postCancel(t *testing.T, s *Server, id string) int {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/jobs/"+id+"/cancel", nil)
+	req.AddCookie(sessionCookie(t, s))
+	rec := httptest.NewRecorder()
+	s.Router().ServeHTTP(rec, req)
+	return rec.Code
+}
+
+func TestCancelLeavesTheFinalStateToTheJob(t *testing.T) {
+	s := newTestServer(t, nil)
+	running := make(chan struct{})
+	release := make(chan struct{})
+	// The run ends normally after the cancel, as when it arrives while files are being moved.
+	s.runPipeline = func(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir string, hooks pipeline.Hooks) error {
+		close(running)
+		<-ctx.Done()
+		<-release
+		return nil
+	}
+
+	job := startJob(t, s, "https://youtube.com/x")
+	<-running
+
+	if code := postCancel(t, s, job.ID); code != http.StatusAccepted {
+		t.Errorf("cancel = %d, want 202", code)
+	}
+	if got, _ := s.jobMgr.GetJob(job.ID); got.Status != StatusRunning {
+		t.Errorf("status right after the cancel request = %q, want running: only the job writes its final state", got.Status)
+	}
+
+	close(release)
+	s.Wait()
+
+	if got, _ := s.jobMgr.GetJob(job.ID); got.Status != StatusCompleted {
+		t.Errorf("final status = %q, want completed: the run finished", got.Status)
+	}
+}
+
+func TestCancelOnAFinishedJobChangesNothing(t *testing.T) {
+	s := newTestServer(t, nil)
+	job, err := s.jobMgr.CreateJob(s.ctx, "https://youtube.com/x", s.config)
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+	s.updateJob(job.ID, func(j *Job) { j.Status = StatusCompleted })
+
+	for range 2 {
+		if code := postCancel(t, s, job.ID); code != http.StatusAccepted {
+			t.Errorf("cancel = %d, want 202", code)
+		}
+	}
+
+	if got, _ := s.jobMgr.GetJob(job.ID); got.Status != StatusCompleted {
+		t.Errorf("status = %q, want completed", got.Status)
+	}
+}
+
+func TestJobLogEndpoint(t *testing.T) {
+	s := newTestServer(t, nil)
+	job, err := s.jobMgr.CreateJob(s.ctx, "https://youtube.com/x", s.config)
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+	s.jobMgr.AppendLog(job.ID, logger.Line{Time: time.Now(), Level: "INFO", Text: "first"})
+	s.jobMgr.AppendLog(job.ID, logger.Line{Time: time.Now(), Level: "WARN", Prefix: "[2/9]", Text: `"Rock & Roll" <live>`})
+
+	get := func(id string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/api/jobs/"+id+"/log", nil)
+		req.AddCookie(sessionCookie(t, s))
+		rec := httptest.NewRecorder()
+		s.Router().ServeHTTP(rec, req)
+		return rec
+	}
+
+	rec := get(job.ID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET log = %d, want 200", rec.Code)
+	}
+	var resp LogResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if len(resp.Lines) != 2 || resp.Lines[1].Text != `"Rock & Roll" <live>` || resp.Lines[1].Prefix != "[2/9]" || resp.Dropped != 0 {
+		t.Errorf("log = %+v, want both lines intact and nothing dropped", resp)
+	}
+
+	if rec := get("job_unknown"); rec.Code != http.StatusNotFound {
+		t.Errorf("GET log of an unknown job = %d, want 404", rec.Code)
 	}
 }

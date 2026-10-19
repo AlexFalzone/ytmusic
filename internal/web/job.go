@@ -23,6 +23,10 @@ const (
 	StatusCancelled JobStatus = "cancelled"
 )
 
+func (s JobStatus) finished() bool {
+	return s == StatusCompleted || s == StatusFailed || s == StatusCancelled
+}
+
 type Job struct {
 	ID          string
 	URL         string

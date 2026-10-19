@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"ytmusic/internal/logger"
 	"ytmusic/internal/pipeline"
 	"ytmusic/pkg/utils"
 )
@@ -27,9 +28,15 @@ type JobResponse struct {
 	Progress    int       `json:"progress"`
 	Total       int       `json:"total"`
 	Error       string    `json:"error,omitempty"`
+	Warnings    []string  `json:"warnings,omitempty"`
 	CreatedAt   string    `json:"created_at"`
 	StartedAt   *string   `json:"started_at,omitempty"`
 	CompletedAt *string   `json:"completed_at,omitempty"`
+}
+
+type LogResponse struct {
+	Lines   []LogLine `json:"lines"`
+	Dropped int       `json:"dropped"`
 }
 
 func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
@@ -158,6 +165,17 @@ func (s *Server) handleJobAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if r.Method == http.MethodGet && len(parts) == 2 && parts[1] == "log" {
+		lines, dropped, err := s.jobMgr.LogSince(jobID, 0)
+		if err != nil {
+			http.Error(w, "Job not found", http.StatusNotFound)
+			return
+		}
+
+		s.writeJSON(w, LogResponse{Lines: lines, Dropped: dropped})
+		return
+	}
+
 	if r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "cancel" {
 		job, err := s.jobMgr.GetJob(jobID)
 		if err != nil {
@@ -165,12 +183,11 @@ func (s *Server) handleJobAction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// The job writes its own final state: a run that finishes moving its files despite the cancel is completed.
 		job.Cancel()
-		s.updateJob(jobID, func(j *Job) {
-			j.Status = StatusCancelled
-		})
-
-		s.writeJSON(w, map[string]string{"status": "cancelled"})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		s.writeJSON(w, map[string]string{"status": "cancelling"})
 		return
 	}
 
@@ -180,7 +197,9 @@ func (s *Server) handleJobAction(w http.ResponseWriter, r *http.Request) {
 func (s *Server) processJob(job Job) {
 	defer s.wg.Done()
 
-	jobLog := s.logger.WithPrefix(job.ID)
+	jobLog := s.logger.WithPrefix(job.ID).WithSink(func(l logger.Line) {
+		s.jobMgr.AppendLog(job.ID, l)
+	})
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -226,7 +245,6 @@ func (s *Server) processJob(job Job) {
 		}
 	}()
 
-	var warningMsg string
 	hooks := pipeline.Hooks{
 		OnURLsExtracted: func(total int) {
 			s.updateJob(job.ID, func(j *Job) {
@@ -239,7 +257,9 @@ func (s *Server) processJob(job Job) {
 			})
 		},
 		OnWarning: func(msg string) {
-			warningMsg = msg
+			s.updateJob(job.ID, func(j *Job) {
+				j.Warnings = append(j.Warnings, msg)
+			})
 		},
 	}
 
@@ -264,18 +284,15 @@ func (s *Server) processJob(job Job) {
 		return
 	}
 
-	s.updateJob(job.ID, func(j *Job) {
-		j.Status = StatusCompleted
-		if warningMsg != "" {
-			j.Error = warningMsg
-		}
-	})
-
-	if warningMsg != "" {
-		jobLog.Info("completed with warnings: %s", warningMsg)
+	// Before the final state: the WebSocket closes on it, and a later line would reach only the log endpoint.
+	if done, err := s.jobMgr.GetJob(job.ID); err == nil && len(done.Warnings) > 0 {
+		jobLog.Info("completed with %d warnings", len(done.Warnings))
 	} else {
 		jobLog.Info("completed successfully")
 	}
+	s.updateJob(job.ID, func(j *Job) {
+		j.Status = StatusCompleted
+	})
 }
 
 // Cleanup never removes a running job, so a failure here is a broken invariant.
@@ -293,6 +310,7 @@ func (s *Server) jobToResponse(job Job) *JobResponse {
 		Progress:  job.Progress,
 		Total:     job.Total,
 		Error:     job.Error,
+		Warnings:  job.Warnings,
 		CreatedAt: job.CreatedAt.Format(time.DateTime),
 	}
 
