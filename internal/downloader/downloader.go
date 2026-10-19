@@ -291,6 +291,7 @@ func (d *Downloader) MergeFiles(files []string) (dir string, moved map[string]st
 	if len(files) == 0 {
 		return "", nil, fmt.Errorf("no audio files found - all downloads may have failed")
 	}
+	// Only for a debug count: a failed walk just leaves the line out.
 	if all, err := utils.FindAudioFiles(d.TmpDir); err == nil && len(all) > len(files) {
 		d.Logger.Debug("leaving out %d audio files yt-dlp did not report", len(all)-len(files))
 	}
