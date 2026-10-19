@@ -3,11 +3,13 @@ package web
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"ytmusic/internal/config"
+	"ytmusic/internal/logger"
 )
 
 func TestCleanup(t *testing.T) {
@@ -147,15 +149,129 @@ func TestSubscribeReceivesUpdates(t *testing.T) {
 	}
 
 	select {
-	case update := <-ch:
-		if update.Status != StatusRunning {
-			t.Errorf("expected status running, got %s", update.Status)
-		}
+	case <-ch:
 	case <-time.After(time.Second):
-		t.Error("timed out waiting for update")
+		t.Fatal("timed out waiting for update")
+	}
+	if got, err := jm.GetJob(job.ID); err != nil || got.Status != StatusRunning {
+		t.Errorf("after the signal the job is %q (%v), want running", got.Status, err)
 	}
 
 	jm.Unsubscribe(job.ID, ch)
+}
+
+func TestSignalsCoalesceAndTheFinalStateIsReadable(t *testing.T) {
+	jm := NewJobManager()
+	job, err := jm.CreateJob(context.Background(), "https://example.com", config.DefaultConfig())
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+	ch := jm.Subscribe(job.ID)
+
+	for i := range 49 {
+		if err := jm.UpdateJob(job.ID, func(j *Job) { j.Progress = i }); err != nil {
+			t.Fatalf("UpdateJob: %v", err)
+		}
+	}
+	if err := jm.UpdateJob(job.ID, func(j *Job) { j.Status = StatusCompleted }); err != nil {
+		t.Fatalf("UpdateJob: %v", err)
+	}
+
+	if n := len(ch); n != 1 {
+		t.Errorf("%d signals pending, want exactly 1", n)
+	}
+	if got, _ := jm.GetJob(job.ID); got.Status != StatusCompleted {
+		t.Errorf("status = %q, want completed: a slow listener must still read the final state", got.Status)
+	}
+}
+
+func appendLines(t *testing.T, jm *JobManager, id string, n int) {
+	t.Helper()
+	for i := range n {
+		jm.AppendLog(id, logger.Line{Time: time.Now(), Level: "INFO", Text: fmt.Sprint(i)})
+	}
+}
+
+func TestAppendLogKeepsTheNewestLines(t *testing.T) {
+	jm := NewJobManager()
+	job, err := jm.CreateJob(context.Background(), "https://example.com", config.DefaultConfig())
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+	appendLines(t, jm, job.ID, maxLogLines+3)
+
+	lines, dropped, err := jm.LogSince(job.ID, 0)
+	if err != nil {
+		t.Fatalf("LogSince: %v", err)
+	}
+	if len(lines) != maxLogLines || dropped != 3 {
+		t.Fatalf("got %d lines, %d dropped; want %d and 3", len(lines), dropped, maxLogLines)
+	}
+	if lines[0].Seq != 3 || lines[0].Text != "3" {
+		t.Errorf("first kept line = %+v, want seq 3 text 3: the oldest go first", lines[0])
+	}
+}
+
+func TestLogSinceReturnsOnlyNewerLines(t *testing.T) {
+	jm := NewJobManager()
+	job, err := jm.CreateJob(context.Background(), "https://example.com", config.DefaultConfig())
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+	ch := jm.Subscribe(job.ID)
+	at := time.Date(2026, 10, 19, 21, 4, 10, 0, time.Local)
+	for i := range 3 {
+		jm.AppendLog(job.ID, logger.Line{Time: at, Level: "DEBUG", Prefix: "[1/3]", Text: fmt.Sprint(i)})
+	}
+
+	if len(ch) != 1 {
+		t.Error("appending a line did not signal the listener")
+	}
+	lines, dropped, err := jm.LogSince(job.ID, 2)
+	if err != nil {
+		t.Fatalf("LogSince: %v", err)
+	}
+	want := LogLine{Seq: 2, Time: "21:04:10", Level: "DEBUG", Prefix: "[1/3]", Text: "2"}
+	if len(lines) != 1 || lines[0] != want || dropped != 0 {
+		t.Errorf("LogSince(2) = %+v, %d dropped; want [%+v], 0", lines, dropped, want)
+	}
+}
+
+func TestCleanupDropsTheLog(t *testing.T) {
+	jm := NewJobManager()
+	job, err := jm.CreateJob(context.Background(), "https://example.com", config.DefaultConfig())
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+	appendLines(t, jm, job.ID, 2)
+
+	completed := time.Now().Add(-2 * jobRetention)
+	jm.mu.Lock()
+	jm.jobs[job.ID].CompletedAt = &completed
+	jm.mu.Unlock()
+	jm.cleanup()
+
+	if _, _, err := jm.LogSince(job.ID, 0); err == nil {
+		t.Error("the log outlived its job")
+	}
+}
+
+func TestJobCopiesDoNotShareWarnings(t *testing.T) {
+	jm := NewJobManager()
+	job, err := jm.CreateJob(context.Background(), "https://example.com", config.DefaultConfig())
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+	if err := jm.UpdateJob(job.ID, func(j *Job) { j.Warnings = append(j.Warnings, "a") }); err != nil {
+		t.Fatalf("UpdateJob: %v", err)
+	}
+
+	got, _ := jm.GetJob(job.ID)
+	got.Warnings[0] = "changed"
+
+	if again, _ := jm.GetJob(job.ID); again.Warnings[0] != "a" {
+		t.Errorf("warnings = %q: a copy wrote through to the job", again.Warnings)
+	}
 }
 
 func TestCreateJobReturnsErrorWhenRandomFails(t *testing.T) {

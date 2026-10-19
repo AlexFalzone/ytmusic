@@ -74,8 +74,12 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		case <-clientGone:
 			return
 
-		case job, ok := <-updates:
+		case _, ok := <-updates:
 			if !ok {
+				return
+			}
+			job, err := s.jobMgr.GetJob(jobID)
+			if err != nil {
 				return
 			}
 

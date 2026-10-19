@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 	"time"
 
 	"ytmusic/internal/config"
+	"ytmusic/internal/logger"
 )
 
 type JobStatus string
@@ -29,6 +31,7 @@ type Job struct {
 	Progress    int
 	Total       int
 	Error       string
+	Warnings    []string
 	CreatedAt   time.Time
 	StartedAt   *time.Time
 	CompletedAt *time.Time
@@ -38,11 +41,38 @@ type Job struct {
 	ctx context.Context
 }
 
+// A copy whose slices are its own, so it can be read while the job goroutine appends.
+func (j *Job) snapshot() Job {
+	c := *j
+	c.Warnings = slices.Clone(j.Warnings)
+	return c
+}
+
+// One line of a job's log as the page shows it. Seq counts from the job's first line, dropped ones included.
+type LogLine struct {
+	Seq    int    `json:"seq"`
+	Time   string `json:"time"`
+	Level  string `json:"level"`
+	Prefix string `json:"prefix"`
+	Text   string `json:"text"`
+}
+
+type jobLog struct {
+	lines   []LogLine
+	next    int
+	dropped int
+}
+
+// About 1 MB at most; an album of ~300 tracks fits with its debug lines.
+const maxLogLines = 5000
+
 // Accessors return copies: a pointer would let callers read while a job goroutine writes.
+// Never log while holding mu: a job's logger writes into the manager under the logger's own lock.
 type JobManager struct {
 	jobs      map[string]*Job
+	logs      map[string]*jobLog
 	mu        sync.RWMutex
-	listeners map[string][]chan Job
+	listeners map[string][]chan struct{}
 }
 
 const jobRetention = 1 * time.Hour
@@ -50,7 +80,8 @@ const jobRetention = 1 * time.Hour
 func NewJobManager() *JobManager {
 	return &JobManager{
 		jobs:      make(map[string]*Job),
-		listeners: make(map[string][]chan Job),
+		logs:      make(map[string]*jobLog),
+		listeners: make(map[string][]chan struct{}),
 	}
 }
 
@@ -81,6 +112,7 @@ func (jm *JobManager) cleanup() {
 				close(ch)
 			}
 			delete(jm.jobs, id)
+			delete(jm.logs, id)
 			delete(jm.listeners, id)
 		}
 	}
@@ -108,7 +140,8 @@ func (jm *JobManager) CreateJob(parent context.Context, url string, cfg config.C
 	}
 
 	jm.jobs[job.ID] = job
-	return *job, nil
+	jm.logs[job.ID] = &jobLog{}
+	return job.snapshot(), nil
 }
 
 func (jm *JobManager) GetJob(id string) (Job, error) {
@@ -119,7 +152,7 @@ func (jm *JobManager) GetJob(id string) (Job, error) {
 	if !ok {
 		return Job{}, fmt.Errorf("job not found: %s", id)
 	}
-	return *job, nil
+	return job.snapshot(), nil
 }
 
 // Newest first.
@@ -129,7 +162,7 @@ func (jm *JobManager) ListJobs(limit int) []Job {
 
 	jobs := make([]Job, 0, len(jm.jobs))
 	for _, job := range jm.jobs {
-		jobs = append(jobs, *job)
+		jobs = append(jobs, job.snapshot())
 	}
 
 	sort.Slice(jobs, func(i, j int) bool {
@@ -169,20 +202,61 @@ func (jm *JobManager) UpdateJob(id string, fn func(*Job)) error {
 		}
 	}
 
-	jm.notifyListeners(id, job)
+	jm.notifyListeners(id)
 	return nil
 }
 
-func (jm *JobManager) Subscribe(jobID string) <-chan Job {
+// Unknown ids are ignored: a line can arrive after its job was cleaned up.
+func (jm *JobManager) AppendLog(id string, line logger.Line) {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
-	ch := make(chan Job, 10)
+	l, ok := jm.logs[id]
+	if !ok {
+		return
+	}
+	if len(l.lines) == maxLogLines {
+		l.lines = slices.Delete(l.lines, 0, 1)
+		l.dropped++
+	}
+	l.lines = append(l.lines, LogLine{
+		Seq:    l.next,
+		Time:   line.Time.Format(time.TimeOnly),
+		Level:  line.Level,
+		Prefix: line.Prefix,
+		Text:   line.Text,
+	})
+	l.next++
+	jm.notifyListeners(id)
+}
+
+// The lines numbered seq and after, and how many lines the job has dropped so far.
+func (jm *JobManager) LogSince(id string, seq int) ([]LogLine, int, error) {
+	jm.mu.RLock()
+	defer jm.mu.RUnlock()
+
+	l, ok := jm.logs[id]
+	if !ok {
+		return nil, 0, fmt.Errorf("job not found: %s", id)
+	}
+	first := 0
+	if len(l.lines) > 0 {
+		first = min(max(seq-l.lines[0].Seq, 0), len(l.lines))
+	}
+	return slices.Clone(l.lines[first:]), l.dropped, nil
+}
+
+// A signal, not the job: the listener reads the current state, so a signal it missed loses nothing.
+func (jm *JobManager) Subscribe(jobID string) <-chan struct{} {
+	jm.mu.Lock()
+	defer jm.mu.Unlock()
+
+	ch := make(chan struct{}, 1)
 	jm.listeners[jobID] = append(jm.listeners[jobID], ch)
 	return ch
 }
 
-func (jm *JobManager) Unsubscribe(jobID string, ch <-chan Job) {
+func (jm *JobManager) Unsubscribe(jobID string, ch <-chan struct{}) {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
@@ -196,11 +270,11 @@ func (jm *JobManager) Unsubscribe(jobID string, ch <-chan Job) {
 	}
 }
 
-// Caller holds jm.mu.
-func (jm *JobManager) notifyListeners(jobID string, job *Job) {
+// Caller holds jm.mu. A signal already pending covers this one.
+func (jm *JobManager) notifyListeners(jobID string) {
 	for _, ch := range jm.listeners[jobID] {
 		select {
-		case ch <- *job:
+		case ch <- struct{}{}:
 		default:
 		}
 	}
