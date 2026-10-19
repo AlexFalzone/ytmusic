@@ -111,6 +111,8 @@ auth:
 
 `auth.enabled: false` is only for an authenticating proxy in front (Authelia, oauth2-proxy).
 
+The page lists every job with its progress, warnings and log; reloading it reattaches to jobs still running.
+
 To restrict what can be downloaded (subdomains match on label boundaries: `youtube.com` accepts
 `www.youtube.com`, not `notyoutube.com`):
 
