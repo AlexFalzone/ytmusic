@@ -17,7 +17,7 @@ import (
 	"go.senan.xyz/taglib"
 )
 
-// Lists "song" and "dead" in playlist id: "song" copies fixture where -o points and reports it, "dead" fails like an unavailable video.
+// Lists "song" and "dead" in playlist id: "song" copies fixture where -o points and reports it, "dead" leaves an empty file there and fails, like a conversion that ran out of disk.
 func fakeYtdlp(t *testing.T, fixture, id, title string) {
 	t.Helper()
 	entry := `{"id": "%s", "title": "%s", "playlist_id": "` + id + `", "playlist_title": "` + title + `", "playlist_count": 2, "playlist_index": %d}`
@@ -40,9 +40,9 @@ for a in "$@"; do
 	[ "$a" = "after_move:filepath" ] && next=list
 done
 id="${last##*=}"
-if [ "$id" = "dead" ]; then echo "ERROR: Video unavailable" >&2; exit 1; fi
 out=$(printf '%s' "$tmpl" | sed -e 's/%(artist)s/Artist/' -e 's/%(album)s/Album/' -e "s/%(title)s/$id/" -e 's/%(ext)s/mp3/')
 mkdir -p "$(dirname "$out")"
+if [ "$id" = "dead" ]; then : > "$out"; echo "ERROR: unable to write data: [Errno 122] Disk quota exceeded" >&2; exit 1; fi
 /bin/cp -f "` + fixture + `" "$out"
 printf '%s\n' "$out" > "$list"
 `
@@ -140,6 +140,9 @@ func TestRunDownloadsImportsAndFilesTheTracks(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(res.out, "Artist", "Imported", name)); err != nil {
 			t.Errorf("%s not in the library under the imported album: %v", name, err)
 		}
+	}
+	if files, _ := utils.FindAudioFiles(res.out); len(files) != 1 {
+		t.Errorf("library holds %v, want only song.mp3: the failed download's leftover must stay out", files)
 	}
 }
 

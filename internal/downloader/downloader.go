@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 
@@ -189,6 +190,16 @@ type DownloadStats struct {
 	Files      map[string][]string // URL → the files yt-dlp produced for it
 }
 
+// Sorted, so a name clash in the merge numbers the same file _2 on every run.
+func (s DownloadStats) Produced() []string {
+	var all []string
+	for _, files := range s.Files {
+		all = append(all, files...)
+	}
+	slices.Sort(all)
+	return all
+}
+
 func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadStats, error) {
 	stats := DownloadStats{Total: len(urls), Files: make(map[string][]string)}
 
@@ -272,24 +283,21 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadSt
 	return stats, nil
 }
 
+// files are those yt-dlp reported: a failed conversion leaves its output in the temp dir too.
 // moved maps each file's path before the merge to its path after.
-func (d *Downloader) MergeFiles() (dir string, moved map[string]string, err error) {
+func (d *Downloader) MergeFiles(files []string) (dir string, moved map[string]string, err error) {
 	d.Logger.Info("merging audio files")
+
+	if len(files) == 0 {
+		return "", nil, fmt.Errorf("no audio files found - all downloads may have failed")
+	}
+	if all, err := utils.FindAudioFiles(d.TmpDir); err == nil && len(all) > len(files) {
+		d.Logger.Debug("leaving out %d audio files yt-dlp did not report", len(all)-len(files))
+	}
 
 	mergedDir := filepath.Join(d.TmpDir, "merged")
 	if err := os.MkdirAll(mergedDir, 0755); err != nil {
 		return "", nil, fmt.Errorf("failed to create merged folder: %w", err)
-	}
-
-	files, err := utils.FindAudioFiles(d.TmpDir)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to search for audio files: %w", err)
-	}
-
-	d.Logger.Debug("Found %d audio files", len(files))
-
-	if len(files) == 0 {
-		return "", nil, fmt.Errorf("no audio files found - all downloads may have failed")
 	}
 
 	moved = make(map[string]string, len(files))

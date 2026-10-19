@@ -29,12 +29,12 @@ func TestMergeFilesDeduplicate(t *testing.T) {
 	log := logger.New(false)
 	d := New(config.DefaultConfig(), log, tmpDir)
 
-	dir1 := filepath.Join(tmpDir, "artist1", "album1")
-	dir2 := filepath.Join(tmpDir, "artist2", "album2")
-	writeFile(t, filepath.Join(dir1, "song.mp3"), "content-1")
-	writeFile(t, filepath.Join(dir2, "song.mp3"), "content-2")
+	p1 := filepath.Join(tmpDir, "artist1", "album1", "song.mp3")
+	p2 := filepath.Join(tmpDir, "artist2", "album2", "song.mp3")
+	writeFile(t, p1, "content-1")
+	writeFile(t, p2, "content-2")
 
-	mergedDir, _, err := d.MergeFiles()
+	mergedDir, _, err := d.MergeFiles([]string{p1, p2})
 	if err != nil {
 		t.Fatalf("MergeFiles() error: %v", err)
 	}
@@ -73,12 +73,14 @@ func TestMergeFilesTripleDuplicate(t *testing.T) {
 	log := logger.New(false)
 	d := New(config.DefaultConfig(), log, tmpDir)
 
+	var files []string
 	for i := 1; i <= 3; i++ {
-		dir := filepath.Join(tmpDir, "artist", fmt.Sprintf("album%d", i))
-		writeFile(t, filepath.Join(dir, "track.mp3"), fmt.Sprintf("v%d", i))
+		path := filepath.Join(tmpDir, "artist", fmt.Sprintf("album%d", i), "track.mp3")
+		writeFile(t, path, fmt.Sprintf("v%d", i))
+		files = append(files, path)
 	}
 
-	mergedDir, _, err := d.MergeFiles()
+	mergedDir, _, err := d.MergeFiles(files)
 	if err != nil {
 		t.Fatalf("MergeFiles() error: %v", err)
 	}
@@ -99,10 +101,11 @@ func TestMergeFilesNoDuplicates(t *testing.T) {
 	d := New(config.DefaultConfig(), log, tmpDir)
 
 	dir := filepath.Join(tmpDir, "artist", "album")
-	writeFile(t, filepath.Join(dir, "song1.mp3"), "a")
-	writeFile(t, filepath.Join(dir, "song2.mp3"), "b")
+	p1, p2 := filepath.Join(dir, "song1.mp3"), filepath.Join(dir, "song2.mp3")
+	writeFile(t, p1, "a")
+	writeFile(t, p2, "b")
 
-	mergedDir, _, err := d.MergeFiles()
+	mergedDir, _, err := d.MergeFiles([]string{p1, p2})
 	if err != nil {
 		t.Fatalf("MergeFiles() error: %v", err)
 	}
@@ -122,9 +125,48 @@ func TestMergeFilesEmpty(t *testing.T) {
 	log := logger.New(false)
 	d := New(config.DefaultConfig(), log, tmpDir)
 
-	_, _, err := d.MergeFiles()
+	_, _, err := d.MergeFiles(nil)
 	if err == nil {
 		t.Error("MergeFiles() should fail with no audio files")
+	}
+}
+
+// A conversion that fails leaves its output behind; only what yt-dlp reported belongs in the library.
+func TestMergeFilesLeavesUndeclaredFilesOut(t *testing.T) {
+	tmpDir := t.TempDir()
+	d := New(config.DefaultConfig(), logger.New(false), tmpDir)
+
+	dir := filepath.Join(tmpDir, "a", "b")
+	song := filepath.Join(dir, "song.mp3")
+	writeFile(t, song, "audio")
+	writeFile(t, filepath.Join(dir, "partial.mp3"), "half")
+	writeFile(t, filepath.Join(dir, "x.temp.m4a"), "")
+
+	mergedDir, moved, err := d.MergeFiles([]string{song})
+	if err != nil {
+		t.Fatalf("MergeFiles() error: %v", err)
+	}
+
+	entries, err := os.ReadDir(mergedDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "song.mp3" {
+		t.Errorf("merged dir holds %v, want only song.mp3", entries)
+	}
+	if len(moved) != 1 {
+		t.Errorf("moved = %v, want only the declared file", moved)
+	}
+}
+
+func TestProducedListsEveryFileInOrder(t *testing.T) {
+	stats := DownloadStats{Files: map[string][]string{
+		"https://example.com/watch?v=b": {"/tmp/b.mp3"},
+		"https://example.com/watch?v=a": {"/tmp/c.mp3", "/tmp/a.mp3"},
+	}}
+
+	if got := fmt.Sprint(stats.Produced()); got != "[/tmp/a.mp3 /tmp/b.mp3 /tmp/c.mp3]" {
+		t.Errorf("Produced() = %s, want every file, sorted", got)
 	}
 }
 
@@ -279,7 +321,7 @@ func TestMergeFilesReportsWhereEachFileWent(t *testing.T) {
 	writeFile(t, src1, "content-1")
 	writeFile(t, src2, "content-2")
 
-	_, moved, err := d.MergeFiles()
+	_, moved, err := d.MergeFiles([]string{src1, src2})
 	if err != nil {
 		t.Fatalf("MergeFiles() error: %v", err)
 	}
