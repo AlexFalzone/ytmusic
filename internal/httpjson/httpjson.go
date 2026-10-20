@@ -19,7 +19,8 @@ import (
 // Enough for an API's error text, not a whole HTML error page.
 const maxErrorBody = 512
 
-const defaultRetryAfter = 2 * time.Second
+// Doubled on each attempt. A var so tests can shorten it.
+var retryBackoff = 2 * time.Second
 
 // A service asking for a longer wait is down for longer than a run should hang on it.
 const maxRetryAfter = 30 * time.Second
@@ -137,12 +138,14 @@ func slowDown(status int) bool {
 	return status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable
 }
 
-// Without a Retry-After in seconds (the HTTP-date form included), each wait doubles the last. false: the service asks for more than maxRetryAfter.
+// Retry-After in seconds is a floor under the backoff, not the wait: MusicBrainz sheds load with Retry-After: 0, and an immediate retry meets the same overload.
+// The HTTP-date form counts as absent. false: the service asks for more than maxRetryAfter.
 func retryWait(retryAfter string, attempt int) (time.Duration, bool) {
+	backoff := retryBackoff << attempt
 	s, err := strconv.Atoi(retryAfter)
 	if err != nil || s < 0 {
-		return defaultRetryAfter << attempt, true
+		return backoff, true
 	}
-	wait := time.Duration(s) * time.Second
-	return wait, wait <= maxRetryAfter
+	asked := time.Duration(s) * time.Second
+	return max(asked, backoff), asked <= maxRetryAfter
 }

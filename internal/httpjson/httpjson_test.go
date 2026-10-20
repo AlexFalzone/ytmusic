@@ -26,6 +26,13 @@ type reply struct {
 	body       string
 }
 
+// Every retry waits at least retryBackoff: seconds per test otherwise.
+func shortenBackoff(t *testing.T) {
+	old := retryBackoff
+	retryBackoff = time.Millisecond
+	t.Cleanup(func() { retryBackoff = old })
+}
+
 // The last reply repeats.
 func serve(t *testing.T, replies ...reply) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
@@ -89,6 +96,7 @@ func TestGetReportsStatusWithTheStartOfTheBody(t *testing.T) {
 }
 
 func TestGetRetriesOnceWhenAskedToSlowDown(t *testing.T) {
+	shortenBackoff(t)
 	for _, status := range []int{http.StatusTooManyRequests, http.StatusServiceUnavailable} {
 		srv, calls := serve(t,
 			reply{status: status, retryAfter: "0"},
@@ -106,6 +114,7 @@ func TestGetRetriesOnceWhenAskedToSlowDown(t *testing.T) {
 }
 
 func TestGetRetriesUpToRetries(t *testing.T) {
+	shortenBackoff(t)
 	srv, calls := serve(t, reply{status: http.StatusServiceUnavailable, retryAfter: "0"})
 	c := newClient()
 	c.Retries = 3
@@ -149,7 +158,11 @@ func TestRetryWait(t *testing.T) {
 		{"", 0, 2 * time.Second, true},
 		{"", 1, 4 * time.Second, true},
 		{"", 2, 8 * time.Second, true},
+		{"0", 0, 2 * time.Second, true},
+		{"1", 1, 4 * time.Second, true},
+		{"0", 2, 8 * time.Second, true},
 		{"5", 0, 5 * time.Second, true},
+		{"5", 2, 8 * time.Second, true},
 		{"30", 0, 30 * time.Second, true},
 		{"31", 0, 0, false},
 		{"Wed, 21 Oct 2015 07:28:00 GMT", 1, 4 * time.Second, true},
@@ -255,6 +268,7 @@ func TestPostFormSendsTheFormInTheBody(t *testing.T) {
 
 // A body reader consumed by the first attempt would send the retry empty.
 func TestPostFormRetriesWithTheWholeBody(t *testing.T) {
+	shortenBackoff(t)
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.PostFormValue("a"); got != "b" {
