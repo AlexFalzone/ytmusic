@@ -64,27 +64,28 @@ func (a AuthConfig) validate() error {
 }
 
 type Config struct {
-	PlaylistURL         string     `yaml:"playlist_url"`
-	Verbose             bool       `yaml:"verbose"`
-	DryRun              bool       `yaml:"dry_run"`
-	ParallelJobs        int        `yaml:"parallel_jobs"`
-	MetadataWorkers     int        `yaml:"metadata_workers"`
-	CookiesBrowser      string     `yaml:"cookies_browser"`
-	AudioFormat         string     `yaml:"audio_format"`
-	MetadataProviders   []string   `yaml:"metadata_providers"`
-	SpotifyClientID     string     `yaml:"spotify_client_id"`
-	SpotifyClientSecret string     `yaml:"spotify_client_secret"`
-	AcoustIDAPIKey      string     `yaml:"acoustid_api_key"`
-	ConfidenceThreshold float64    `yaml:"confidence_threshold"`
-	SkipLyrics          bool       `yaml:"skip_lyrics"`
-	Auth                AuthConfig `yaml:"auth"`
-	BehindProxy         bool       `yaml:"behind_proxy"`
-	AllowedHosts        []string   `yaml:"allowed_hosts"`
-	MaxConcurrentJobs   int        `yaml:"max_concurrent_jobs"`
-	LyricsOnly          string     `yaml:"-"`
-	ImportOnly          string     `yaml:"-"`
-	OutputDir           string     `yaml:"output_dir"`
-	LogDir              string     `yaml:"log_dir"`
+	PlaylistURL         string        `yaml:"playlist_url"`
+	Verbose             bool          `yaml:"verbose"`
+	DryRun              bool          `yaml:"dry_run"`
+	ParallelJobs        int           `yaml:"parallel_jobs"`
+	MetadataWorkers     int           `yaml:"metadata_workers"`
+	CookiesBrowser      string        `yaml:"cookies_browser"`
+	AudioFormat         string        `yaml:"audio_format"`
+	MetadataProviders   []string      `yaml:"metadata_providers"`
+	SpotifyClientID     string        `yaml:"spotify_client_id"`
+	SpotifyClientSecret string        `yaml:"spotify_client_secret"`
+	AcoustIDAPIKey      string        `yaml:"acoustid_api_key"`
+	ConfidenceThreshold float64       `yaml:"confidence_threshold"`
+	SkipLyrics          bool          `yaml:"skip_lyrics"`
+	LyricsTimeout       time.Duration `yaml:"lyrics_timeout"`
+	Auth                AuthConfig    `yaml:"auth"`
+	BehindProxy         bool          `yaml:"behind_proxy"`
+	AllowedHosts        []string      `yaml:"allowed_hosts"`
+	MaxConcurrentJobs   int           `yaml:"max_concurrent_jobs"`
+	LyricsOnly          string        `yaml:"-"`
+	ImportOnly          string        `yaml:"-"`
+	OutputDir           string        `yaml:"output_dir"`
+	LogDir              string        `yaml:"log_dir"`
 }
 
 func DefaultConfig() Config {
@@ -93,6 +94,7 @@ func DefaultConfig() Config {
 		MetadataWorkers:     4,
 		AudioFormat:         "mp3",
 		ConfidenceThreshold: 0.7,
+		LyricsTimeout:       20 * time.Second,
 		OutputDir:           filepath.Join(homeDir(), "Music"),
 		LogDir:              filepath.Join(homeDir(), ".local", "share", "ytmusic", "logs"),
 		MaxConcurrentJobs:   1,
@@ -212,6 +214,10 @@ func (c *Config) ValidateBase() error {
 
 	if c.OutputDir == "" {
 		return fmt.Errorf("output_dir cannot be empty")
+	}
+
+	if c.LyricsTimeout <= 0 {
+		return fmt.Errorf("lyrics_timeout must be positive, got %v", c.LyricsTimeout)
 	}
 
 	if c.ConfidenceThreshold < 0 || c.ConfidenceThreshold > 1 {

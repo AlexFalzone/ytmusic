@@ -22,9 +22,9 @@ type Client struct {
 	apiURL string
 }
 
-func NewClient() *Client {
+func NewClient(timeout time.Duration) *Client {
 	return &Client{
-		api:    &httpjson.Client{HTTP: &http.Client{Timeout: 10 * time.Second}},
+		api:    &httpjson.Client{HTTP: &http.Client{Timeout: timeout}, Retries: 2},
 		apiURL: "https://lrclib.net/api/get",
 	}
 }

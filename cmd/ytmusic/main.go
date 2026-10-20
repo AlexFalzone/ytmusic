@@ -52,7 +52,11 @@ func main() {
 	}
 
 	if cfg.LyricsOnly != "" {
-		pipeline.ResolveLyrics(ctx, cfg.LyricsOnly, log)
+		if err := cfg.ValidateBase(); err != nil {
+			log.Error("Configuration error: %v", err)
+			os.Exit(1)
+		}
+		pipeline.ResolveLyrics(ctx, cfg, log, cfg.LyricsOnly)
 		log.Info("=== Lyrics fetch completed ===")
 		return
 	}

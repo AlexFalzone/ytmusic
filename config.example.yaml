@@ -16,6 +16,9 @@ verbose: false
 
 # skip_lyrics: false
 
+# Per LRCLib request. Small values can make requests fail.
+# lyrics_timeout: 20s
+
 # Tried in list order. Supported: spotify, musicbrainz, deezer, itunes.
 metadata_providers:
   - spotify

@@ -4,9 +4,12 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"ytmusic/internal/buildinfo"
+	"ytmusic/internal/testhttp"
 )
 
 func TestFetch(t *testing.T) {
@@ -68,7 +71,7 @@ func TestFetch(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			c := NewClient()
+			c := NewClient(5 * time.Second)
 			c.apiURL = srv.URL
 
 			result, err := c.Fetch(context.Background(), "Artist", "Title", "Album")
@@ -107,7 +110,7 @@ func TestFetchQueryParams(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient()
+	c := NewClient(5 * time.Second)
 	c.apiURL = srv.URL
 
 	if _, err := c.Fetch(context.Background(), "The Beatles", "Let It Be", "Let It Be"); err != nil {
@@ -115,9 +118,33 @@ func TestFetchQueryParams(t *testing.T) {
 	}
 }
 
+func TestFetchRetriesWhenOverloaded(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		testhttp.JSON(t, w, apiResponse{PlainLyrics: "Hello world"})
+	}))
+	defer srv.Close()
+
+	c := NewClient(5 * time.Second)
+	c.apiURL = srv.URL
+
+	result, err := c.Fetch(context.Background(), "Artist", "Title", "Album")
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if result.Plain != "Hello world" {
+		t.Errorf("Plain = %q, want %q", result.Plain, "Hello world")
+	}
+}
+
 func TestNetworkErrorsAreTransient(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
-	c := NewClient()
+	c := NewClient(5 * time.Second)
 	c.apiURL = srv.URL
 	srv.Close()
 

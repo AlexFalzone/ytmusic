@@ -21,6 +21,7 @@ func TestValidate(t *testing.T) {
 			SpotifyClientID:     "id",
 			SpotifyClientSecret: "secret",
 			ConfidenceThreshold: 0.7,
+			LyricsTimeout:       20 * time.Second,
 		}
 	}
 
@@ -247,6 +248,7 @@ func validAuthConfig() Config {
 		AudioFormat:         "mp3",
 		OutputDir:           "/tmp/music",
 		ConfidenceThreshold: 0.7,
+		LyricsTimeout:       20 * time.Second,
 		Auth: AuthConfig{
 			Enabled:      true,
 			Username:     "alex",
@@ -462,5 +464,64 @@ func TestLoadConfigFileReadsMetadataWorkers(t *testing.T) {
 	}
 	if cfg.MetadataWorkers != 6 {
 		t.Errorf("MetadataWorkers = %d, want 6", cfg.MetadataWorkers)
+	}
+}
+
+func TestLoadConfigFileReadsLyricsTimeout(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("lyrics_timeout: 45s\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfigFile(path)
+	if err != nil {
+		t.Fatalf("LoadConfigFile: %v", err)
+	}
+	if cfg.LyricsTimeout != 45*time.Second {
+		t.Errorf("LyricsTimeout = %v, want 45s", cfg.LyricsTimeout)
+	}
+}
+
+// --init-config writes the defaults: they must load back as they were written.
+func TestSavedDefaultsLoadBack(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := SaveConfigFile(DefaultConfig(), path); err != nil {
+		t.Fatalf("SaveConfigFile: %v", err)
+	}
+
+	cfg, err := LoadConfigFile(path)
+	if err != nil {
+		t.Fatalf("LoadConfigFile: %v", err)
+	}
+	if cfg.LyricsTimeout != 20*time.Second {
+		t.Errorf("LyricsTimeout = %v, want 20s", cfg.LyricsTimeout)
+	}
+}
+
+func TestValidateLyricsTimeout(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   time.Duration
+		wantErr bool
+	}{
+		{"default", 20 * time.Second, false},
+		{"zero", 0, true},
+		{"negative", -time.Second, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.OutputDir = "/tmp/music"
+			cfg.LyricsTimeout = tt.value
+
+			err := cfg.ValidateBase()
+			if tt.wantErr && err == nil {
+				t.Error("expected an error")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
 	}
 }

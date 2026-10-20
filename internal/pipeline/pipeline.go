@@ -49,7 +49,7 @@ type lyricsFetcher interface {
 }
 
 func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir string, hooks Hooks) error {
-	return run(ctx, cfg, log, tmpDir, hooks, importer.New(cfg, log), lyrics.NewClient())
+	return run(ctx, cfg, log, tmpDir, hooks, importer.New(cfg, log), lyrics.NewClient(cfg.LyricsTimeout))
 }
 
 func run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir string, hooks Hooks, imp dirImporter, lf lyricsFetcher) error {
@@ -157,14 +157,14 @@ func RunImportOnly(ctx context.Context, cfg config.Config, log *logger.Logger, d
 	}
 
 	if !cfg.SkipLyrics {
-		resolveLyrics(ctx, dir, log, lyrics.NewClient())
+		resolveLyrics(ctx, dir, log, lyrics.NewClient(cfg.LyricsTimeout))
 	}
 
 	return nil
 }
 
-func ResolveLyrics(ctx context.Context, dir string, log *logger.Logger) {
-	resolveLyrics(ctx, dir, log, lyrics.NewClient())
+func ResolveLyrics(ctx context.Context, cfg config.Config, log *logger.Logger, dir string) {
+	resolveLyrics(ctx, dir, log, lyrics.NewClient(cfg.LyricsTimeout))
 }
 
 func resolveLyrics(ctx context.Context, dir string, log *logger.Logger, lf lyricsFetcher) {
