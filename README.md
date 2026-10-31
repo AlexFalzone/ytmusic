@@ -114,7 +114,8 @@ auth:
 The page lists every job with its progress, warnings and log; reloading it reattaches to jobs still running.
 
 To restrict what can be downloaded (subdomains match on label boundaries: `youtube.com` accepts
-`www.youtube.com`, not `notyoutube.com`):
+`www.youtube.com`, not `notyoutube.com`). The list is checked against the submitted URL and each playlist entry,
+not the redirects yt-dlp follows, so it does not replace network rules on the container:
 
 ```yaml
 allowed_hosts:

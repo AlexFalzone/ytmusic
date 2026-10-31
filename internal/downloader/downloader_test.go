@@ -421,6 +421,14 @@ func TestYtdlpOutputStaysApartAndFitsAName(t *testing.T) {
 	}
 }
 
+// One entry is one video, even when its URL names a list too.
+func TestDownloadStaysOnOneVideo(t *testing.T) {
+	d := New(config.DefaultConfig(), logger.New(false), t.TempDir())
+	if args := d.buildYtdlpArgs("https://example.com/watch?v=x&list=y", "list.txt"); !slices.Contains(args, "--no-playlist") {
+		t.Errorf("args %q lack --no-playlist", args)
+	}
+}
+
 func TestEveryYtdlpCallEndsOptionsBeforeTheURL(t *testing.T) {
 	bin := t.TempDir()
 	log := filepath.Join(bin, "calls")

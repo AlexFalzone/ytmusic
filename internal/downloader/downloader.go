@@ -113,6 +113,7 @@ func (d *Downloader) buildYtdlpArgs(url, producedList string) []string {
 	outputTemplate := filepath.Join(d.TmpDir, "%(id)s", "%(title).200B.%(ext)s")
 
 	return slices.Concat([]string{
+		"--no-playlist",
 		"--extract-audio",
 		"--audio-format", d.Config.AudioFormat,
 		"-f", "bestaudio[ext=m4a]/bestaudio/best",
