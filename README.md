@@ -56,7 +56,8 @@ A failed video is tried a second time at the end of the downloads. Exit codes: `
 failed, `2` the run finished but some videos or files are missing, each named in the warnings on the terminal.
 Missing lyrics and metadata are warnings with exit code `0`.
 
-Nothing in the library is ever overwritten: a name already taken gives `Song_2.mp3`.
+Nothing in the library is ever overwritten: a name already taken gives `Song_2.mp3`. A file that cannot reach the
+library stays in the temporary folder named by the warning, which is then not removed.
 
 ## Configuration
 
