@@ -1,6 +1,7 @@
 package downloader
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -65,6 +66,19 @@ func TestParsePlaylistFallsBackToTheEntryURL(t *testing.T) {
 	}
 	if got := pl.Entries[0].URL; got != "https://example.com/track/1" {
 		t.Errorf("URL = %q, want the url field", got)
+	}
+}
+
+// These URLs come from the page yt-dlp read, not from us, and end up on its command line.
+func TestParsePlaylistRejectsAnEntryThatIsNotAWebURL(t *testing.T) {
+	for _, bad := range []string{"--exec=touch /tmp/pwned", "-x", "file:///etc/passwd", "ftp://example.com/a", "https://", "example.com/a"} {
+		line, err := json.Marshal(map[string]string{"webpage_url": bad})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if pl, err := parsePlaylist(strings.NewReader(string(line) + "\n")); err == nil {
+			t.Errorf("%q accepted: %+v", bad, pl.Entries)
+		}
 	}
 }
 

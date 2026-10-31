@@ -421,6 +421,45 @@ func TestYtdlpOutputStaysApartAndFitsAName(t *testing.T) {
 	}
 }
 
+func TestEveryYtdlpCallEndsOptionsBeforeTheURL(t *testing.T) {
+	bin := t.TempDir()
+	log := filepath.Join(bin, "calls")
+	script := "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\n' \"$a\" >> \"" + log + "\"; done; echo END >> \"" + log + "\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "yt-dlp"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cfg := config.DefaultConfig()
+	cfg.PlaylistURL = "https://example.com/list"
+	d := New(cfg, logger.New(false), t.TempDir())
+	if _, err := d.Extract(t.Context()); err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if err := d.FetchMetadata(t.Context(), []string{"https://example.com/v"}); err != nil {
+		t.Fatalf("FetchMetadata: %v", err)
+	}
+	// Exits 0 having produced nothing, which is an error here but still shows the arguments.
+	if _, err := d.DownloadSingle(t.Context(), "https://example.com/v"); err == nil {
+		t.Fatal("DownloadSingle: want the nothing-produced error")
+	}
+
+	calls, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := strings.Split(strings.TrimSuffix(string(calls), "END\n"), "END\n")
+	if len(runs) != 3 {
+		t.Fatalf("yt-dlp ran %d times, want 3", len(runs))
+	}
+	for _, run := range runs {
+		args := strings.Fields(run)
+		if n := len(args); n < 2 || args[n-2] != "--" {
+			t.Errorf("no -- before the URL in %q", args)
+		}
+	}
+}
+
 func TestCookiesReachEveryYtdlpCall(t *testing.T) {
 	bin := t.TempDir()
 	log := filepath.Join(bin, "calls")

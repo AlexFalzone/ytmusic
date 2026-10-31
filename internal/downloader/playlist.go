@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 )
 
@@ -56,6 +57,12 @@ type flatEntry struct {
 	PlaylistIndex int    `json:"playlist_index"`
 }
 
+// The page yt-dlp read decides this value, and it ends up on yt-dlp's command line.
+func isWebURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
+
 func parsePlaylist(r io.Reader) (Playlist, error) {
 	var pl Playlist
 	scanner := bufio.NewScanner(r)
@@ -68,14 +75,14 @@ func parsePlaylist(r io.Reader) (Playlist, error) {
 		if err := json.Unmarshal([]byte(line), &e); err != nil {
 			return Playlist{}, fmt.Errorf("parsing yt-dlp entry %q: %w", line, err)
 		}
-		url := cmp.Or(e.WebpageURL, e.URL)
-		if url == "" {
-			return Playlist{}, fmt.Errorf("yt-dlp entry without a URL: %q", line)
+		link := cmp.Or(e.WebpageURL, e.URL)
+		if !isWebURL(link) {
+			return Playlist{}, fmt.Errorf("yt-dlp entry without a web URL: %q", line)
 		}
 		pl.ID, pl.Title, pl.Count = e.PlaylistID, e.PlaylistTitle, e.PlaylistCount
 		pl.Entries = append(pl.Entries, Entry{
 			// An album's entries point at music.youtube.com; yt-dlp picks other player clients there.
-			URL:      strings.Replace(url, "https://music.youtube.com/", "https://www.youtube.com/", 1),
+			URL:      strings.Replace(link, "https://music.youtube.com/", "https://www.youtube.com/", 1),
 			Title:    e.Title,
 			Position: e.PlaylistIndex,
 		})
