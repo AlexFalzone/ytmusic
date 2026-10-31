@@ -30,6 +30,15 @@ type Resolver struct {
 	failures           *providerFailures
 }
 
+// What the per-file phase may still write to a file.
+type scope int
+
+const (
+	scopeFile    scope = iota // no earlier phase placed it: everything
+	scopeRelease              // phase A or B put it on a release: title, artist, genre and an ISRC it lacks
+	scopeAlbum                // an album download: as scopeRelease, but the title stays too
+)
+
 // One search failing is a debug line; a provider failing all run long, as with wrong credentials, is worth a warning.
 type providerFailures struct {
 	mu     sync.Mutex
@@ -106,15 +115,15 @@ func (r *Resolver) WithReleaseFinder(rf ReleaseFinder) *Resolver {
 func (r *Resolver) Resolve(ctx context.Context, files []string, album *Album) error {
 	r.logger.Info("resolving metadata for %d files", len(files))
 
-	var trackOnly map[string]bool
+	var scopes map[string]scope
 	if album != nil {
 		r.resolveAlbum(ctx, album)
-		trackOnly = r.albumMembers(files, album)
+		scopes = r.albumMembers(files, album)
 	} else {
-		r.resolveGroups(ctx, files)
+		scopes = r.resolveGroups(ctx, files)
 	}
 
-	failed := r.resolveFiles(ctx, files, trackOnly)
+	failed := r.resolveFiles(ctx, files, scopes)
 	r.failures.report(r.logger)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("resolving metadata: %w", err)
@@ -133,13 +142,13 @@ func (r *Resolver) Resolve(ctx context.Context, files []string, album *Album) er
 }
 
 // The album phase wrote their album-level fields; a file it did not cover gets the whole per-file phase.
-func (r *Resolver) albumMembers(files []string, album *Album) map[string]bool {
-	members := make(map[string]bool)
+func (r *Resolver) albumMembers(files []string, album *Album) map[string]scope {
+	members := make(map[string]scope)
 	for _, path := range albumPaths(album) {
-		members[path] = true
+		members[path] = scopeAlbum
 	}
 	for _, path := range files {
-		if !members[path] {
+		if _, ok := members[path]; !ok {
 			r.logger.Warn("album %q: %s has no position in it, resolving it on its own", album.Title, path)
 		}
 	}
@@ -147,9 +156,9 @@ func (r *Resolver) albumMembers(files []string, album *Album) map[string]bool {
 }
 
 // Phases A and B, which find a release per group of files sharing an album tag.
-func (r *Resolver) resolveGroups(ctx context.Context, files []string) {
+func (r *Resolver) resolveGroups(ctx context.Context, files []string) map[string]scope {
 	groups := r.groupByAlbum(files)
-	resolvedByA := make(map[string]bool)
+	scopes := make(map[string]scope)
 
 	// Phase A: batch fingerprint → dominant release.
 	if r.batchFingerprinter != nil && r.releaseResolver != nil {
@@ -157,8 +166,8 @@ func (r *Resolver) resolveGroups(ctx context.Context, files []string) {
 			if album == "" || len(group) < 2 {
 				continue
 			}
-			for _, p := range r.resolveGroupByFingerprint(ctx, group) {
-				resolvedByA[p] = true
+			for _, path := range r.resolveGroupByFingerprint(ctx, group) {
+				scopes[path] = scopeRelease
 			}
 		}
 	}
@@ -169,13 +178,18 @@ func (r *Resolver) resolveGroups(ctx context.Context, files []string) {
 			if album == "" {
 				continue
 			}
-			unresolved := filterResolved(group, resolvedByA)
+			unresolved := filterResolved(group, scopes)
 			if len(unresolved) == 0 {
 				continue
 			}
-			if err := r.resolveGroup(ctx, album, unresolved, r.albumResolver); err != nil {
+			placed, err := r.resolveGroup(ctx, album, unresolved, r.albumResolver)
+			if err != nil {
 				r.logger.Warn("album-first phase failed for %q: %v", album, err)
+			}
+			for _, path := range placed {
+				scopes[path] = scopeRelease
 			}
 		}
 	}
+	return scopes
 }

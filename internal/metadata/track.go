@@ -9,8 +9,7 @@ import (
 	"go.senan.xyz/taglib"
 )
 
-// trackOnly: the album phase owns the album-level fields and the cover, so only the track's own fields are written.
-func (r *Resolver) resolveFile(ctx context.Context, path string, trackOnly bool) error {
+func (r *Resolver) resolveFile(ctx context.Context, path string, sc scope) error {
 	existing, err := r.tags.read(path)
 	if err != nil {
 		return fmt.Errorf("failed to read existing tags: %w", err)
@@ -37,13 +36,13 @@ func (r *Resolver) resolveFile(ctx context.Context, path string, trackOnly bool)
 
 	if info, found := r.fingerprintMatch(ctx, path, src, rawTitle, rawArtist); found {
 		r.logger.Debug("  Fingerprint match: %q by %q", info.Title, info.Artist)
-		return r.finish(ctx, path, existing, src, match{info: info, providerIdx: -1}, trackOnly)
+		return r.finish(ctx, path, existing, src, match{info: info, providerIdx: -1}, sc)
 	}
 
 	m, ok := r.findPrimaryMatch(ctx, src)
 	if !ok {
 		r.logger.Debug("  No candidate above threshold %.2f, keeping original tags", r.threshold)
-		if trackOnly {
+		if sc != scopeFile {
 			return nil
 		}
 		if artist := albumArtistFallback(existing, ""); artist != "" {
@@ -54,11 +53,11 @@ func (r *Resolver) resolveFile(ctx context.Context, path string, trackOnly bool)
 		return nil
 	}
 
-	return r.finish(ctx, path, existing, src, m, trackOnly)
+	return r.finish(ctx, path, existing, src, m, sc)
 }
 
-func (r *Resolver) finish(ctx context.Context, path string, existing map[string][]string, src source, m match, trackOnly bool) error {
-	if trackOnly {
+func (r *Resolver) finish(ctx context.Context, path string, existing map[string][]string, src source, m match, sc scope) error {
+	if sc != scopeFile {
 		hasISRC := FirstTag(existing, taglib.ISRC) != ""
 		info := r.fillGaps(ctx, src, m, nil, func(t TrackInfo) bool {
 			return t.Genre == "" || (t.ISRC == "" && !hasISRC)
@@ -66,7 +65,17 @@ func (r *Resolver) finish(ctx context.Context, path string, existing map[string]
 		if m.donor {
 			info = asVariant(info, m.base, src.version)
 		}
-		if err := r.tags.write(path, trackTagMap(info, existing)); err != nil {
+		tags := trackTagMap(info, existing)
+		switch sc {
+		case scopeAlbum:
+			delete(tags, taglib.Title)
+		case scopeRelease:
+			// A release with no date leaves a gap, not a decision.
+			if date, ok := tagMap(info)[taglib.Date]; ok && FirstTag(existing, taglib.Date) == "" {
+				tags[taglib.Date] = date
+			}
+		}
+		if err := r.tags.write(path, tags); err != nil {
 			return fmt.Errorf("failed to write tags to %s: %w", path, err)
 		}
 		return nil
@@ -91,6 +100,7 @@ func (r *Resolver) fileDuration(path string) time.Duration {
 
 func (r *Resolver) writeResolved(path string, existing map[string][]string, info TrackInfo, art []byte) error {
 	info = mergeWithExisting(existing, info)
+	info.Artist = fullerArtist(existing, info.Artist)
 	if info.AlbumArtist == "" {
 		info.AlbumArtist = albumArtistFallback(existing, info.Artist)
 	}

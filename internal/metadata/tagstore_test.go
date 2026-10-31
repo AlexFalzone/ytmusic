@@ -98,8 +98,8 @@ func TestAlbumArtistFallback(t *testing.T) {
 func TestWritePositionalTags_WritesTrackAndDisc(t *testing.T) {
 	p := newTestMP3(t)
 
-	if err := (&tagStore{}).writePositional(p, 5, 2); err != nil {
-		t.Fatalf("writePositional: %v", err)
+	if err := (&tagStore{}).write(p, releaseTags(Tracklist{}, ReleaseTrack{TrackNumber: 5, DiscNumber: 2})); err != nil {
+		t.Fatalf("write: %v", err)
 	}
 
 	tags, _ := taglib.ReadTags(p)
@@ -115,8 +115,8 @@ func TestWritePositionalTags_SkipsZeroValues(t *testing.T) {
 	p := newTestMP3(t)
 	writeTestTags(t, p, map[string][]string{taglib.TrackNumber: {"3"}})
 
-	if err := (&tagStore{}).writePositional(p, 4, 0); err != nil {
-		t.Fatalf("writePositional: %v", err)
+	if err := (&tagStore{}).write(p, releaseTags(Tracklist{}, ReleaseTrack{TrackNumber: 4})); err != nil {
+		t.Fatalf("write: %v", err)
 	}
 
 	tags, _ := taglib.ReadTags(p)

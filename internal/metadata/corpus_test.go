@@ -55,7 +55,47 @@ var corpus = []corpusCase{
 		key:   "The Real Her",
 		first: []TrackInfo{{Title: "The Real Her", Artist: "Drake", Album: "Take Care", ISRC: "USCM51100541", TrackNumber: 14}},
 		want: map[string]string{
-			taglib.Title: "The Real Her", taglib.Artist: "Drake", taglib.Album: "Take Care", taglib.ISRC: "USCM51100541",
+			taglib.Title: "The Real Her", taglib.Artist: "Drake, Lil Wayne, André 3000", taglib.Album: "Take Care", taglib.ISRC: "USCM51100541",
+		},
+	},
+	{
+		// 7/27 against 7/28 would pass any comparison of the words.
+		name:  "live take of the night after",
+		title: "Seven Bridges Road (Live at Santa Monica, 7/27/1980)", artist: "Eagles", seconds: "1",
+		key: "Seven Bridges Road",
+		first: []TrackInfo{{
+			Title: "Seven Bridges Road (Live at Santa Monica, 7/28/1980)", Artist: "Eagles", Album: "Eagles Live", ISRC: "USEE10000001",
+		}},
+		want: unchanged("Seven Bridges Road (Live at Santa Monica, 7/27/1980)", "Eagles"),
+	},
+	{
+		name:  "live take from another venue",
+		title: "Desperado (Live at The Forum, Inglewood, CA, 10/20/1976)", artist: "Eagles", seconds: "1",
+		key: "Desperado",
+		first: []TrackInfo{{
+			Title: "Desperado (live at Santa Monica, 7/27/1980)", Artist: "Eagles", Album: "Eagles Live", ISRC: "USEE10000002",
+		}},
+		want: unchanged("Desperado (Live at The Forum, Inglewood, CA, 10/20/1976)", "Eagles"),
+	},
+	{
+		name:  "the same concert in other words",
+		title: "Hotel California (Live at The Forum, Inglewood, CA, 10/20/1976)", artist: "Eagles", seconds: "1",
+		key: "Hotel California",
+		first: []TrackInfo{{
+			Title: "Hotel California (Live at the Forum, 1976)", Artist: "Eagles", Album: "Legacy", ISRC: "USEE10000003",
+		}},
+		want: map[string]string{
+			taglib.Title: "Hotel California (Live at the Forum, 1976)", taglib.Album: "Legacy", taglib.ISRC: "USEE10000003",
+		},
+	},
+	{
+		// It may be any concert: it lends what a live album shares, not the title or the ISRC.
+		name:  "a concert file against a plain live take",
+		title: "Take It Easy (Live at The Forum, 1976)", artist: "Eagles", seconds: "1",
+		key:   "Take It Easy",
+		first: []TrackInfo{{Title: "Take It Easy (Live)", Artist: "Eagles", Album: "Eagles Live", ISRC: "USEE10000004"}},
+		want: map[string]string{
+			taglib.Title: "Take It Easy (Live at The Forum, 1976)", taglib.Album: "Eagles Live", taglib.ISRC: "",
 		},
 	},
 	{
@@ -222,6 +262,36 @@ func TestResolveCorpus(t *testing.T) {
 			if got := readTestTag(t, paths[i], key); got != want {
 				t.Errorf("%s: %s = %q, want %q", c.name, key, got, want)
 			}
+		}
+	}
+}
+
+// Out of Control downloaded alone from Legacy: phase B numbers it on that release, the provider knows it from Desperado.
+func TestResolveTakesAlbumAndNumberFromOneRelease(t *testing.T) {
+	path := newTestMP3(t)
+	writeTestTags(t, path, map[string][]string{
+		taglib.Title: {"Out of Control (2013 Remaster)"}, taglib.Artist: {"Eagles"}, taglib.Album: {"Legacy"},
+	})
+	provider := corpusProvider{name: "first", byTitle: map[string][]TrackInfo{"Out of Control": {{
+		Title: "Out of Control", Artist: "Eagles", Album: "Desperado", AlbumArtist: "Eagles", TrackNumber: 3,
+		ReleaseDate: "1973", Genre: "Rock", ISRC: "USEE10000005",
+	}}}}
+	ar := &mockAlbumResolver{found: true, tracklist: Tracklist{
+		Title: "Legacy", Artist: "Eagles", Date: "2018-11-02",
+		Tracks: []ReleaseTrack{{TrackNumber: 13, DiscNumber: 2, Title: "Out of Control"}},
+	}}
+
+	r := NewResolver([]Provider{provider}, logger.New(false), 0).WithAlbumResolver(ar)
+	if err := r.Resolve(t.Context(), []string{path}, nil); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	for key, want := range map[string]string{
+		taglib.Album: "Legacy", taglib.TrackNumber: "13", taglib.DiscNumber: "2", taglib.Date: "2018-11-02", taglib.AlbumArtist: "Eagles",
+		taglib.Title: "Out of Control", taglib.Genre: "Rock", taglib.ISRC: "USEE10000005",
+	} {
+		if got := readTestTag(t, path, key); got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
 		}
 	}
 }

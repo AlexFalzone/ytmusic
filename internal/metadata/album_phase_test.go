@@ -477,3 +477,51 @@ func TestAlbumArtistStaysPrimaryWhenTheReleaseCreditsAnother(t *testing.T) {
 		t.Errorf("album artist = %q, want Drake", got)
 	}
 }
+
+func TestAlbumDownloadKeepsYouTubesTitle(t *testing.T) {
+	album := newAlbum(t, "Legacy", []string{"Desperado (Live at The Forum, 1976)"}, map[int]map[string][]string{
+		1: {taglib.Title: {"Desperado (Live at The Forum, 1976)"}, taglib.Artist: {"Eagles"}},
+	})
+	provider := corpusProvider{name: "first", byTitle: map[string][]TrackInfo{"Desperado": {{
+		Title: "Desperado (Live at the Forum, Inglewood, 1976)", Artist: "Eagles", Album: "Other", Genre: "Rock",
+	}}}}
+
+	r := NewResolver([]Provider{provider}, logger.New(false), 0)
+	if err := r.Resolve(t.Context(), []string{pathAt(album, 1)}, album); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	if got := readTestTag(t, pathAt(album, 1), taglib.Title); got != "Desperado (Live at The Forum, 1976)" {
+		t.Errorf("title = %q, want YouTube Music's", got)
+	}
+	if got := readTestTag(t, pathAt(album, 1), taglib.Genre); got != "Rock" {
+		t.Errorf("genre = %q, want the provider's", got)
+	}
+}
+
+// YouTube Music cuts titles at about 100 characters; the release has them whole.
+func TestAlbumTakesTheTitleOfTheReleaseItAdopted(t *testing.T) {
+	cut := "Take It to the Limit (Live at The Forum, Inglewood, CA, 10/20/1976 and Then Some More Words To Be L"
+	whole := cut + "ong Enough)"
+	album := newAlbum(t, "Legacy", []string{cut, "Other"}, map[int]map[string][]string{
+		1: {taglib.Title: {cut}, taglib.Artist: {"Eagles"}},
+		2: {taglib.Title: {"Other"}, taglib.Artist: {"Eagles"}},
+	})
+	finder := &fakeFinder{byTitle: map[string][]Tracklist{"Legacy": {{
+		ID: "legacy", Title: "Legacy", Artist: "Eagles", Status: "Official",
+		Tracks: []ReleaseTrack{{TrackNumber: 1, Title: whole}, {TrackNumber: 2, Title: "Something Else Entirely"}},
+	}, {
+		ID: "second", Title: "Legacy", Artist: "Eagles", Status: "Official",
+		Tracks: []ReleaseTrack{{TrackNumber: 1, Title: whole}, {TrackNumber: 2, Title: "Other"}},
+	}}}}
+
+	r := NewResolver(nil, logger.New(false), 0).WithReleaseFinder(finder)
+	r.resolveAlbum(t.Context(), album)
+
+	if got := readTestTag(t, pathAt(album, 1), taglib.Title); got != whole {
+		t.Errorf("title = %q, want the release's", got)
+	}
+	if got := readTestTag(t, pathAt(album, 2), taglib.Title); got != "Other" {
+		t.Errorf("title = %q", got)
+	}
+}

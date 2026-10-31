@@ -12,42 +12,53 @@ import (
 	"go.senan.xyz/taglib"
 )
 
-func TestMatchTrackByTitle_FindsBestMatch(t *testing.T) {
-	tracks := []ReleaseTrack{
-		{TrackNumber: 1, DiscNumber: 1, Title: "TRUST!"},
-		{TrackNumber: 2, DiscNumber: 1, Title: "DIRTY!"},
-		{TrackNumber: 3, DiscNumber: 1, Title: "NEMO!"},
+func titledFile(t *testing.T, title string) string {
+	t.Helper()
+	path := newTestMP3(t)
+	writeTestTags(t, path, map[string][]string{taglib.Title: {title}})
+	return path
+}
+
+func TestAssignTracksFindsEachFilesTrack(t *testing.T) {
+	trust, dirty := titledFile(t, "TRUST!"), titledFile(t, "DIRTY!")
+	stranger := titledFile(t, "COMPLETELY DIFFERENT SONG")
+	tracks := []ReleaseTrack{{TrackNumber: 1, Title: "TRUST!"}, {TrackNumber: 2, Title: "DIRTY!"}, {TrackNumber: 3, Title: "NEMO!"}}
+
+	r := NewResolver(nil, logger.New(false), 0)
+	got := make(map[string]int)
+	for _, p := range r.assignTracks([]string{stranger, dirty, trust}, tracks, "test") {
+		got[p.path] = p.track.TrackNumber
 	}
-	got, score := matchTrackByTitle("TRUST!", tracks)
-	if got.TrackNumber != 1 {
-		t.Errorf("TrackNumber = %d, want 1", got.TrackNumber)
+
+	if got[trust] != 1 || got[dirty] != 2 {
+		t.Errorf("assigned %v, want TRUST! on 1 and DIRTY! on 2", got)
 	}
-	if score < 0.9 {
-		t.Errorf("score = %.2f, want >= 0.9", score)
+	if _, ok := got[stranger]; ok {
+		t.Errorf("assigned %v, an unrelated title stays out", got)
 	}
 }
 
-func TestMatchTrackByTitle_LowScoreForUnrelated(t *testing.T) {
-	tracks := []ReleaseTrack{
-		{TrackNumber: 1, Title: "TRUST!"},
-		{TrackNumber: 2, Title: "DIRTY!"},
-	}
-	_, score := matchTrackByTitle("COMPLETELY DIFFERENT SONG", tracks)
-	if score > 0.3 {
-		t.Errorf("score = %.2f, want <= 0.3 for unrelated title", score)
+// The remix scores 0.67 on its original: above the threshold, but the track is taken.
+func TestAssignTracksGivesATrackToOneFile(t *testing.T) {
+	remix, original := titledFile(t, "SPORT + muscoli (RMX)"), titledFile(t, "SPORT - I muscoli")
+	tracks := []ReleaseTrack{{TrackNumber: 9, Title: "SPORT - I muscoli"}}
+
+	r := NewResolver(nil, logger.New(false), 0)
+	got := r.assignTracks([]string{remix, original}, tracks, "test")
+
+	if len(got) != 1 || got[0].path != original {
+		t.Errorf("assigned %+v, want only the original", got)
 	}
 }
 
-func TestMatchTrackByTitle_NormalizesBeforeComparing(t *testing.T) {
-	tracks := []ReleaseTrack{
-		{TrackNumber: 5, Title: "ARE U HAPPY?"},
-	}
-	got, score := matchTrackByTitle("ARE U HAPPY?", tracks)
-	if got.TrackNumber != 5 {
-		t.Errorf("TrackNumber = %d, want 5", got.TrackNumber)
-	}
-	if score < 0.9 {
-		t.Errorf("score = %.2f, want >= 0.9 for exact title", score)
+func TestAssignTracksKeepsVersionsApart(t *testing.T) {
+	live := titledFile(t, "One Two Three (Live)")
+	remix := titledFile(t, "SPORT + muscoli (RMX)")
+	tracks := []ReleaseTrack{{TrackNumber: 1, Title: "One Two Three"}, {TrackNumber: 9, Title: "SPORT - I muscoli"}}
+
+	r := NewResolver(nil, logger.New(false), 0)
+	if got := r.assignTracks([]string{live, remix}, tracks, "test"); len(got) != 0 {
+		t.Errorf("assigned %+v, want no variant on an original's track", got)
 	}
 }
 
@@ -296,7 +307,7 @@ func TestResolveGroup_WritesPositionalTags(t *testing.T) {
 
 	log := logger.New(false)
 	r := NewResolver(nil, log, 0)
-	if err := r.resolveGroup(t.Context(), "LP!", []string{p1, p2}, ar); err != nil {
+	if _, err := r.resolveGroup(t.Context(), "LP!", []string{p1, p2}, ar); err != nil {
 		t.Fatalf("resolveGroup: %v", err)
 	}
 
@@ -325,7 +336,7 @@ func TestResolveGroup_NotFound_DoesNothing(t *testing.T) {
 
 	log := logger.New(false)
 	r := NewResolver(nil, log, 0)
-	if err := r.resolveGroup(t.Context(), "LP!", []string{p}, ar); err != nil {
+	if _, err := r.resolveGroup(t.Context(), "LP!", []string{p}, ar); err != nil {
 		t.Fatalf("resolveGroup: %v", err)
 	}
 
@@ -354,7 +365,7 @@ func TestResolveGroup_LowTitleMatch_DoesNotWriteTags(t *testing.T) {
 
 	log := logger.New(false)
 	r := NewResolver(nil, log, 0)
-	if err := r.resolveGroup(t.Context(), "LP!", []string{p}, ar); err != nil {
+	if _, err := r.resolveGroup(t.Context(), "LP!", []string{p}, ar); err != nil {
 		t.Fatalf("resolveGroup: %v", err)
 	}
 
@@ -454,7 +465,7 @@ func TestResolveGroupTriesTheWholeArtistThenThePrimaryOne(t *testing.T) {
 	}}
 
 	r := NewResolver(nil, logger.New(false), 0)
-	if err := r.resolveGroup(t.Context(), "Take Care", []string{path}, ar); err != nil {
+	if _, err := r.resolveGroup(t.Context(), "Take Care", []string{path}, ar); err != nil {
 		t.Fatalf("resolveGroup: %v", err)
 	}
 
@@ -463,5 +474,23 @@ func TestResolveGroupTriesTheWholeArtistThenThePrimaryOne(t *testing.T) {
 	}
 	if got := readTestTag(t, path, taglib.TrackNumber); got != "3" {
 		t.Errorf("TrackNumber = %q, want 3", got)
+	}
+}
+
+func TestPlaceOnReleaseWritesTheAlbumLevelFields(t *testing.T) {
+	path := titledFile(t, "TRUST!")
+	tl := Tracklist{Title: "LP!", Artist: "JPEGMAFIA", Date: "2021-10-22", Tracks: []ReleaseTrack{{TrackNumber: 2, DiscNumber: 1, Title: "TRUST!"}}}
+
+	r := NewResolver(nil, logger.New(false), 0)
+	if placed := r.placeOnRelease(t.Context(), []string{path}, tl, "test"); len(placed) != 1 {
+		t.Fatalf("placed %v, want the file", placed)
+	}
+
+	for key, want := range map[string]string{
+		taglib.Album: "LP!", taglib.AlbumArtist: "JPEGMAFIA", taglib.Date: "2021-10-22", taglib.TrackNumber: "2", taglib.DiscNumber: "1",
+	} {
+		if got := readTestTag(t, path, key); got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
 	}
 }

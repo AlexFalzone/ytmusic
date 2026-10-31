@@ -1,8 +1,6 @@
 package metadata
 
 import (
-	"strconv"
-
 	"ytmusic/internal/memo"
 
 	"go.senan.xyz/taglib"
@@ -27,15 +25,4 @@ func (s *tagStore) write(path string, tags map[string][]string) error {
 	}
 	defer s.tags.Forget(path)
 	return taglib.WriteTags(path, tags, 0)
-}
-
-func (s *tagStore) writePositional(path string, trackNum, discNum int) error {
-	tags := make(map[string][]string)
-	if trackNum > 0 {
-		tags[taglib.TrackNumber] = []string{strconv.Itoa(trackNum)}
-	}
-	if discNum > 0 {
-		tags[taglib.DiscNumber] = []string{strconv.Itoa(discNum)}
-	}
-	return s.write(path, tags)
 }

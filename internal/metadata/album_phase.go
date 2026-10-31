@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"go.senan.xyz/taglib"
 )
@@ -59,8 +60,14 @@ func (r *Resolver) resolveAlbum(ctx context.Context, album *Album) {
 		if date != "" {
 			tags[taglib.Date] = []string{date}
 		}
-		if found && release.Tracks[pos-1].ISRC != "" {
-			tags[taglib.ISRC] = []string{release.Tracks[pos-1].ISRC}
+		if found {
+			track := release.Tracks[pos-1]
+			if track.ISRC != "" {
+				tags[taglib.ISRC] = []string{track.ISRC}
+			}
+			if existing, err := r.tags.read(path); err == nil && sameTrackTitle(FirstTag(existing, taglib.Title), track.Title) {
+				tags[taglib.Title] = []string{track.Title}
+			}
 		}
 		if err := r.tags.write(path, tags); err != nil {
 			r.logger.Warn("album: writing tags to %s: %v", path, err)
@@ -210,9 +217,7 @@ func editionRatio(tracks []string, tl Tracklist) (float64, bool) {
 			continue
 		}
 		known++
-		a, _ := cleanTitle(title)
-		b, _ := cleanTitle(tl.Tracks[i].Title)
-		if Similarity(a, b) >= trackMatchThreshold {
+		if sameTrackTitle(title, tl.Tracks[i].Title) {
 			matched++
 		}
 	}
@@ -220,6 +225,18 @@ func editionRatio(tracks []string, tl Tracklist) (float64, bool) {
 		return 0, false
 	}
 	return float64(matched) / float64(known), true
+}
+
+// YouTube Music cuts titles at about 100 characters, sometimes inside a parenthesis cleanTitle then cannot strip.
+const truncatedTitle = 90
+
+func sameTrackTitle(title, release string) bool {
+	a, _ := cleanTitle(title)
+	b, _ := cleanTitle(release)
+	if Similarity(a, b) >= trackMatchThreshold {
+		return true
+	}
+	return utf8.RuneCountInString(title) >= truncatedTitle && strings.HasPrefix(normalize(release), normalize(title))
 }
 
 // Not a clean edit (its ISRCs differ from the explicit album YouTube Music shows), Official, earliest year, fullest date, ID.

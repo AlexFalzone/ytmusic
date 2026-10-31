@@ -48,6 +48,7 @@ func tagMap(info TrackInfo) map[string][]string {
 
 // The fields of the track itself; an ISRC already on the file came from the album's release and stays.
 func trackTagMap(info TrackInfo, existing map[string][]string) map[string][]string {
+	info.Artist = fullerArtist(existing, info.Artist)
 	all := tagMap(info)
 	tags := make(map[string][]string)
 	for _, key := range []string{taglib.Title, taglib.Artist, taglib.Genre, taglib.ISRC} {
@@ -175,6 +176,14 @@ func mergeWithExisting(tags map[string][]string, info TrackInfo) TrackInfo {
 		info.DiscNumber = n
 	}
 	return info
+}
+
+// yt-dlp lists every featured artist where a provider often gives only the first.
+func fullerArtist(existing map[string][]string, artist string) string {
+	if have := FirstTag(existing, taglib.Artist); primaryArtist(have) == artist {
+		return have
+	}
+	return artist
 }
 
 func parseTagInt(tags map[string][]string, key string) int {

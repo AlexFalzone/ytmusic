@@ -106,6 +106,13 @@ func (r *Resolver) evaluate(src source, results []TrackInfo) (exact, donor *matc
 				r.logger.Debug("  skip %q: %s long, file is %s", res.Title, res.Duration.Round(time.Second), src.duration.Round(time.Second))
 				continue
 			}
+			want, have := src.version.concert(), version.concert()
+			if want != "" && have != "" && !sameConcert(want, have) {
+				r.logger.Debug("  skip %q: file declares %q", res.Title, src.version.Label)
+				continue
+			}
+			// A plain "(Live)" may be any concert: it cannot vouch for a title or an ISRC.
+			isDonor = want != "" && have == ""
 		case !src.version.IsOriginal() && version.IsOriginal():
 			isDonor = true
 		default:
