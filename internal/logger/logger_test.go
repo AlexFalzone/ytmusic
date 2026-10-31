@@ -189,6 +189,17 @@ func TestArgumentsCannotDriveTheTerminalOrForgeALine(t *testing.T) {
 	}
 }
 
+// A title can reverse what the terminal shows after it.
+func TestArgumentsCannotReverseTheText(t *testing.T) {
+	l, buf := newTestLogger(false)
+
+	l.Info("title: %s", "a\u202eb")
+
+	if strings.ContainsRune(buf.String(), '\u202e') {
+		t.Errorf("bidi override reached the output: %q", buf.String())
+	}
+}
+
 // A stack trace is ours, and useless on one line.
 func TestFormatNewlinesAndStackTracesSurvive(t *testing.T) {
 	l, buf := newTestLogger(true)

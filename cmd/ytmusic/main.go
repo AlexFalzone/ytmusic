@@ -30,7 +30,8 @@ func cli() int {
 		return 1
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// SIGHUP too: yt-dlp runs in its own process group, so a closed terminal reaches it only through the cancel.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	// After the first signal the default action returns: a second Ctrl+C kills a run stuck on its way out.
 	context.AfterFunc(ctx, stop)
@@ -118,7 +119,11 @@ func run(ctx context.Context, cfg config.Config, log *logger.Logger) (pipeline.R
 	}
 	log.Debug("Temporary folder: %s", tmpDir)
 
+	keepTmp := false
 	defer func() {
+		if keepTmp {
+			return
+		}
 		if err := utils.Cleanup(tmpDir); err != nil {
 			log.Warn("Error during cleanup: %v", err)
 		}
@@ -149,6 +154,7 @@ func run(ctx context.Context, cfg config.Config, log *logger.Logger) (pipeline.R
 		},
 		OnDownloadsDone: closeBar,
 		OnWarning:       func(string) { warnings++ },
+		OnFilesKept:     func() { keepTmp = true },
 	}
 
 	report, err := pipeline.Run(ctx, cfg, log, tmpDir, hooks)

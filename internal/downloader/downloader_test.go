@@ -219,6 +219,7 @@ func TestDownloadAllSurvivesPanicInProgressHook(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
+		// All three fail: what matters is that it returns.
 		_, _ = d.DownloadAll(t.Context(), []string{"not-a-url-1", "not-a-url-2", "not-a-url-3"})
 	}()
 

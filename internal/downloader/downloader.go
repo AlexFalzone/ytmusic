@@ -160,7 +160,10 @@ func (d *Downloader) DownloadSingle(ctx context.Context, url string) ([]string, 
 		return nil, fmt.Errorf("downloading %s: %w", url, ctx.Err())
 	}
 	if runErr != nil {
-		d.Logger.Debug("yt-dlp failed on %s:\n%s", url, stderr.String())
+		d.Logger.Debug("yt-dlp failed on %s", url)
+		for line := range strings.Lines(stderr.String()) {
+			d.Logger.Debug("  %s", line)
+		}
 		return nil, errors.New(failureReason(stderr.String(), runErr))
 	}
 

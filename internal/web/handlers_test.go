@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"ytmusic/internal/config"
 	"ytmusic/internal/logger"
 	"ytmusic/internal/pipeline"
+	"ytmusic/pkg/utils"
 )
 
 func sessionCookie(t *testing.T, s *Server) *http.Cookie {
@@ -603,5 +605,31 @@ func TestJobLogEndpoint(t *testing.T) {
 
 	if rec := get("job_unknown"); rec.Code != http.StatusNotFound {
 		t.Errorf("GET log of an unknown job = %d, want 404", rec.Code)
+	}
+}
+
+// The only copy of a file that could not reach the library is in there.
+func TestJobKeepsItsTempDirWhenFilesStayInIt(t *testing.T) {
+	s := newTestServer(t, nil)
+	var tmp string
+	s.runPipeline = func(_ context.Context, _ config.Config, _ *logger.Logger, dir string, hooks pipeline.Hooks) error {
+		tmp = dir
+		hooks.OnFilesKept()
+		return nil
+	}
+	job, err := s.jobMgr.CreateJob(t.Context(), "https://youtube.com/x", s.config)
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+
+	s.processJob(job)
+	t.Cleanup(func() {
+		if err := utils.Cleanup(tmp); err != nil {
+			t.Error(err)
+		}
+	})
+
+	if _, err := os.Stat(tmp); err != nil {
+		t.Errorf("temp dir gone: %v", err)
 	}
 }

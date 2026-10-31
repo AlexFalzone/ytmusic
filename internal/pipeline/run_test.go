@@ -97,6 +97,7 @@ type runResult struct {
 	extracted int
 	warnings  []string
 	report    Report
+	kept      bool
 }
 
 func runFake(t *testing.T, imp dirImporter) runResult {
@@ -131,6 +132,7 @@ func setupFakeRun(t *testing.T, id, title string) (config.Config, Hooks, *runRes
 	hooks := Hooks{
 		OnURLsExtracted: func(total int) { res.extracted = total },
 		OnWarning:       func(msg string) { res.warnings = append(res.warnings, msg) },
+		OnFilesKept:     func() { res.kept = true },
 	}
 	return cfg, hooks, res
 }
@@ -279,6 +281,15 @@ func TestRunReportsFilesItCouldNotMove(t *testing.T) {
 	}
 	if res.report.NotMoved != 1 {
 		t.Errorf("report = %+v, want one file not moved", res.report)
+	}
+	if !res.kept {
+		t.Error("nothing told the caller to keep the folder with the only copy of the file")
+	}
+	if !hasWarning(res.warnings, filepath.Join(res.tmp, "merged")) {
+		t.Errorf("warnings = %q, want the folder that holds the file", res.warnings)
+	}
+	if files := libraryFiles(t, filepath.Join(res.tmp, "merged")); len(files) != 1 {
+		t.Errorf("merged folder holds %v, want the file that could not be moved", files)
 	}
 }
 

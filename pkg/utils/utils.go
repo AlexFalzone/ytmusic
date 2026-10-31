@@ -204,17 +204,17 @@ func stage(src, dir string) (stagedFile, error) {
 	}
 
 	err = rename(src, tmp.Name())
-	renamed := err == nil
+	if err == nil {
+		_ = tmp.Close() // the empty file the rename replaced: nothing was written through it
+		return stagedFile{path: tmp.Name(), src: src, renamed: true}, nil
+	}
 	if errors.Is(err, syscall.EXDEV) {
 		err = copyInto(tmp, src)
 	}
 	if err := errors.Join(err, tmp.Close()); err != nil {
-		if !renamed {
-			err = errors.Join(err, os.Remove(tmp.Name()))
-		}
-		return stagedFile{}, fmt.Errorf("staging %s: %w", src, err)
+		return stagedFile{}, fmt.Errorf("staging %s: %w", src, errors.Join(err, os.Remove(tmp.Name())))
 	}
-	return stagedFile{path: tmp.Name(), src: src, renamed: renamed}, nil
+	return stagedFile{path: tmp.Name(), src: src}, nil
 }
 
 func copyInto(dst *os.File, src string) error {

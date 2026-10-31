@@ -84,7 +84,8 @@ func serve() int {
 		l.Warn("authentication is DISABLED: anyone who can reach this server can control it")
 	}
 
-	signalled, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	// SIGHUP too: yt-dlp runs in its own process group, so a closed terminal reaches it only through the cancel.
+	signalled, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 
 	// Not the signal's context: jobs stop only once no request can start another.

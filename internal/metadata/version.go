@@ -64,8 +64,9 @@ func sameConcert(a, b string) bool {
 	return len(wordsA) == 0 || 2*countFound(wordsA, wordsB) >= len(wordsA)
 }
 
-// '86 and 1986.
+// 07 and 7, '86 and 1986.
 func sameNumber(a, b string) bool {
+	a, b = strings.TrimLeft(a, "0"), strings.TrimLeft(b, "0")
 	return a == b || len(a) == 2 && len(b) == 4 && strings.HasSuffix(b, a) || len(b) == 2 && len(a) == 4 && strings.HasSuffix(a, b)
 }
 

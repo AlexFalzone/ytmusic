@@ -187,7 +187,11 @@ func (s *Server) processJob(job Job) {
 		})
 		return
 	}
+	keepTemp := false
 	defer func() {
+		if keepTemp {
+			return
+		}
 		if err := utils.Cleanup(tempDir); err != nil {
 			jobLog.Warn("Error during cleanup: %v", err)
 		}
@@ -209,6 +213,7 @@ func (s *Server) processJob(job Job) {
 				j.Warnings = append(j.Warnings, msg)
 			})
 		},
+		OnFilesKept: func() { keepTemp = true },
 	}
 
 	if err := s.runPipeline(job.ctx, job.Config, jobLog, tempDir, hooks); err != nil {

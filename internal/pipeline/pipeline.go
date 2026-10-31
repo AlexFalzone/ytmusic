@@ -25,6 +25,7 @@ type Hooks struct {
 	OnProgress      func()
 	OnDownloadsDone func()
 	OnWarning       func(msg string)
+	OnFilesKept     func() // tmpDir holds the only copy of files that missed the library: the caller must not remove it
 }
 
 // What a run that reached its end left out.
@@ -139,6 +140,12 @@ func run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 	}
 	for _, err := range moved.LyricsFailed {
 		hooks.warn(log, fmt.Sprintf("lyrics not moved next to their track: %v", err))
+	}
+	if len(moved.Failed) > 0 {
+		hooks.warn(log, fmt.Sprintf("%d files stay in %s, which nothing will remove: move them by hand", len(moved.Failed), merged.Dir))
+		if hooks.OnFilesKept != nil {
+			hooks.OnFilesKept()
+		}
 	}
 	log.Info("Moved %d files to %s", moved.Moved, cfg.OutputDir)
 

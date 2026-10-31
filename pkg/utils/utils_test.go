@@ -166,6 +166,30 @@ func TestMoveAcrossFilesystems(t *testing.T) {
 	assertOnly(t, library, "dst.mp3")
 }
 
+func TestFailedMoveLeavesTheSourceWhereItWas(t *testing.T) {
+	dir, library := t.TempDir(), t.TempDir()
+	src := filepath.Join(dir, "song.mp3")
+	writeFile(t, src, "audio")
+	dst := filepath.Join(library, "song.mp3")
+
+	real := rename
+	t.Cleanup(func() { rename = real })
+	rename = func(oldPath, newPath string) error {
+		if newPath == dst {
+			return syscall.EACCES
+		}
+		return real(oldPath, newPath)
+	}
+
+	if _, err := moveToLibrary(src, dst); !errors.Is(err, syscall.EACCES) {
+		t.Fatalf("err = %v, want the refused rename", err)
+	}
+	assertOnly(t, library)
+	if got, err := os.ReadFile(src); err != nil || string(got) != "audio" {
+		t.Errorf("source = %q, %v; want it back in place", got, err)
+	}
+}
+
 func TestFailedCopyLeavesNothingInTheLibrary(t *testing.T) {
 	acrossFilesystems(t)
 	dir, library := t.TempDir(), t.TempDir()

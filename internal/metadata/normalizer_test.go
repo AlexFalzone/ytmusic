@@ -245,3 +245,27 @@ func TestNormalizeQueryKeepsHyphenatedTitle(t *testing.T) {
 		t.Errorf("got title %q artist %q, want %q and none", q.Title, q.Artist, "Anti-Hero")
 	}
 }
+
+func TestSameConcert(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b string
+		want bool
+	}{
+		{"same words", "the Forum, 1976", "the Forum, 1976", true},
+		{"one says less", "the Forum, Inglewood, CA, 10/20/1976", "the Forum, 1976", true},
+		{"short year", "Wembley '86", "Wembley, 1986", true},
+		{"padded month", "Santa Monica, 7/27/1980", "Santa Monica, 07/27/1980", true},
+		{"date written another way", "Santa Monica, 7/27/1980", "Santa Monica, 1980-07-27", true},
+		{"the night after", "Santa Monica, 7/27/1980", "Santa Monica, 7/28/1980", false},
+		{"another venue", "the Forum, 1976", "Santa Monica, 1976", false},
+		{"another year", "the Forum, 1976", "the Forum, 2018", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sameConcert(tt.a, tt.b); got != tt.want {
+				t.Errorf("sameConcert(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
+			}
+		})
+	}
+}

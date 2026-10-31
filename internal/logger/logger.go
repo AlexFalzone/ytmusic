@@ -176,7 +176,7 @@ func cleanText(s string) string {
 		switch {
 		case r == '\n' || r == '\t':
 			return ' '
-		case unicode.IsControl(r):
+		case unicode.IsControl(r), unicode.Is(unicode.Bidi_Control, r):
 			return -1
 		}
 		return r
