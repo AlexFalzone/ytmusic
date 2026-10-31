@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/url"
 	"strings"
+
+	"ytmusic/internal/config"
 )
 
 // The fields --flat-playlist prints for each entry; a single video has only webpage_url and title.
@@ -58,12 +60,18 @@ type flatEntry struct {
 }
 
 // The page yt-dlp read decides this value, and it ends up on yt-dlp's command line.
-func isWebURL(raw string) bool {
+func checkEntryURL(raw string, allowedHosts []string) error {
 	u, err := url.Parse(raw)
-	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("yt-dlp entry without a web URL: %q", raw)
+	}
+	if !config.HostAllowed(u.Hostname(), allowedHosts) {
+		return fmt.Errorf("playlist entry on host %q, which is not in allowed_hosts", u.Hostname())
+	}
+	return nil
 }
 
-func parsePlaylist(r io.Reader) (Playlist, error) {
+func parsePlaylist(r io.Reader, allowedHosts []string) (Playlist, error) {
 	var pl Playlist
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
@@ -76,8 +84,8 @@ func parsePlaylist(r io.Reader) (Playlist, error) {
 			return Playlist{}, fmt.Errorf("parsing yt-dlp entry %q: %w", line, err)
 		}
 		link := cmp.Or(e.WebpageURL, e.URL)
-		if !isWebURL(link) {
-			return Playlist{}, fmt.Errorf("yt-dlp entry without a web URL: %q", line)
+		if err := checkEntryURL(link, allowedHosts); err != nil {
+			return Playlist{}, err
 		}
 		pl.ID, pl.Title, pl.Count = e.PlaylistID, e.PlaylistTitle, e.PlaylistCount
 		pl.Entries = append(pl.Entries, Entry{

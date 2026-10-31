@@ -267,6 +267,25 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// host is the hostname of a URL, allowed the allowed_hosts list: empty means any site, and a name covers its subdomains.
+func HostAllowed(host string, allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	for _, a := range allowed {
+		a = strings.ToLower(strings.TrimSpace(a))
+		if a == "" {
+			continue
+		}
+		if host == a || strings.HasSuffix(host, "."+a) {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *Config) hasProvider(name string) bool {
 	return slices.Contains(c.MetadataProviders, name)
 }

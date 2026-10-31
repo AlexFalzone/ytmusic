@@ -9,9 +9,9 @@ import (
 	"net/url"
 	"runtime/debug"
 	"strconv"
-	"strings"
 	"time"
 
+	"ytmusic/internal/config"
 	"ytmusic/internal/logger"
 	"ytmusic/internal/pipeline"
 	"ytmusic/pkg/utils"
@@ -89,28 +89,10 @@ func validateDownloadURL(raw string, allowedHosts []string) error {
 	if u.Hostname() == "" {
 		return fmt.Errorf("URL has no host")
 	}
-	if !hostAllowed(u.Hostname(), allowedHosts) {
+	if !config.HostAllowed(u.Hostname(), allowedHosts) {
 		return fmt.Errorf("host %q is not in allowed_hosts", u.Hostname())
 	}
 	return nil
-}
-
-func hostAllowed(host string, allowed []string) bool {
-	if len(allowed) == 0 {
-		return true
-	}
-
-	host = strings.ToLower(strings.TrimSuffix(host, "."))
-	for _, a := range allowed {
-		a = strings.ToLower(strings.TrimSpace(a))
-		if a == "" {
-			continue
-		}
-		if host == a || strings.HasSuffix(host, "."+a) {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {

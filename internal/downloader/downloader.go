@@ -64,7 +64,7 @@ func (d *Downloader) Extract(ctx context.Context) (Playlist, error) {
 		return Playlist{}, fmt.Errorf("yt-dlp failed to extract URLs: %s", failureReason(stderr.String(), err))
 	}
 
-	pl, err := parsePlaylist(&stdout)
+	pl, err := parsePlaylist(&stdout, d.Config.AllowedHosts)
 	if err != nil {
 		return Playlist{}, err
 	}

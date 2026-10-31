@@ -58,7 +58,7 @@ behind_proxy: false
 # Jobs beyond this wait in the queue. Each runs parallel_jobs downloads.
 max_concurrent_jobs: 1
 
-# Empty means any site yt-dlp supports.
+# Holds for what you submit and for every entry of a playlist. Empty means any site yt-dlp supports.
 # allowed_hosts:
 #   - youtube.com
 #   - music.youtube.com

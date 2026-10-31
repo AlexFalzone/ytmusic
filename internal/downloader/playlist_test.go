@@ -11,7 +11,7 @@ func TestParsePlaylistReadsEntriesInOrder(t *testing.T) {
 
 {"webpage_url": "https://music.youtube.com/watch?v=b2", "title": "Shot For Me", "playlist_index": 2, "playlist_count": 19, "playlist_title": "Album - Take Care (Deluxe)", "playlist_id": "OLAK5uy_x"}
 `
-	pl, err := parsePlaylist(strings.NewReader(out))
+	pl, err := parsePlaylist(strings.NewReader(out), nil)
 	if err != nil {
 		t.Fatalf("parsePlaylist: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestParsePlaylistReadsEntriesInOrder(t *testing.T) {
 
 // yt-dlp prints only the fields a single video has.
 func TestParsePlaylistSingleVideo(t *testing.T) {
-	pl, err := parsePlaylist(strings.NewReader(`{"webpage_url": "https://www.youtube.com/watch?v=jNQXAC9IVRw", "title": "Me at the zoo"}` + "\n"))
+	pl, err := parsePlaylist(strings.NewReader(`{"webpage_url": "https://www.youtube.com/watch?v=jNQXAC9IVRw", "title": "Me at the zoo"}`+"\n"), nil)
 	if err != nil {
 		t.Fatalf("parsePlaylist: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestParsePlaylistSingleVideo(t *testing.T) {
 // An entry's id means nothing outside YouTube: SoundCloud's are plain numbers.
 func TestParsePlaylistKeepsTheSiteOfAnEntry(t *testing.T) {
 	out := `{"id": "290", "url": "https://soundcloud.com/forss/city-ports", "webpage_url": "https://soundcloud.com/forss/city-ports", "playlist_index": 1}`
-	pl, err := parsePlaylist(strings.NewReader(out + "\n"))
+	pl, err := parsePlaylist(strings.NewReader(out+"\n"), nil)
 	if err != nil {
 		t.Fatalf("parsePlaylist: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestParsePlaylistKeepsTheSiteOfAnEntry(t *testing.T) {
 }
 
 func TestParsePlaylistFallsBackToTheEntryURL(t *testing.T) {
-	pl, err := parsePlaylist(strings.NewReader(`{"url": "https://example.com/track/1"}` + "\n"))
+	pl, err := parsePlaylist(strings.NewReader(`{"url": "https://example.com/track/1"}`+"\n"), nil)
 	if err != nil {
 		t.Fatalf("parsePlaylist: %v", err)
 	}
@@ -76,14 +76,31 @@ func TestParsePlaylistRejectsAnEntryThatIsNotAWebURL(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if pl, err := parsePlaylist(strings.NewReader(string(line) + "\n")); err == nil {
+		if pl, err := parsePlaylist(strings.NewReader(string(line)+"\n"), nil); err == nil {
 			t.Errorf("%q accepted: %+v", bad, pl.Entries)
 		}
 	}
 }
 
+// A page on an allowed site must not send yt-dlp to one that is not.
+func TestParsePlaylistHoldsEntriesToAllowedHosts(t *testing.T) {
+	allowed := []string{"youtube.com"}
+	inside := `{"webpage_url": "https://music.youtube.com/watch?v=a"}` + "\n"
+	outside := `{"webpage_url": "http://192.168.1.1/admin"}` + "\n"
+
+	if _, err := parsePlaylist(strings.NewReader(inside), allowed); err != nil {
+		t.Errorf("entry on an allowed host: %v", err)
+	}
+	if _, err := parsePlaylist(strings.NewReader(inside+outside), allowed); err == nil {
+		t.Error("entry on another host accepted")
+	}
+	if _, err := parsePlaylist(strings.NewReader(outside), nil); err != nil {
+		t.Errorf("no allowed_hosts means any site: %v", err)
+	}
+}
+
 func TestParsePlaylistRejectsAnEntryWithoutAURL(t *testing.T) {
-	if _, err := parsePlaylist(strings.NewReader(`{"title": "Nowhere"}` + "\n")); err == nil {
+	if _, err := parsePlaylist(strings.NewReader(`{"title": "Nowhere"}`+"\n"), nil); err == nil {
 		t.Error("expected an error for an entry nothing can download")
 	}
 }
@@ -96,7 +113,7 @@ func TestPlaylistURLsDropDuplicatesInOrder(t *testing.T) {
 }
 
 func TestParsePlaylistRejectsGarbage(t *testing.T) {
-	if _, err := parsePlaylist(strings.NewReader("https://www.youtube.com/watch?v=x\n")); err == nil {
+	if _, err := parsePlaylist(strings.NewReader("https://www.youtube.com/watch?v=x\n"), nil); err == nil {
 		t.Error("expected an error for a line that is not JSON")
 	}
 }
