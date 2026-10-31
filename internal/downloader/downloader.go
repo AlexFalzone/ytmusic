@@ -36,12 +36,22 @@ func New(cfg config.Config, log *logger.Logger, tmpDir string) *Downloader {
 	}
 }
 
+// A child still holding stderr would otherwise keep Wait from returning after a cancel.
+const ytdlpWaitDelay = 5 * time.Second
+
+func ytdlp(ctx context.Context, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
+	killGroupOnCancel(cmd)
+	cmd.WaitDelay = ytdlpWaitDelay
+	return cmd
+}
+
 func (d *Downloader) Extract(ctx context.Context) (Playlist, error) {
 	d.Logger.Info("extracting urls from playlist")
 	d.Logger.Debug("Playlist URL: %s", d.Config.PlaylistURL)
 
 	args := slices.Concat([]string{"--flat-playlist", "--print", entryTemplate}, d.cookieArgs(), []string{"--", d.Config.PlaylistURL})
-	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
+	cmd := ytdlp(ctx, args...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -74,7 +84,7 @@ func (d *Downloader) FetchMetadata(ctx context.Context, urls []string) error {
 		}
 
 		args := slices.Concat([]string{"--print", "%(title)s - %(artist)s - %(duration_string)s", "--no-download"}, d.cookieArgs(), []string{"--", url})
-		cmd := exec.CommandContext(ctx, "yt-dlp", args...)
+		cmd := ytdlp(ctx, args...)
 
 		var stdout bytes.Buffer
 		cmd.Stdout = &stdout
@@ -135,7 +145,7 @@ func (d *Downloader) DownloadSingle(ctx context.Context, url string) ([]string, 
 	defer func() { _ = os.Remove(listPath) }()
 
 	args := d.buildYtdlpArgs(url, listPath)
-	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
+	cmd := ytdlp(ctx, args...)
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

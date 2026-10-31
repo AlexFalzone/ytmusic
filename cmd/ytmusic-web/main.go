@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -18,7 +17,18 @@ import (
 	"ytmusic/internal/web"
 )
 
+// Stays under the 30 s the compose file gives a container to stop.
+const (
+	shutdownTimeout = 5 * time.Second
+	jobsStopTimeout = 20 * time.Second
+)
+
 func main() {
+	os.Exit(serve())
+}
+
+// A function of its own so the deferred calls run before the exit.
+func serve() int {
 	var (
 		port         int
 		configPath   string
@@ -34,25 +44,25 @@ func main() {
 	if hashPassword {
 		if err := runHashPassword(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return 1
 		}
-		return
+		return 0
 	}
 
 	cfg, err := config.LoadConfigFile(configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Config error: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	if err := cfg.ValidateWeb(); err != nil {
 		fmt.Fprintf(os.Stderr, "Config error: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	if err := pipeline.CheckTools(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "Dependency error: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	l := logger.New(false)
@@ -74,7 +84,12 @@ func main() {
 		l.Warn("authentication is DISABLED: anyone who can reach this server can control it")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	signalled, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Not the signal's context: jobs stop only once no request can start another.
+	ctx, cancelJobs := context.WithCancel(context.Background())
+	defer cancelJobs()
 
 	jobMgr := web.NewJobManager()
 	jobMgr.StartCleanup(ctx)
@@ -89,20 +104,30 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
+	listenErr := make(chan error, 1)
 	go func() {
 		l.Info("Starting web server on port %d", port)
-		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			l.Error("Server error: %v", err)
-			os.Exit(1)
-		}
+		listenErr <- httpServer.ListenAndServe()
 	}()
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	<-stop
+	select {
+	case err := <-listenErr:
+		l.Error("Server error: %v", err)
+		return 1
+	case <-signalled.Done():
+	}
+	// A second signal kills the process, however the shutdown is going.
+	stop()
 
 	l.Info("Shutting down server...")
-	cancel()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer shutdownCancel()
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		l.Error("Server shutdown error: %v", err)
+	}
+
+	cancelJobs()
 
 	waited := make(chan struct{})
 	go func() {
@@ -111,16 +136,10 @@ func main() {
 	}()
 	select {
 	case <-waited:
-	case <-time.After(15 * time.Second):
+	case <-time.After(jobsStopTimeout):
 		l.Warn("timed out waiting for in-flight jobs to stop")
 	}
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-
-	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		l.Error("Server shutdown error: %v", err)
-	}
-
 	l.Info("Server stopped")
+	return 0
 }
