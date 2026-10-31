@@ -30,6 +30,7 @@ Both binaries refuse to start if a program the run needs is missing: a download 
 make local   # both binaries
 make test
 make lint
+make vuln
 ```
 
 ## Usage
@@ -51,6 +52,12 @@ ytmusic [options] <playlist_url>
 -h, --help                 Help
 ```
 
+A failed video is tried a second time at the end of the downloads. Exit codes: `0` everything arrived, `1` the run
+failed, `2` the run finished but some videos or files are missing, each named in the warnings on the terminal.
+Missing lyrics and metadata are warnings with exit code `0`.
+
+Nothing in the library is ever overwritten: a name already taken gives `Song_2.mp3`.
+
 ## Configuration
 
 See `config.example.yaml`, or run `ytmusic --init-config`.
@@ -70,24 +77,30 @@ Age-restricted and private videos need the cookies of a browser you are logged i
 AcoustID is limited to 3 requests per second. Resolution runs in three phases:
 
 1. **Batch fingerprint** (`fpcalc` + AcoustID key): if one MusicBrainz release holds ≥ 50% of an album
-   group's recordings, its tracklist sets track and disc numbers.
-2. **Album-first lookup** (MusicBrainz): the album is searched once and its tracklist matched by title.
+   group's recordings, the files it matches take track and disc numbers, album, album artist, date and cover from it.
+2. **Album-first lookup** (MusicBrainz): the album is searched once and the same is done with its tracklist,
+   matched by title, one file per track.
 3. **Per-file search**: providers in order, `metadata_workers` files at a time. The first result above
    `confidence_threshold` wins; later providers fill missing fields and replace artwork that fails to download.
 
-Phase 3 never overwrites the track and disc numbers of phases 1 and 2.
+A file placed on a release by phases 1 and 2 keeps those fields: phase 3 sets its title, artist and genre, an ISRC it
+lacks and, only when the release has none, the date. An artist tag listing every featured name stays when a provider
+names only the first.
 
 **Album URLs** (`music.youtube.com/browse/MPREb_…` or `playlist?list=OLAK5uy_…`) replace phases 1 and 2: the album
 keeps YouTube Music's title, order and track count (`5/19`), and every track gets the same album artist, date and
 cover, recognised by a provider or not. A MusicBrainz release with the same track count and titles in the same order
-adds its date, ISRCs and cover; without one, the date is the release date YouTube Music gives and the cover its
-thumbnail cropped square. Phase 3 then sets only title, artist, genre and ISRC.
+adds its date, ISRCs, cover and full track titles (YouTube Music cuts them at about 100 characters); without one, the
+date is the release date YouTube Music gives and the cover its thumbnail cropped square. Phase 3 then sets only artist,
+genre and a missing ISRC: the title never comes from a provider.
 
 ### Matching rules
 
 - A title declaring a variant (`(Live)`, `(Sped Up)`, `- Radio Edit`, `(Skrillex Remix)`) only matches the
   same variant. When no provider has it, the original lends artist, album, artwork, year and genre, but not
   ISRC or track number.
+- A live title naming a concert (`(Live at the Forum, 1976)`) only matches the same concert: another venue or date is
+  skipped, a plain `(Live)` lends what the original would but not its title or ISRC.
 - A recording longer than the file by more than 10% (at least 3 s) is skipped; a file up to twice the
   recording's length is accepted (music videos add intros and outros).
 - A candidate with neither a length nor an album is skipped.
@@ -163,6 +176,9 @@ server {
 make build        # cli image
 make build-web    # web image
 ```
+
+The `make` targets pick up a new yt-dlp at most once a day, without rebuilding ffmpeg. YouTube breaks old versions
+within weeks: when downloads start failing, rebuild first.
 
 | Container path        | Host path              | Content              |
 |-----------------------|------------------------|----------------------|
