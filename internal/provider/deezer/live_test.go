@@ -7,7 +7,7 @@ import (
 	"ytmusic/internal/metadata"
 )
 
-// Opt-in: LIVE=1 go test ./internal/provider/deezer/. Mocks cannot catch the API changing how it reads the query (BUG-14).
+// Opt-in: LIVE=1 go test ./internal/provider/deezer/. Mocks cannot catch the API changing how it reads the query.
 func TestLiveSearch(t *testing.T) {
 	if os.Getenv("LIVE") == "" {
 		t.Skip("set LIVE=1 to query the real Deezer API")
