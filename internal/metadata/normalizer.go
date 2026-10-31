@@ -6,7 +6,7 @@ import (
 )
 
 var promoPattern = func() *regexp.Regexp {
-	inner := `official\s+(?:music\s+|lyric\s+)?video|official\s+(?:audio|visualizer)|lyrics?|visual(?:izer)?|audio|hd|hq|4k|explicit|clean`
+	inner := `official\s+(?:music\s+|lyric\s+)?video|official\s+(?:audio|visualizer)|lyrics?|visual(?:izer)?|audio|hd|hq|4k|(?:explicit|clean)(?:\s+version)?`
 	return regexp.MustCompile(`(?i)\s*(?:\((?:` + inner + `)\)|\[(?:` + inner + `)\])`)
 }()
 
@@ -46,7 +46,8 @@ func NormalizeQuery(title, artist string) (SearchQuery, Version) {
 	}
 
 	base, version := cleanTitle(title)
-	return SearchQuery{Title: base, Artist: artist}, version
+	// yt-dlp lists every featured artist, and a phrase search for the whole list finds nothing.
+	return SearchQuery{Title: base, Artist: primaryArtist(artist)}, version
 }
 
 // Applied to the query and to every candidate alike.

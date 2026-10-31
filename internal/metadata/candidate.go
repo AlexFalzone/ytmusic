@@ -65,7 +65,7 @@ func better(a, b match, queryAlbum string) bool {
 
 func score(query SearchQuery, result TrackInfo) float64 {
 	titleScore := Similarity(query.Title, result.Title)
-	artistScore := Similarity(query.Artist, result.Artist)
+	artistScore := Similarity(query.Artist, primaryArtist(result.Artist))
 
 	var s float64
 	if query.Artist == "" {

@@ -19,7 +19,7 @@ var trailingSegment = regexp.MustCompile(`\s*[\(\[][^\(\)\[\]]*[\)\]]$`)
 // Album-level fields are decided once here, for every file, whether or not a provider later recognises the track.
 func (r *Resolver) resolveAlbum(ctx context.Context, album *Album) {
 	paths := albumPaths(album)
-	var albums, artists, dates []string
+	var albums, artists, wholeArtists, dates []string
 	for _, path := range paths {
 		tags, err := r.tags.read(path)
 		if err != nil {
@@ -28,6 +28,7 @@ func (r *Resolver) resolveAlbum(ctx context.Context, album *Album) {
 		}
 		albums = append(albums, FirstTag(tags, taglib.Album))
 		artists = append(artists, primaryArtist(FirstTag(tags, taglib.Artist)))
+		wholeArtists = append(wholeArtists, FirstTag(tags, taglib.Artist))
 		dates = append(dates, FirstTag(tags, taglib.Date))
 	}
 
@@ -41,6 +42,7 @@ func (r *Resolver) resolveAlbum(ctx context.Context, album *Album) {
 		if release.Date != "" {
 			date = release.Date
 		}
+		artist = creditedArtist(artist, release.Artist, wholeArtists)
 	} else {
 		r.logger.Info("album %q: no MusicBrainz release with these %d tracks, keeping YouTube Music's data", album.Title, len(album.Tracks))
 	}
@@ -150,6 +152,19 @@ func albumArtist(artists []string) string {
 		return artist
 	}
 	return "Various Artists"
+}
+
+// yt-dlp joins artists with ", ", so "Tyler, The Creator" reads as two: a release that credits the name whole settles it.
+func creditedArtist(artist, credited string, wholeArtists []string) string {
+	if primaryArtist(credited) != artist {
+		return artist
+	}
+	for _, whole := range wholeArtists {
+		if whole == credited || strings.HasPrefix(whole, credited+",") {
+			return credited
+		}
+	}
+	return artist
 }
 
 // The most frequent non-empty value; on a tie, the one that reached the count first.

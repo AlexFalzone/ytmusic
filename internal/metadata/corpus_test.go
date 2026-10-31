@@ -41,6 +41,24 @@ func unchanged(title, artist string) map[string]string {
 
 var corpus = []corpusCase{
 	{
+		name:  "explicit version named in full",
+		title: "Headlines (Explicit Version)", artist: "Drake", seconds: "1",
+		key:   "Headlines",
+		first: []TrackInfo{{Title: "Headlines", Artist: "Drake", Album: "Take Care", ISRC: "USCM51100543", TrackNumber: 3}},
+		want: map[string]string{
+			taglib.Title: "Headlines", taglib.Artist: "Drake", taglib.Album: "Take Care", taglib.ISRC: "USCM51100543",
+		},
+	},
+	{
+		name:  "every featured artist in the file's tag",
+		title: "The Real Her", artist: "Drake, Lil Wayne, André 3000", seconds: "1",
+		key:   "The Real Her",
+		first: []TrackInfo{{Title: "The Real Her", Artist: "Drake", Album: "Take Care", ISRC: "USCM51100541", TrackNumber: 14}},
+		want: map[string]string{
+			taglib.Title: "The Real Her", taglib.Artist: "Drake", taglib.Album: "Take Care", taglib.ISRC: "USCM51100541",
+		},
+	},
+	{
 		name:  "featuring credit on both sides",
 		title: "Peaches (feat. Daniel Caesar & Giveon)", artist: "Justin Bieber", seconds: "1",
 		key: "Peaches",

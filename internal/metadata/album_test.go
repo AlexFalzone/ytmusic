@@ -3,9 +3,11 @@ package metadata
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"ytmusic/internal/logger"
+	"ytmusic/internal/testaudio"
 
 	"go.senan.xyz/taglib"
 )
@@ -429,5 +431,37 @@ func TestResolveGroupByFingerprint_KeepsMatchesBesideAFailure(t *testing.T) {
 
 	if got := r.resolveGroupByFingerprint(t.Context(), []string{p1, p2}); len(got) != 2 {
 		t.Errorf("resolved %d files, want 2: coverage is 50%%, the tracklist covers both", len(got))
+	}
+}
+
+type artistAlbumResolver struct {
+	byArtist map[string]Tracklist
+	asked    []string
+}
+
+func (a *artistAlbumResolver) ResolveAlbum(_ context.Context, _, artist string) (Tracklist, bool, error) {
+	a.asked = append(a.asked, artist)
+	tl, ok := a.byArtist[artist]
+	return tl, ok, nil
+}
+
+// MusicBrainz finds nothing for "Drake, Birdman"; it does for the name a comma may have been part of.
+func TestResolveGroupTriesTheWholeArtistThenThePrimaryOne(t *testing.T) {
+	path := testaudio.MP3(t, t.TempDir(), "song.mp3", "0.1")
+	writeTestTags(t, path, map[string][]string{taglib.Title: {"Headlines"}, taglib.Artist: {"Drake, Birdman"}})
+	ar := &artistAlbumResolver{byArtist: map[string]Tracklist{
+		"Drake": {Tracks: []ReleaseTrack{{TrackNumber: 3, DiscNumber: 1, Title: "Headlines"}}},
+	}}
+
+	r := NewResolver(nil, logger.New(false), 0)
+	if err := r.resolveGroup(t.Context(), "Take Care", []string{path}, ar); err != nil {
+		t.Fatalf("resolveGroup: %v", err)
+	}
+
+	if got := fmt.Sprint(ar.asked); got != "[Drake, Birdman Drake]" {
+		t.Errorf("asked %s", got)
+	}
+	if got := readTestTag(t, path, taglib.TrackNumber); got != "3" {
+		t.Errorf("TrackNumber = %q, want 3", got)
 	}
 }

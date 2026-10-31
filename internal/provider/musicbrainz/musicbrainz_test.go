@@ -470,7 +470,7 @@ func TestSearchRelease_ReturnsCandidates(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	candidates, err := c.searchRelease(t.Context(), "LP!", "JPEGMAFIA", 0)
+	candidates, err := c.searchRelease(t.Context(), "LP!", "JPEGMAFIA")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -493,7 +493,7 @@ func TestSearchRelease_EmptyResults(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	candidates, err := c.searchRelease(t.Context(), "Nonexistent Album", "Nobody", 0)
+	candidates, err := c.searchRelease(t.Context(), "Nonexistent Album", "Nobody")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -10,17 +10,25 @@ import (
 	"ytmusic/internal/throttle"
 )
 
-func TestFindReleasesSearchesByTrackCountAndLooksUpEachCandidate(t *testing.T) {
+func TestFindReleasesFiltersOnTheTrackCountItselfAndLooksUpEachCandidate(t *testing.T) {
 	var lookups atomic.Int32
 	mux := http.NewServeMux()
 	mux.HandleFunc("/release", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query().Get("query")
-		for _, part := range []string{`release:"The Divine Feminine"`, `artist:"Mac Miller"`, "tracks:13"} {
+		for _, part := range []string{`release:"The Divine Feminine"`, `artist:"Mac Miller"`} {
 			if !strings.Contains(q, part) {
 				t.Errorf("query %q lacks %s", q, part)
 			}
 		}
-		respond(t, w, `{"releases": [{"id": "r1", "title": "The Divine Feminine"}, {"id": "r2", "title": "The Divine Feminine"}]}`)
+		// The index's "tracks" misses releases: for Legacy, two of the three with 116 tracks.
+		if strings.Contains(q, "tracks:") {
+			t.Errorf("query %q filters on the index's track count", q)
+		}
+		if got := r.URL.Query().Get("limit"); got != "25" {
+			t.Errorf("limit = %q, want 25: the matching edition may rank low", got)
+		}
+		respond(t, w, `{"releases": [{"id": "r1", "title": "The Divine Feminine", "track-count": 13}, {"id": "r2", "title": "The Divine Feminine", "track-count": 13},
+			{"id": "other", "title": "The Divine Feminine", "track-count": 10}]}`)
 	})
 	mux.HandleFunc("/release/r1", func(w http.ResponseWriter, r *http.Request) {
 		lookups.Add(1)
@@ -30,6 +38,9 @@ func TestFindReleasesSearchesByTrackCountAndLooksUpEachCandidate(t *testing.T) {
 		respond(t, w, `{"id": "r1", "title": "The Divine Feminine", "status": "Official", "date": "2026-10-02", "disambiguation": "10th Anniversary",
 			"cover-art-archive": {"front": true},
 			"media": [{"position": 1, "tracks": [{"number": "1", "position": 1, "title": "Congratulations", "recording": {"id": "rec-1", "isrcs": ["USWB11601443"]}}]}]}`)
+	})
+	mux.HandleFunc("/release/other", func(w http.ResponseWriter, r *http.Request) {
+		t.Error("looked up a release with another track count")
 	})
 	mux.HandleFunc("/release/r2", func(w http.ResponseWriter, r *http.Request) {
 		respond(t, w, `{"id": "r2", "title": "The Divine Feminine", "status": "Bootleg",
@@ -73,7 +84,7 @@ func TestFindReleasesSearchesByTrackCountAndLooksUpEachCandidate(t *testing.T) {
 func TestFindReleasesKeepsTheCandidatesThatLoaded(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/release", func(w http.ResponseWriter, r *http.Request) {
-		respond(t, w, `{"releases": [{"id": "bad"}, {"id": "good"}]}`)
+		respond(t, w, `{"releases": [{"id": "bad", "track-count": 1}, {"id": "good", "track-count": 1}]}`)
 	})
 	mux.HandleFunc("/release/bad", func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "broken", http.StatusInternalServerError)

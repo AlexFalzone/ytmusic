@@ -3,6 +3,7 @@ package metadata
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"go.senan.xyz/taglib"
 )
@@ -17,15 +18,17 @@ func (r *Resolver) resolveGroup(ctx context.Context, album string, files []strin
 		}
 	}
 
-	tl, found, err := ar.ResolveAlbum(ctx, album, artist)
-	if err != nil {
-		return fmt.Errorf("resolve album %q: %w", album, err)
+	// The whole name first: the comma may be part of it.
+	for _, name := range slices.Compact([]string{artist, primaryArtist(artist)}) {
+		tl, found, err := ar.ResolveAlbum(ctx, album, name)
+		if err != nil {
+			return fmt.Errorf("resolve album %q: %w", album, err)
+		}
+		if found && len(tl.Tracks) > 0 {
+			r.writeTrackPositions(files, tl, "album-first")
+			return nil
+		}
 	}
-	if !found || len(tl.Tracks) == 0 {
-		return nil
-	}
-
-	r.writeTrackPositions(files, tl, "album-first")
 	return nil
 }
 

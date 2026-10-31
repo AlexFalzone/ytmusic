@@ -439,3 +439,41 @@ func TestResolveTagsAFileWithoutAPositionOnItsOwn(t *testing.T) {
 		t.Errorf("track number = %q, want the provider's 7", got)
 	}
 }
+
+// yt-dlp joins artists with a comma, so only the release can say this one is a single name.
+func TestAlbumArtistComesWholeFromAReleaseThatCreditsIt(t *testing.T) {
+	album := newAlbum(t, "Igor", []string{"Earfquake", "Puppet"}, map[int]map[string][]string{
+		1: {taglib.Title: {"Earfquake"}, taglib.Artist: {"Tyler, The Creator"}},
+		2: {taglib.Title: {"Puppet"}, taglib.Artist: {"Tyler, The Creator, Kanye West"}},
+	})
+	finder := &fakeFinder{byTitle: map[string][]Tracklist{"Igor": {{
+		ID: "igor", Title: "Igor", Artist: "Tyler, The Creator", Status: "Official",
+		Tracks: []ReleaseTrack{{TrackNumber: 1, Title: "Earfquake"}, {TrackNumber: 2, Title: "Puppet"}},
+	}}}}
+
+	r := NewResolver(nil, logger.New(false), 0).WithReleaseFinder(finder)
+	r.resolveAlbum(t.Context(), album)
+
+	for pos := range 2 {
+		if got := readTestTag(t, pathAt(album, pos+1), taglib.AlbumArtist); got != "Tyler, The Creator" {
+			t.Errorf("track %d: album artist = %q", pos+1, got)
+		}
+	}
+}
+
+func TestAlbumArtistStaysPrimaryWhenTheReleaseCreditsAnother(t *testing.T) {
+	album := newAlbum(t, "Mix", []string{"One"}, map[int]map[string][]string{
+		1: {taglib.Title: {"One"}, taglib.Artist: {"Drake, Future"}},
+	})
+	finder := &fakeFinder{byTitle: map[string][]Tracklist{"Mix": {{
+		ID: "mix", Title: "Mix", Artist: "Various Artists", Status: "Official",
+		Tracks: []ReleaseTrack{{TrackNumber: 1, Title: "One"}},
+	}}}}
+
+	r := NewResolver(nil, logger.New(false), 0).WithReleaseFinder(finder)
+	r.resolveAlbum(t.Context(), album)
+
+	if got := readTestTag(t, pathAt(album, 1), taglib.AlbumArtist); got != "Drake" {
+		t.Errorf("album artist = %q, want Drake", got)
+	}
+}
