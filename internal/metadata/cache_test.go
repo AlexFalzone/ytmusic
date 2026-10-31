@@ -26,11 +26,11 @@ func TestResolverAsksEachProviderOncePerQuery(t *testing.T) {
 	p2 := &countingProvider{name: "second", results: []TrackInfo{{Title: "Song", Artist: "Artist", Album: "Album"}}}
 	r := NewResolver([]Provider{p1, p2}, logger.New(false), 0.5)
 
-	m, ok := r.findPrimaryMatch(context.Background(), liveSource())
+	m, ok := r.findPrimaryMatch(t.Context(), liveSource())
 	if !ok || !m.donor {
 		t.Fatalf("match = %+v, ok = %v, want a donor", m, ok)
 	}
-	r.fillGaps(context.Background(), liveSource(), m, nil, hasMissingFields)
+	r.fillGaps(t.Context(), liveSource(), m, nil, hasMissingFields)
 
 	if n := p2.calls.Load(); n != 1 {
 		t.Errorf("second provider asked %d times, want 1", n)
@@ -41,13 +41,13 @@ func TestCachedResultsAreCopies(t *testing.T) {
 	p := &cachedProvider{Provider: &countingProvider{name: "p", results: []TrackInfo{{Title: "Song"}}}}
 	q := SearchQuery{Title: "Song"}
 
-	first, err := p.Search(context.Background(), q)
+	first, err := p.Search(t.Context(), q)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
 	first[0].Title = "Edited"
 
-	second, err := p.Search(context.Background(), q)
+	second, err := p.Search(t.Context(), q)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}

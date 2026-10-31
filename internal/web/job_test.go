@@ -16,7 +16,7 @@ func TestCleanup(t *testing.T) {
 	jm := NewJobManager()
 	cfg := config.DefaultConfig()
 
-	old, err := jm.CreateJob(context.Background(), "https://example.com/old", cfg)
+	old, err := jm.CreateJob(t.Context(), "https://example.com/old", cfg)
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestCleanup(t *testing.T) {
 	jm.jobs[old.ID].CompletedAt = &past
 	jm.mu.Unlock()
 
-	recent, err := jm.CreateJob(context.Background(), "https://example.com/recent", cfg)
+	recent, err := jm.CreateJob(t.Context(), "https://example.com/recent", cfg)
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestCleanup(t *testing.T) {
 		t.Fatalf("UpdateJob: %v", err)
 	}
 
-	running, err := jm.CreateJob(context.Background(), "https://example.com/running", cfg)
+	running, err := jm.CreateJob(t.Context(), "https://example.com/running", cfg)
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
@@ -68,8 +68,8 @@ func TestCreateJobUniqueIDs(t *testing.T) {
 	cfg := config.DefaultConfig()
 
 	ids := make(map[string]bool)
-	for i := 0; i < 100; i++ {
-		job, err := jm.CreateJob(context.Background(), "https://example.com", cfg)
+	for range 100 {
+		job, err := jm.CreateJob(t.Context(), "https://example.com", cfg)
 		if err != nil {
 			t.Fatalf("CreateJob: %v", err)
 		}
@@ -84,7 +84,7 @@ func TestJobIDFormat(t *testing.T) {
 	jm := NewJobManager()
 	cfg := config.DefaultConfig()
 
-	job, err := jm.CreateJob(context.Background(), "https://example.com", cfg)
+	job, err := jm.CreateJob(t.Context(), "https://example.com", cfg)
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestJobIDFormat(t *testing.T) {
 func TestUpdateJobTimestamps(t *testing.T) {
 	jm := NewJobManager()
 	cfg := config.DefaultConfig()
-	job, err := jm.CreateJob(context.Background(), "https://example.com", cfg)
+	job, err := jm.CreateJob(t.Context(), "https://example.com", cfg)
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestUpdateJobNotFound(t *testing.T) {
 func TestSubscribeReceivesUpdates(t *testing.T) {
 	jm := NewJobManager()
 	cfg := config.DefaultConfig()
-	job, err := jm.CreateJob(context.Background(), "https://example.com", cfg)
+	job, err := jm.CreateJob(t.Context(), "https://example.com", cfg)
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestSubscribeReceivesUpdates(t *testing.T) {
 
 func TestSignalsCoalesceAndTheFinalStateIsReadable(t *testing.T) {
 	jm := NewJobManager()
-	job, err := jm.CreateJob(context.Background(), "https://example.com", config.DefaultConfig())
+	job, err := jm.CreateJob(t.Context(), "https://example.com", config.DefaultConfig())
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
@@ -194,7 +194,7 @@ func appendLines(t *testing.T, jm *JobManager, id string, n int) {
 
 func TestAppendLogKeepsTheNewestLines(t *testing.T) {
 	jm := NewJobManager()
-	job, err := jm.CreateJob(context.Background(), "https://example.com", config.DefaultConfig())
+	job, err := jm.CreateJob(t.Context(), "https://example.com", config.DefaultConfig())
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestAppendLogKeepsTheNewestLines(t *testing.T) {
 
 func TestLogSinceReturnsOnlyNewerLines(t *testing.T) {
 	jm := NewJobManager()
-	job, err := jm.CreateJob(context.Background(), "https://example.com", config.DefaultConfig())
+	job, err := jm.CreateJob(t.Context(), "https://example.com", config.DefaultConfig())
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestLogSinceReturnsOnlyNewerLines(t *testing.T) {
 
 func TestCleanupDropsTheLog(t *testing.T) {
 	jm := NewJobManager()
-	job, err := jm.CreateJob(context.Background(), "https://example.com", config.DefaultConfig())
+	job, err := jm.CreateJob(t.Context(), "https://example.com", config.DefaultConfig())
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestCleanupDropsTheLog(t *testing.T) {
 
 func TestJobCopiesDoNotShareWarnings(t *testing.T) {
 	jm := NewJobManager()
-	job, err := jm.CreateJob(context.Background(), "https://example.com", config.DefaultConfig())
+	job, err := jm.CreateJob(t.Context(), "https://example.com", config.DefaultConfig())
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestCreateJobReturnsErrorWhenRandomFails(t *testing.T) {
 	defer func() { randRead = original }()
 
 	jm := NewJobManager()
-	if _, err := jm.CreateJob(context.Background(), "https://example.com", config.DefaultConfig()); err == nil {
+	if _, err := jm.CreateJob(t.Context(), "https://example.com", config.DefaultConfig()); err == nil {
 		t.Error("CreateJob must return an error when the random source fails")
 	}
 }
@@ -288,7 +288,7 @@ func TestCreateJobReturnsErrorWhenRandomFails(t *testing.T) {
 func TestCleanupClosesListenerChannels(t *testing.T) {
 	jm := NewJobManager()
 
-	job, err := jm.CreateJob(context.Background(), "https://example.com", config.DefaultConfig())
+	job, err := jm.CreateJob(t.Context(), "https://example.com", config.DefaultConfig())
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
@@ -317,7 +317,7 @@ func TestCleanupClosesListenerChannels(t *testing.T) {
 func TestCreateJobArmsCancelImmediately(t *testing.T) {
 	jm := NewJobManager()
 
-	job, err := jm.CreateJob(context.Background(), "https://example.com", config.DefaultConfig())
+	job, err := jm.CreateJob(t.Context(), "https://example.com", config.DefaultConfig())
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
@@ -345,7 +345,7 @@ func TestCreateJobArmsCancelImmediately(t *testing.T) {
 }
 
 func TestJobContextDerivesFromParent(t *testing.T) {
-	parent, cancelParent := context.WithCancel(context.Background())
+	parent, cancelParent := context.WithCancel(t.Context())
 	jm := NewJobManager()
 
 	job, err := jm.CreateJob(parent, "https://example.com", config.DefaultConfig())
@@ -367,7 +367,7 @@ func TestListJobsNewestFirst(t *testing.T) {
 	jm := NewJobManager()
 	var ids []string
 	for i := range 3 {
-		job, err := jm.CreateJob(context.Background(), "https://example.com", config.DefaultConfig())
+		job, err := jm.CreateJob(t.Context(), "https://example.com", config.DefaultConfig())
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -1,7 +1,6 @@
 package metadata
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -39,7 +38,7 @@ func TestResolveFile(t *testing.T) {
 
 	log := logger.New(false)
 	resolver := NewResolver([]Provider{mock}, log, 0)
-	err = resolver.Resolve(context.Background(), []string{path}, nil)
+	err = resolver.Resolve(t.Context(), []string{path}, nil)
 	if err != nil {
 		t.Fatalf("Resolve failed: %v", err)
 	}
@@ -91,7 +90,7 @@ func TestResolveFileLowConfidence(t *testing.T) {
 
 	log := logger.New(false)
 	resolver := NewResolver([]Provider{mock}, log, 0)
-	if err := resolver.Resolve(context.Background(), []string{path}, nil); err != nil {
+	if err := resolver.Resolve(t.Context(), []string{path}, nil); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 
@@ -118,7 +117,7 @@ func TestFallbackToSecondProvider(t *testing.T) {
 	r := NewResolver([]Provider{p1, p2}, log, 0.5)
 
 	query := SearchQuery{Title: "My Song", Artist: "My Artist"}
-	m, ok := r.findPrimaryMatch(context.Background(), source{query: query})
+	m, ok := r.findPrimaryMatch(t.Context(), source{query: query})
 
 	if !p2.called {
 		t.Error("second provider was not consulted")
@@ -166,7 +165,7 @@ func TestGapFilling(t *testing.T) {
 		Year:   2020,
 	}
 
-	filled := r.fillGaps(context.Background(), source{query: query}, match{info: base}, nil, hasMissingFields)
+	filled := r.fillGaps(t.Context(), source{query: query}, match{info: base}, nil, hasMissingFields)
 
 	if filled.Genre != "Rock" {
 		t.Errorf("Genre = %q, want %q", filled.Genre, "Rock")
@@ -205,7 +204,7 @@ func TestGapFilling_CompleteMatch_SkipsSecondProvider(t *testing.T) {
 	r := NewResolver([]Provider{p1, p2}, log, 0.5)
 
 	query := SearchQuery{Title: "My Song", Artist: "My Artist"}
-	filled := r.fillGaps(context.Background(), source{query: query}, match{info: p1.results[0]}, nil, hasMissingFields)
+	filled := r.fillGaps(t.Context(), source{query: query}, match{info: p1.results[0]}, nil, hasMissingFields)
 
 	if p2.called {
 		t.Error("second provider should not be consulted when match is complete")
@@ -223,7 +222,7 @@ func TestGapFilling_NoProviderFindsMatch(t *testing.T) {
 	r := NewResolver([]Provider{p1, p2}, log, 0.5)
 
 	query := SearchQuery{Title: "My Song", Artist: "My Artist"}
-	if _, ok := r.findPrimaryMatch(context.Background(), source{query: query}); ok {
+	if _, ok := r.findPrimaryMatch(t.Context(), source{query: query}); ok {
 		t.Error("expected no match above threshold")
 	}
 }
@@ -324,7 +323,7 @@ func TestResolveFile_PreservesYtdlpTrackNumber(t *testing.T) {
 
 	log := logger.New(false)
 	resolver := NewResolver([]Provider{mock}, log, 0)
-	if err := resolver.Resolve(context.Background(), []string{path}, nil); err != nil {
+	if err := resolver.Resolve(t.Context(), []string{path}, nil); err != nil {
 		t.Fatalf("Resolve failed: %v", err)
 	}
 
@@ -344,7 +343,7 @@ func TestFindPrimaryMatch_StopsAtFirstMatch(t *testing.T) {
 	p2 := &mockProvider{name: "second", results: []TrackInfo{{Title: "Song", Artist: "Artist", Album: "Album"}}}
 	r := NewResolver([]Provider{p1, p2}, logger.New(false), 0.7)
 
-	m, ok := r.findPrimaryMatch(context.Background(), source{query: SearchQuery{Title: "Song", Artist: "Artist"}})
+	m, ok := r.findPrimaryMatch(t.Context(), source{query: SearchQuery{Title: "Song", Artist: "Artist"}})
 
 	if !ok || m.providerIdx != 0 {
 		t.Fatalf("match = %+v, ok = %v, want the first provider's", m, ok)
@@ -361,7 +360,7 @@ func TestGapFilling_IgnoresFillerOfAnotherVersion(t *testing.T) {
 	}}
 	r := NewResolver([]Provider{p1, p2}, logger.New(false), 0.5)
 
-	filled := r.fillGaps(context.Background(),
+	filled := r.fillGaps(t.Context(),
 		source{query: SearchQuery{Title: "Song", Artist: "Artist"}},
 		match{info: TrackInfo{Title: "Song", Artist: "Artist"}}, nil, hasMissingFields)
 
@@ -378,7 +377,7 @@ func TestGapFilling_DonorTakesOriginalAsFiller(t *testing.T) {
 	}}
 	r := NewResolver([]Provider{p1, p2}, logger.New(false), 0.5)
 
-	filled := r.fillGaps(context.Background(), liveSource(),
+	filled := r.fillGaps(t.Context(), liveSource(),
 		match{info: TrackInfo{Title: "Song", Artist: "Artist"}, donor: true}, nil, hasMissingFields)
 
 	if filled.Genre != "Rock" {
@@ -438,7 +437,7 @@ func TestFindPrimaryMatch_PrefersExactVariantFromLaterProvider(t *testing.T) {
 	p2 := &mockProvider{name: "has-live", results: []TrackInfo{{Title: "Song - Live", Artist: "Artist", Album: "Live"}}}
 	r := NewResolver([]Provider{p1, p2}, logger.New(false), 0.7)
 
-	m, ok := r.findPrimaryMatch(context.Background(), liveSource())
+	m, ok := r.findPrimaryMatch(t.Context(), liveSource())
 
 	if !ok || m.donor || m.info.Album != "Live" || m.providerIdx != 1 {
 		t.Fatalf("match = %+v, ok = %v, want the live recording from the second provider", m, ok)
@@ -450,7 +449,7 @@ func TestFindPrimaryMatch_FallsBackToDonor(t *testing.T) {
 	p2 := &mockProvider{name: "empty"}
 	r := NewResolver([]Provider{p1, p2}, logger.New(false), 0.7)
 
-	m, ok := r.findPrimaryMatch(context.Background(), liveSource())
+	m, ok := r.findPrimaryMatch(t.Context(), liveSource())
 
 	if !p2.called {
 		t.Error("second provider not consulted before settling for a donor")

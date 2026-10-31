@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -73,12 +74,12 @@ func FindAudioFiles(dir string) ([]string, error) {
 
 	var files []string
 
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 
-		if !info.IsDir() && audioExtensions[strings.ToLower(filepath.Ext(path))] {
+		if !d.IsDir() && audioExtensions[strings.ToLower(filepath.Ext(path))] {
 			files = append(files, path)
 		}
 		return nil
@@ -206,8 +207,7 @@ func MoveFile(src, dst string) error {
 	}
 
 	if err := os.Rename(src, dst); err != nil {
-		var linkErr *os.LinkError
-		if errors.As(err, &linkErr) && errors.Is(linkErr.Err, syscall.EXDEV) {
+		if errors.Is(err, syscall.EXDEV) {
 			return copyAndDelete(src, dst)
 		}
 		return fmt.Errorf("failed to move %s to %s: %w", src, dst, err)

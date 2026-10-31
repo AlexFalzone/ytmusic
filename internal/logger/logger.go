@@ -89,18 +89,18 @@ func (l *Logger) Close() error {
 	return nil
 }
 
-func (l *Logger) Info(format string, args ...interface{}) {
+func (l *Logger) Info(format string, args ...any) {
 	l.log("INFO", format, args...)
 }
 
-func (l *Logger) Debug(format string, args ...interface{}) {
+func (l *Logger) Debug(format string, args ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.debugLocked(format, args...)
 }
 
 // Caller holds l.mu. The file and the sink get debug lines even when stdout does not.
-func (l *Logger) debugLocked(format string, args ...interface{}) {
+func (l *Logger) debugLocked(format string, args ...any) {
 	if !l.Verbose && l.fileLog == nil && l.sink == nil {
 		return
 	}
@@ -111,7 +111,7 @@ func (l *Logger) debugLocked(format string, args ...interface{}) {
 	l.writeFileLocked(msg)
 }
 
-func (l *Logger) Error(format string, args ...interface{}) {
+func (l *Logger) Error(format string, args ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	msg := l.record("ERROR", format, args...)
@@ -119,11 +119,11 @@ func (l *Logger) Error(format string, args ...interface{}) {
 	l.writeFileLocked(msg)
 }
 
-func (l *Logger) Warn(format string, args ...interface{}) {
+func (l *Logger) Warn(format string, args ...any) {
 	l.log("WARN", format, args...)
 }
 
-func (l *Logger) log(level, format string, args ...interface{}) {
+func (l *Logger) log(level, format string, args ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	msg := l.record(level, format, args...)
@@ -141,7 +141,7 @@ func (l *Logger) writeFileLocked(msg string) {
 }
 
 // Caller holds l.mu, so the sink sees lines in the order the file does. Returns the line as the file gets it.
-func (l *Logger) record(level, format string, args ...interface{}) string {
+func (l *Logger) record(level, format string, args ...any) string {
 	now := time.Now()
 	body := fmt.Sprintf(format, args...)
 	if l.sink != nil {

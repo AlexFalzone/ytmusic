@@ -1,7 +1,6 @@
 package deezer
 
 import (
-	"context"
 	"os"
 	"testing"
 
@@ -22,7 +21,7 @@ func TestLiveSearch(t *testing.T) {
 
 	c := New()
 	for _, q := range queries {
-		res, err := c.Search(context.Background(), q)
+		res, err := c.Search(t.Context(), q)
 		if err != nil {
 			t.Errorf("%q by %q: %v", q.Title, q.Artist, err)
 			continue

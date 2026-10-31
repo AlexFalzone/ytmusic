@@ -1,7 +1,6 @@
 package spotify
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -82,7 +81,7 @@ func TestSearch(t *testing.T) {
 	client.tokenURL = server.URL + "/api/token"
 	client.apiURL = server.URL + "/v1"
 
-	results, err := client.Search(context.Background(), metadata.SearchQuery{
+	results, err := client.Search(t.Context(), metadata.SearchQuery{
 		Title:  "Blinding Lights",
 		Artist: "The Weeknd",
 	})
@@ -123,7 +122,7 @@ func TestSearch(t *testing.T) {
 
 func TestSearchEmptyQuery(t *testing.T) {
 	client := New("id", "secret")
-	results, err := client.Search(context.Background(), metadata.SearchQuery{})
+	results, err := client.Search(t.Context(), metadata.SearchQuery{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -157,7 +156,7 @@ func TestTokenCaching(t *testing.T) {
 	client.apiURL = server.URL + "/v1"
 
 	for _, title := range []string{"a", "b"} {
-		if _, err := client.Search(context.Background(), metadata.SearchQuery{Title: title}); err != nil {
+		if _, err := client.Search(t.Context(), metadata.SearchQuery{Title: title}); err != nil {
 			t.Fatalf("Search(%q): %v", title, err)
 		}
 	}
@@ -228,7 +227,7 @@ func TestSearchAddsTheArtistsGenres(t *testing.T) {
 	client.tokenURL = server.URL + "/api/token"
 	client.apiURL = server.URL + "/v1"
 
-	results, err := client.Search(context.Background(), metadata.SearchQuery{Title: "Song"})
+	results, err := client.Search(t.Context(), metadata.SearchQuery{Title: "Song"})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -247,7 +246,7 @@ func TestTokenErrorKeepsTheStatus(t *testing.T) {
 	client := New("bad-id", "bad-secret")
 	client.tokenURL = server.URL
 
-	_, err := client.Search(context.Background(), metadata.SearchQuery{Title: "Song"})
+	_, err := client.Search(t.Context(), metadata.SearchQuery{Title: "Song"})
 	if err == nil || !strings.Contains(err.Error(), "401") || !strings.Contains(err.Error(), "invalid_client") {
 		t.Errorf("err = %v, want one with the status and the reason", err)
 	}

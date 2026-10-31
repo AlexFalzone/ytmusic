@@ -1,7 +1,6 @@
 package musicbrainz
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -21,7 +20,7 @@ func TestSearchDoesNotProbeArtwork(t *testing.T) {
 
 	c := newTestClient(srv.URL)
 	c.artworkBaseURL = srv.URL + "/caa"
-	results, err := c.Search(context.Background(), metadata.SearchQuery{Title: "Song", Artist: "Artist"})
+	results, err := c.Search(t.Context(), metadata.SearchQuery{Title: "Song", Artist: "Artist"})
 	if err != nil || len(results) != 1 {
 		t.Fatalf("Search = %v, %v, want one result", results, err)
 	}

@@ -198,7 +198,7 @@ func TestStaticAssetsAreRevalidated(t *testing.T) {
 
 func TestJobReadsDoNotRaceWithUpdates(t *testing.T) {
 	s := newTestServer(t, nil)
-	job, err := s.jobMgr.CreateJob(context.Background(), "https://example.com/playlist", s.config)
+	job, err := s.jobMgr.CreateJob(t.Context(), "https://example.com/playlist", s.config)
 	if err != nil {
 		t.Fatalf("CreateJob: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestJobReadsDoNotRaceWithUpdates(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for i := 0; i < 200; i++ {
+		for range 200 {
 			if err := s.jobMgr.UpdateJob(job.ID, func(j *Job) {
 				j.Progress++
 				j.Status = StatusRunning
@@ -216,7 +216,7 @@ func TestJobReadsDoNotRaceWithUpdates(t *testing.T) {
 		}
 	}()
 
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		req := httptest.NewRequest(http.MethodGet, "/api/jobs", nil)
 		req.AddCookie(sessionCookie(t, s))
 		rec := httptest.NewRecorder()
@@ -286,7 +286,7 @@ func TestReadPumpSurvivesPanic(t *testing.T) {
 }
 
 func TestWaitBlocksUntilJobGoroutineFinishes(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	s := newTestServer(t, nil)
 	s.ctx = ctx
 
@@ -337,7 +337,6 @@ func TestCancelledJobEndsAsCancelled(t *testing.T) {
 
 	job.Cancel()
 
-	s.wg.Add(1)
 	s.processJob(job)
 
 	final, err := s.jobMgr.GetJob(job.ID)
@@ -350,7 +349,7 @@ func TestCancelledJobEndsAsCancelled(t *testing.T) {
 }
 
 func TestJobCancelledByShutdownEndsAsCancelled(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	s := newTestServer(t, nil)
 	s.ctx = ctx
 
@@ -361,7 +360,6 @@ func TestJobCancelledByShutdownEndsAsCancelled(t *testing.T) {
 
 	cancel()
 
-	s.wg.Add(1)
 	s.processJob(job)
 
 	final, err := s.jobMgr.GetJob(job.ID)
@@ -383,8 +381,7 @@ func startJob(t *testing.T, s *Server, url string) Job {
 		t.Fatalf("CreateJob: %v", err)
 	}
 
-	s.wg.Add(1)
-	go s.processJob(job)
+	s.wg.Go(func() { s.processJob(job) })
 	return job
 }
 

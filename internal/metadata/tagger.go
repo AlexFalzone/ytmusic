@@ -160,8 +160,8 @@ func albumArtistFallback(existing map[string][]string, artist string) string {
 }
 
 func primaryArtist(artist string) string {
-	if i := strings.Index(artist, ","); i > 0 {
-		return strings.TrimSpace(artist[:i])
+	if first, _, ok := strings.Cut(artist, ","); ok && first != "" {
+		return strings.TrimSpace(first)
 	}
 	return artist
 }
@@ -182,8 +182,8 @@ func parseTagInt(tags map[string][]string, key string) int {
 	if s == "" {
 		return 0
 	}
-	if i := strings.Index(s, "/"); i > 0 { // "5/12"
-		s = strings.TrimSpace(s[:i])
+	if n, _, ok := strings.Cut(s, "/"); ok && n != "" { // "5/12"
+		s = strings.TrimSpace(n)
 	}
 	n, err := strconv.Atoi(s)
 	if err != nil {

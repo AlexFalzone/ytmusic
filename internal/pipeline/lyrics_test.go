@@ -54,7 +54,7 @@ func TestResolveLyrics(t *testing.T) {
 		"Plain":  {Plain: "words"},
 		"Done":   {Synced: "[00:01.00]new"},
 	}}
-	resolveLyrics(context.Background(), dir, logger.New(false), f)
+	resolveLyrics(t.Context(), dir, logger.New(false), f)
 
 	if got, err := os.ReadFile(filepath.Join(dir, "synced.lrc")); err != nil || string(got) != "[00:01.00]la" {
 		t.Errorf("synced.lrc = %q, %v; want the synced lyrics", got, err)

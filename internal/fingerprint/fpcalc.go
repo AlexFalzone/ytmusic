@@ -19,8 +19,7 @@ func Generate(ctx context.Context, path string) (Result, error) {
 	cmd := exec.CommandContext(ctx, "fpcalc", "-json", path)
 	out, err := cmd.Output()
 	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && len(exitErr.Stderr) > 0 {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok && len(exitErr.Stderr) > 0 {
 			return Result{}, fmt.Errorf("fpcalc: %w: %s", err, strings.TrimSpace(string(exitErr.Stderr)))
 		}
 		return Result{}, fmt.Errorf("fpcalc: %w", err)

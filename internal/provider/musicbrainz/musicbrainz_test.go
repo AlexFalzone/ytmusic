@@ -1,7 +1,6 @@
 package musicbrainz
 
 import (
-	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -58,7 +57,7 @@ func TestSearch_ParsesResponse(t *testing.T) {
 
 	c := newTestClient(srv.URL)
 	c.artworkBaseURL = srv.URL + "/release"
-	results, err := c.Search(context.Background(), metadata.SearchQuery{
+	results, err := c.Search(t.Context(), metadata.SearchQuery{
 		Title:  "Bohemian Rhapsody",
 		Artist: "Queen",
 	})
@@ -117,7 +116,7 @@ func TestRequestsWaitForTheThrottle(t *testing.T) {
 	c.api.Throttle = throttle.New(100 * time.Millisecond)
 	start := time.Now()
 	for range 3 {
-		if _, err := c.Search(context.Background(), metadata.SearchQuery{Title: "Song"}); err != nil {
+		if _, err := c.Search(t.Context(), metadata.SearchQuery{Title: "Song"}); err != nil {
 			t.Fatalf("Search: %v", err)
 		}
 	}
@@ -128,7 +127,7 @@ func TestRequestsWaitForTheThrottle(t *testing.T) {
 
 func TestSearch_EmptyQuery(t *testing.T) {
 	c := newTestClient("http://unused")
-	results, err := c.Search(context.Background(), metadata.SearchQuery{})
+	results, err := c.Search(t.Context(), metadata.SearchQuery{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -145,7 +144,7 @@ func TestSearch_ServerError(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	_, err := c.Search(context.Background(), metadata.SearchQuery{Title: "test"})
+	_, err := c.Search(t.Context(), metadata.SearchQuery{Title: "test"})
 	if err == nil {
 		t.Fatal("expected error for 500 response")
 	}
@@ -166,7 +165,7 @@ func TestSearch_RetryOn429(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	results, err := c.Search(context.Background(), metadata.SearchQuery{Title: "Test"})
+	results, err := c.Search(t.Context(), metadata.SearchQuery{Title: "Test"})
 	if err != nil {
 		t.Fatalf("Search() error: %v", err)
 	}
@@ -196,7 +195,7 @@ func TestSearch_MultipleArtistCredits(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	results, err := c.Search(context.Background(), metadata.SearchQuery{Title: "Under Pressure"})
+	results, err := c.Search(t.Context(), metadata.SearchQuery{Title: "Under Pressure"})
 	if err != nil {
 		t.Fatalf("Search() error: %v", err)
 	}
@@ -423,7 +422,7 @@ func TestLookupByMBID_Found(t *testing.T) {
 	defer srv.Close()
 
 	client := NewWithURL(srv.URL, "https://coverartarchive.org/release")
-	info, err := client.LookupByMBID(context.Background(), "mbid-abc", "")
+	info, err := client.LookupByMBID(t.Context(), "mbid-abc", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -471,7 +470,7 @@ func TestSearchRelease_ReturnsCandidates(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	candidates, err := c.searchRelease(context.Background(), "LP!", "JPEGMAFIA", 0)
+	candidates, err := c.searchRelease(t.Context(), "LP!", "JPEGMAFIA", 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -494,7 +493,7 @@ func TestSearchRelease_EmptyResults(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	candidates, err := c.searchRelease(context.Background(), "Nonexistent Album", "Nobody", 0)
+	candidates, err := c.searchRelease(t.Context(), "Nonexistent Album", "Nobody", 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -526,7 +525,7 @@ func TestLookupTracklist_ReturnsTracklist(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	tl, err := c.LookupTracklist(context.Background(), "release-lp")
+	tl, err := c.LookupTracklist(t.Context(), "release-lp")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -573,7 +572,7 @@ func TestLookupTracklist_MultiDisc(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	tl, err := c.LookupTracklist(context.Background(), "release-multi")
+	tl, err := c.LookupTracklist(t.Context(), "release-multi")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -602,7 +601,7 @@ func TestResolveAlbum_ReturnsBestMatchingTracklist(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	tl, found, err := c.ResolveAlbum(context.Background(), "LP!", "JPEGMAFIA")
+	tl, found, err := c.ResolveAlbum(t.Context(), "LP!", "JPEGMAFIA")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -625,7 +624,7 @@ func TestResolveAlbum_NotFound(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	_, found, err := c.ResolveAlbum(context.Background(), "Ghost Album", "Unknown")
+	_, found, err := c.ResolveAlbum(t.Context(), "Ghost Album", "Unknown")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -649,7 +648,7 @@ func TestReleaseIDsForRecording_ReturnsIDs(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	ids, err := c.ReleaseIDsForRecording(context.Background(), "rec-1")
+	ids, err := c.ReleaseIDsForRecording(t.Context(), "rec-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -669,7 +668,7 @@ func TestReleaseIDsForRecording_NoReleases(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(srv.URL)
-	ids, err := c.ReleaseIDsForRecording(context.Background(), "rec-x")
+	ids, err := c.ReleaseIDsForRecording(t.Context(), "rec-x")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

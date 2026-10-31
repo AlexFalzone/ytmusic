@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -118,7 +120,7 @@ func LoadConfigFile(path string) (Config, error) {
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return cfg, nil
 		}
 		return cfg, fmt.Errorf("failed to read config file %s: %w", path, err)
@@ -135,8 +137,8 @@ func LoadConfigFile(path string) (Config, error) {
 }
 
 func ExpandHome(path string) string {
-	if strings.HasPrefix(path, "~/") {
-		return filepath.Join(homeDir(), path[2:])
+	if rest, ok := strings.CutPrefix(path, "~/"); ok {
+		return filepath.Join(homeDir(), rest)
 	}
 	return path
 }

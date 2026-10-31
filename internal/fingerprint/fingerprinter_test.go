@@ -50,7 +50,7 @@ func TestFingerprinter_Recordings_ReturnsWhatAcoustIDMatched(t *testing.T) {
 		makeMBIDLookup(metadata.TrackInfo{}, nil),
 	)
 
-	got, err := fp.Recordings(context.Background(), "/fake/path.mp3")
+	got, err := fp.Recordings(t.Context(), "/fake/path.mp3")
 	if err != nil {
 		t.Fatalf("Recordings: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestFingerprinter_Recordings_NoneIsAnAnswer(t *testing.T) {
 		makeMBIDLookup(metadata.TrackInfo{}, nil),
 	)
 
-	got, err := fp.Recordings(context.Background(), "/fake/path.mp3")
+	got, err := fp.Recordings(t.Context(), "/fake/path.mp3")
 	if err != nil || len(got) != 0 {
 		t.Errorf("Recordings = %+v, %v; want none and no error", got, err)
 	}
@@ -81,7 +81,7 @@ func TestFingerprinter_Track(t *testing.T) {
 			return want, nil
 		})
 
-	got, err := fp.Track(context.Background(), "mbid-1", "Record")
+	got, err := fp.Track(t.Context(), "mbid-1", "Record")
 	if err != nil || got != want {
 		t.Errorf("Track = %+v, %v; want %+v", got, err, want)
 	}
@@ -97,13 +97,13 @@ func TestFingerprinter_LookupByFile_ReportsErrors(t *testing.T) {
 		&stubAcoustID{},
 		makeMBIDLookup(metadata.TrackInfo{}, nil),
 	)
-	if _, err := fp.Recordings(context.Background(), "/fake/path.mp3"); !errors.Is(err, stubErr) {
+	if _, err := fp.Recordings(t.Context(), "/fake/path.mp3"); !errors.Is(err, stubErr) {
 		t.Errorf("fpcalc failing: err = %v, want the fpcalc error", err)
 	}
 
 	mbErr := errors.New("mb down")
 	fp = fingerprint.NewFingerprinter(&stubFpcalc{}, &stubAcoustID{}, makeMBIDLookup(metadata.TrackInfo{}, mbErr))
-	if _, err := fp.Track(context.Background(), "mbid-1", ""); !errors.Is(err, mbErr) {
+	if _, err := fp.Track(t.Context(), "mbid-1", ""); !errors.Is(err, mbErr) {
 		t.Errorf("MusicBrainz failing: err = %v, want the lookup error", err)
 	}
 }
@@ -115,7 +115,7 @@ func TestFingerprinter_StopsAfterTheKeyIsRejected(t *testing.T) {
 	fp := fingerprint.NewFingerprinter(fpcalc, acoustid, makeMBIDLookup(metadata.TrackInfo{}, nil))
 
 	for _, path := range []string{"/a.mp3", "/b.mp3"} {
-		_, err := fp.Recordings(context.Background(), path)
+		_, err := fp.Recordings(t.Context(), path)
 		if !errors.Is(err, metadata.ErrFingerprintOff) || !errors.Is(err, fingerprint.ErrKeyRejected) {
 			t.Errorf("%s: err = %v, want fingerprinting off because of the rejected key", path, err)
 		}
@@ -136,7 +136,7 @@ func TestBatchLookupByFiles_CollectsMBIDs(t *testing.T) {
 	)
 
 	paths := []string{"/a.mp3", "/b.mp3", "/c.mp3"}
-	matches, err := fp.BatchLookupByFiles(context.Background(), paths)
+	matches, err := fp.BatchLookupByFiles(t.Context(), paths)
 	if err != nil {
 		t.Fatalf("BatchLookupByFiles: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestBatchLookupByFiles_FpcalcFails_Skipped(t *testing.T) {
 		makeMBIDLookup(metadata.TrackInfo{}, nil),
 	)
 
-	matches, err := fp.BatchLookupByFiles(context.Background(), []string{"/a.mp3", "/b.mp3"})
+	matches, err := fp.BatchLookupByFiles(t.Context(), []string{"/a.mp3", "/b.mp3"})
 	if err != nil {
 		t.Fatalf("BatchLookupByFiles: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestBatchLookupByFiles_AcoustIDNotFound_Skipped(t *testing.T) {
 		makeMBIDLookup(metadata.TrackInfo{}, nil),
 	)
 
-	matches, err := fp.BatchLookupByFiles(context.Background(), []string{"/a.mp3"})
+	matches, err := fp.BatchLookupByFiles(t.Context(), []string{"/a.mp3"})
 	if err != nil {
 		t.Fatalf("BatchLookupByFiles: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestBatchLookupByFiles_EmptyPaths(t *testing.T) {
 		makeMBIDLookup(metadata.TrackInfo{}, nil),
 	)
 
-	matches, err := fp.BatchLookupByFiles(context.Background(), nil)
+	matches, err := fp.BatchLookupByFiles(t.Context(), nil)
 	if err != nil {
 		t.Fatalf("BatchLookupByFiles: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestBatchLookupByFiles_PanicFailsOnlyItsFile(t *testing.T) {
 		makeMBIDLookup(metadata.TrackInfo{}, nil),
 	)
 
-	matches, err := fp.BatchLookupByFiles(context.Background(), []string{"/a.mp3", "/b.mp3"})
+	matches, err := fp.BatchLookupByFiles(t.Context(), []string{"/a.mp3", "/b.mp3"})
 	if len(matches) != 1 || matches[0].Path != "/a.mp3" {
 		t.Errorf("matches = %+v, want only /a.mp3", matches)
 	}

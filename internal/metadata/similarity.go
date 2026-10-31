@@ -88,7 +88,7 @@ var connectors = map[string]bool{"the": true, "and": true}
 
 func mentions(within, names string) bool {
 	var tokens []string
-	for _, t := range strings.Fields(normalize(names)) {
+	for t := range strings.FieldsSeq(normalize(names)) {
 		if !connectors[t] {
 			tokens = append(tokens, t)
 		}

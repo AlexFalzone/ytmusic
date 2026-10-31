@@ -10,7 +10,7 @@ func TestWaitSpacesCallsOneIntervalApart(t *testing.T) {
 	th := New(50 * time.Millisecond)
 	start := time.Now()
 	for range 3 {
-		if err := th.Wait(context.Background()); err != nil {
+		if err := th.Wait(t.Context()); err != nil {
 			t.Fatalf("Wait: %v", err)
 		}
 	}
@@ -24,7 +24,7 @@ func TestWaitSpacesConcurrentCallers(t *testing.T) {
 	start := time.Now()
 	done := make(chan error)
 	for range 3 {
-		go func() { done <- th.Wait(context.Background()) }()
+		go func() { done <- th.Wait(t.Context()) }()
 	}
 	for range 3 {
 		if err := <-done; err != nil {
@@ -38,11 +38,11 @@ func TestWaitSpacesConcurrentCallers(t *testing.T) {
 
 func TestWaitLeavesWhenContextEnds(t *testing.T) {
 	th := New(time.Hour)
-	if err := th.Wait(context.Background()); err != nil {
+	if err := th.Wait(t.Context()); err != nil {
 		t.Fatalf("first Wait: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
 	defer cancel()
 	start := time.Now()
 	if err := th.Wait(ctx); err != context.DeadlineExceeded {
@@ -57,7 +57,7 @@ func TestZeroIntervalNeverWaits(t *testing.T) {
 	th := New(0)
 	start := time.Now()
 	for range 100 {
-		if err := th.Wait(context.Background()); err != nil {
+		if err := th.Wait(t.Context()); err != nil {
 			t.Fatalf("Wait: %v", err)
 		}
 	}

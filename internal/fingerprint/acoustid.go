@@ -1,6 +1,7 @@
 package fingerprint
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -37,12 +38,9 @@ type AcoustIDClient struct {
 
 // An empty baseURL means the real endpoint.
 func NewAcoustIDClient(apiKey, baseURL string) *AcoustIDClient {
-	if baseURL == "" {
-		baseURL = defaultAcoustIDURL
-	}
 	return &AcoustIDClient{
 		apiKey:  apiKey,
-		baseURL: baseURL,
+		baseURL: cmp.Or(baseURL, defaultAcoustIDURL),
 		api: &httpjson.Client{
 			HTTP:     &http.Client{Timeout: 10 * time.Second},
 			Throttle: limiter,
@@ -97,8 +95,7 @@ func (c *AcoustIDClient) Lookup(ctx context.Context, fp Result) ([]metadata.Reco
 
 	var result acoustidResponse
 	if err := c.api.PostForm(ctx, c.baseURL, nil, params, &result); err != nil {
-		var se *httpjson.StatusError
-		if errors.As(err, &se) && json.Unmarshal([]byte(se.Body), &result) == nil && rejectedKey(result) {
+		if se, ok := errors.AsType[*httpjson.StatusError](err); ok && json.Unmarshal([]byte(se.Body), &result) == nil && rejectedKey(result) {
 			return nil, fmt.Errorf("acoustid lookup: %w", ErrKeyRejected)
 		}
 		return nil, fmt.Errorf("acoustid lookup: %w", err)

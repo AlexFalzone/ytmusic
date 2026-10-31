@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"fmt"
 	"slices"
-	"sort"
 	"sync"
 	"time"
 
@@ -169,8 +168,8 @@ func (jm *JobManager) ListJobs(limit int) []Job {
 		jobs = append(jobs, job.snapshot())
 	}
 
-	sort.Slice(jobs, func(i, j int) bool {
-		return jobs[i].CreatedAt.After(jobs[j].CreatedAt)
+	slices.SortFunc(jobs, func(a, b Job) int {
+		return b.CreatedAt.Compare(a.CreatedAt)
 	})
 
 	if limit > 0 && len(jobs) > limit {
@@ -195,13 +194,11 @@ func (jm *JobManager) UpdateJob(id string, fn func(*Job)) error {
 		switch job.Status {
 		case StatusRunning:
 			if job.StartedAt == nil {
-				now := time.Now()
-				job.StartedAt = &now
+				job.StartedAt = new(time.Now())
 			}
 		case StatusCompleted, StatusFailed, StatusCancelled:
 			if job.CompletedAt == nil {
-				now := time.Now()
-				job.CompletedAt = &now
+				job.CompletedAt = new(time.Now())
 			}
 		}
 	}

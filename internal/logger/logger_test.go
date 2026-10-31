@@ -109,7 +109,7 @@ func TestWithPrefixSharesHasBar(t *testing.T) {
 func TestDebugRaceCondition(t *testing.T) {
 	l, _ := newTestLogger(true)
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()

@@ -1,6 +1,7 @@
 package deezer
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/http"
@@ -57,11 +58,6 @@ func buildQuery(query metadata.SearchQuery) string {
 func parseResults(items []trackItem) []metadata.TrackInfo {
 	var results []metadata.TrackInfo
 	for _, item := range items {
-		artworkURL := item.Album.CoverXL
-		if artworkURL == "" {
-			artworkURL = item.Album.CoverBig
-		}
-
 		info := metadata.TrackInfo{
 			Title:       item.TitleShort,
 			Artist:      item.Artist.Name,
@@ -70,7 +66,7 @@ func parseResults(items []trackItem) []metadata.TrackInfo {
 			TrackNumber: item.TrackPosition,
 			DiscNumber:  item.DiskNumber,
 			ISRC:        item.ISRC,
-			ArtworkURL:  artworkURL,
+			ArtworkURL:  cmp.Or(item.Album.CoverXL, item.Album.CoverBig),
 			Duration:    time.Duration(item.Duration) * time.Second,
 		}
 		results = append(results, info)

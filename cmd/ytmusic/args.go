@@ -28,7 +28,7 @@ func parseArgs(args []string) (config.Config, string, error) {
 	var cfg config.Config
 	var err error
 
-	for i := 0; i < len(args); i++ {
+	for i := range args {
 		if args[i] == "--config" || args[i] == "-c" {
 			if i+1 >= len(args) {
 				return config.Config{}, "", fmt.Errorf("--config requires a path argument")

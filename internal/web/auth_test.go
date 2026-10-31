@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"crypto/tls"
 	"fmt"
 	"net/http"
@@ -36,7 +35,7 @@ func newTestServer(t *testing.T, modify func(*config.Config)) *Server {
 		modify(&cfg)
 	}
 
-	return NewServer(context.Background(), NewJobManager(), cfg, logger.New(false))
+	return NewServer(t.Context(), NewJobManager(), cfg, logger.New(false))
 }
 
 func okHandler() http.Handler {
@@ -295,7 +294,7 @@ func TestLoginRejectsMalformedBody(t *testing.T) {
 func TestLoginLocksOutAfterRepeatedFailures(t *testing.T) {
 	s := newTestServer(t, nil)
 
-	for i := 0; i < maxLoginAttempts; i++ {
+	for i := range maxLoginAttempts {
 		rec := httptest.NewRecorder()
 		s.handleLogin(rec, loginRequest(`{"username":"alex","password":"wrong"}`))
 		if rec.Code != http.StatusUnauthorized {
@@ -339,7 +338,7 @@ func TestLoginSucceedsAfterLockoutExpires(t *testing.T) {
 func TestLoginResetsCounterOnSuccess(t *testing.T) {
 	s := newTestServer(t, nil)
 
-	for i := 0; i < maxLoginAttempts-1; i++ {
+	for range maxLoginAttempts - 1 {
 		rec := httptest.NewRecorder()
 		s.handleLogin(rec, loginRequest(`{"username":"alex","password":"wrong"}`))
 		_ = rec
@@ -351,7 +350,7 @@ func TestLoginResetsCounterOnSuccess(t *testing.T) {
 		t.Fatalf("got %d, want 200", rec.Code)
 	}
 
-	for i := 0; i < maxLoginAttempts; i++ {
+	for i := range maxLoginAttempts {
 		rec := httptest.NewRecorder()
 		s.handleLogin(rec, loginRequest(`{"username":"alex","password":"wrong"}`))
 		if rec.Code == http.StatusTooManyRequests {

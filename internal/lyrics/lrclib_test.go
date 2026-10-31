@@ -1,7 +1,6 @@
 package lyrics
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -74,7 +73,7 @@ func TestFetch(t *testing.T) {
 			c := NewClient(5 * time.Second)
 			c.apiURL = srv.URL
 
-			result, err := c.Fetch(context.Background(), "Artist", "Title", "Album")
+			result, err := c.Fetch(t.Context(), "Artist", "Title", "Album")
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -113,7 +112,7 @@ func TestFetchQueryParams(t *testing.T) {
 	c := NewClient(5 * time.Second)
 	c.apiURL = srv.URL
 
-	if _, err := c.Fetch(context.Background(), "The Beatles", "Let It Be", "Let It Be"); err != nil {
+	if _, err := c.Fetch(t.Context(), "The Beatles", "Let It Be", "Let It Be"); err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
 }
@@ -133,7 +132,7 @@ func TestFetchRetriesWhenOverloaded(t *testing.T) {
 	c := NewClient(5 * time.Second)
 	c.apiURL = srv.URL
 
-	result, err := c.Fetch(context.Background(), "Artist", "Title", "Album")
+	result, err := c.Fetch(t.Context(), "Artist", "Title", "Album")
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -148,7 +147,7 @@ func TestNetworkErrorsAreTransient(t *testing.T) {
 	c.apiURL = srv.URL
 	srv.Close()
 
-	_, err := c.doFetch(context.Background(), "Artist", "Title", "Album")
+	_, err := c.doFetch(t.Context(), "Artist", "Title", "Album")
 	if err == nil || !isTransient(err) {
 		t.Errorf("err = %v, want a transient error", err)
 	}

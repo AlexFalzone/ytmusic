@@ -91,7 +91,7 @@ func runFake(t *testing.T, imp dirImporter) runResult {
 func runFakePlaylist(t *testing.T, imp dirImporter, id, title string) runResult {
 	t.Helper()
 	cfg, hooks, res := setupFakeRun(t, id, title)
-	if err := run(context.Background(), cfg, logger.New(false), res.tmp, hooks, imp, songLyrics()); err != nil {
+	if err := run(t.Context(), cfg, logger.New(false), res.tmp, hooks, imp, songLyrics()); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	return *res
@@ -196,7 +196,7 @@ func TestRunHandsAnAlbumPlaylistToTheImportAsAnAlbum(t *testing.T) {
 
 func TestRunCancelledDuringDownloadMovesNothing(t *testing.T) {
 	cfg, hooks, res := setupFakeRun(t, "PLx", "Mix")
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	hooks.OnProgress = cancel
 	imp := &retagger{}
@@ -224,7 +224,7 @@ func (c cancellingImporter) Import(ctx context.Context, _ string, _ *metadata.Al
 
 func TestRunCancelledDuringImportMovesNothing(t *testing.T) {
 	cfg, hooks, res := setupFakeRun(t, "PLx", "Mix")
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	err := run(ctx, cfg, logger.New(false), res.tmp, hooks, cancellingImporter{cancel}, songLyrics())
@@ -247,7 +247,7 @@ func TestRunReportsFilesItCouldNotMove(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := run(context.Background(), cfg, logger.New(false), res.tmp, hooks, &retagger{}, songLyrics()); err != nil {
+	if err := run(t.Context(), cfg, logger.New(false), res.tmp, hooks, &retagger{}, songLyrics()); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 

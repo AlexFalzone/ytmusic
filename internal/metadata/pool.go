@@ -16,9 +16,7 @@ func (r *Resolver) resolveFiles(ctx context.Context, files []string, trackOnly m
 	var wg sync.WaitGroup
 
 	for range min(r.workers, len(files)) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for i := range indexes {
 				// The feeder's select may still hand out work after a cancel.
 				if ctx.Err() != nil {
@@ -28,7 +26,7 @@ func (r *Resolver) resolveFiles(ctx context.Context, files []string, trackOnly m
 					failed.Add(1)
 				}
 			}
-		}()
+		})
 	}
 
 	for i := range files {

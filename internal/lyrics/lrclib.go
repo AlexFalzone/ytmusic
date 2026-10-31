@@ -50,8 +50,8 @@ func (c *Client) Fetch(ctx context.Context, artist, title, album string) (Result
 }
 
 func isTransient(err error) bool {
-	var netErr net.Error
-	return errors.As(err, &netErr)
+	_, ok := errors.AsType[net.Error](err)
+	return ok
 }
 
 func (c *Client) doFetch(ctx context.Context, artist, title, album string) (Result, error) {
@@ -62,8 +62,7 @@ func (c *Client) doFetch(ctx context.Context, artist, title, album string) (Resu
 
 	var apiResp apiResponse
 	err := c.api.Get(ctx, c.apiURL+"?"+params.Encode(), nil, &apiResp)
-	var se *httpjson.StatusError
-	if errors.As(err, &se) && se.Code == http.StatusNotFound {
+	if se, ok := errors.AsType[*httpjson.StatusError](err); ok && se.Code == http.StatusNotFound {
 		return Result{}, nil
 	}
 	if err != nil {

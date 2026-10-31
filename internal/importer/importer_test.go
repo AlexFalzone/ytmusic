@@ -100,7 +100,7 @@ func TestImportRunsTheThreePhasesTogether(t *testing.T) {
 		}}},
 	}
 	imp := newImporter(config.Config{MetadataWorkers: 2}, logger.New(false), c)
-	if err := imp.Import(context.Background(), dir, nil); err != nil {
+	if err := imp.Import(t.Context(), dir, nil); err != nil {
 		t.Fatalf("Import: %v", err)
 	}
 
@@ -120,7 +120,7 @@ func TestImportWithNothingConfiguredLeavesFilesAlone(t *testing.T) {
 	p := albumFiles(t, dir, "X", "Alpha")[0]
 
 	imp := newImporter(config.Config{MetadataWorkers: 1}, logger.New(false), components{})
-	if err := imp.Import(context.Background(), dir, nil); err != nil {
+	if err := imp.Import(t.Context(), dir, nil); err != nil {
 		t.Fatalf("Import = %v, want nil: nothing to resolve with is not an error", err)
 	}
 	if got := tag(t, p, taglib.Date); got != "" {
@@ -131,7 +131,7 @@ func TestImportWithNothingConfiguredLeavesFilesAlone(t *testing.T) {
 func TestImportFailsWithoutAudioFiles(t *testing.T) {
 	imp := newImporter(config.Config{MetadataWorkers: 1}, logger.New(false),
 		components{providers: []metadata.Provider{everything{}}})
-	if err := imp.Import(context.Background(), t.TempDir(), nil); err == nil {
+	if err := imp.Import(t.Context(), t.TempDir(), nil); err == nil {
 		t.Error("Import = nil, want an error for a directory without audio")
 	}
 }

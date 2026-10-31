@@ -1,7 +1,6 @@
 package deezer
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -42,7 +41,7 @@ func TestSearch(t *testing.T) {
 	c := New()
 	c.apiURL = srv.URL
 
-	results, err := c.Search(context.Background(), metadata.SearchQuery{
+	results, err := c.Search(t.Context(), metadata.SearchQuery{
 		Title:  "Santeria",
 		Artist: "Marracash",
 		Album:  "Santeria",
@@ -83,7 +82,7 @@ func TestSearch(t *testing.T) {
 
 func TestSearchEmptyQuery(t *testing.T) {
 	c := New()
-	results, err := c.Search(context.Background(), metadata.SearchQuery{})
+	results, err := c.Search(t.Context(), metadata.SearchQuery{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -101,7 +100,7 @@ func TestSearchNoResults(t *testing.T) {
 	c := New()
 	c.apiURL = srv.URL
 
-	results, err := c.Search(context.Background(), metadata.SearchQuery{Title: "nonexistent"})
+	results, err := c.Search(t.Context(), metadata.SearchQuery{Title: "nonexistent"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -121,7 +120,7 @@ func TestSearchAPIError(t *testing.T) {
 	c := New()
 	c.apiURL = srv.URL
 
-	_, err := c.Search(context.Background(), metadata.SearchQuery{Title: "test"})
+	_, err := c.Search(t.Context(), metadata.SearchQuery{Title: "test"})
 	if err == nil {
 		t.Fatal("expected error for API error response")
 	}

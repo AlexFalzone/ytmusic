@@ -1,7 +1,6 @@
 package itunes
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -43,7 +42,7 @@ func TestSearchMapsTheAnswer(t *testing.T) {
 		}
 	})
 
-	got, err := c.Search(context.Background(), metadata.SearchQuery{Title: "Song", Artist: "Artist"})
+	got, err := c.Search(t.Context(), metadata.SearchQuery{Title: "Song", Artist: "Artist"})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -63,7 +62,7 @@ func TestSearchReportsAFailedAnswer(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "slow down", http.StatusForbidden)
 	})
-	if _, err := c.Search(context.Background(), metadata.SearchQuery{Title: "Song"}); err == nil {
+	if _, err := c.Search(t.Context(), metadata.SearchQuery{Title: "Song"}); err == nil {
 		t.Error("Search = nil error, want the 403")
 	}
 }

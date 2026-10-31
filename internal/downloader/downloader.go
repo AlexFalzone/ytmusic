@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -192,10 +193,7 @@ type DownloadStats struct {
 
 // Sorted, so a name clash in the merge numbers the same file _2 on every run.
 func (s DownloadStats) Produced() []string {
-	var all []string
-	for _, files := range s.Files {
-		all = append(all, files...)
-	}
+	all := slices.Concat(slices.Collect(maps.Values(s.Files))...)
 	slices.Sort(all)
 	return all
 }
@@ -225,15 +223,12 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadSt
 		default:
 		}
 
-		wg.Add(1)
-		go func(idx int, u string) {
-			defer wg.Done()
-
+		wg.Go(func() {
 			defer func() {
 				if r := recover(); r != nil {
-					d.Logger.Error("panic while downloading %s: %v\n%s", u, r, debug.Stack())
+					d.Logger.Error("panic while downloading %s: %v\n%s", url, r, debug.Stack())
 					mu.Lock()
-					failed = append(failed, u)
+					failed = append(failed, url)
 					mu.Unlock()
 				}
 			}()
@@ -241,26 +236,26 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadSt
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
-			d.Logger.Debug("Downloading [%d/%d]: %s", idx+1, len(urls), u)
+			d.Logger.Debug("Downloading [%d/%d]: %s", i+1, len(urls), url)
 
-			files, err := d.DownloadSingle(ctx, u)
+			files, err := d.DownloadSingle(ctx, url)
 			cancelled := ctx.Err() != nil
 			if err != nil && !cancelled {
-				d.Logger.Debug("Download error %s: %v", u, err)
+				d.Logger.Debug("Download error %s: %v", url, err)
 			}
 			mu.Lock()
 			switch {
 			case err == nil:
-				stats.Files[u] = files
+				stats.Files[url] = files
 			case !cancelled:
-				failed = append(failed, u)
+				failed = append(failed, url)
 			}
 			mu.Unlock()
 
 			if d.OnProgress != nil {
 				d.OnProgress()
 			}
-		}(i, url)
+		})
 	}
 
 	wg.Wait()

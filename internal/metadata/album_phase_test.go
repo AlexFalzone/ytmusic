@@ -219,7 +219,7 @@ func TestAlbumPhaseWritesTheMatchingEdition(t *testing.T) {
 	finder := &fakeFinder{byTitle: map[string][]Tracklist{"Take Care": {release}}}
 
 	r := NewResolver(nil, logger.New(false), 0).WithReleaseFinder(finder)
-	r.resolveAlbum(context.Background(), album)
+	r.resolveAlbum(t.Context(), album)
 
 	if want := []string{"Take Care (Deluxe)|Drake|3", "Take Care|Drake|3"}; !slices.Equal(finder.queries, want) {
 		t.Errorf("queries = %q, want %q", finder.queries, want)
@@ -249,7 +249,7 @@ func TestAlbumPhaseWithoutAnEditionKeepsYouTubeData(t *testing.T) {
 			3: {taglib.Title: {"Grand"}, taglib.Artist: {"Mac Miller"}, taglib.Date: {"2026"}},
 		})
 
-	NewResolver(nil, logger.New(false), 0).resolveAlbum(context.Background(), album)
+	NewResolver(nil, logger.New(false), 0).resolveAlbum(t.Context(), album)
 
 	var first []byte
 	for pos := 1; pos <= 3; pos++ {
@@ -284,7 +284,7 @@ func TestAlbumPhaseFallsBackToTheThumbnailWhenTheCoverFails(t *testing.T) {
 	release.ArtworkURL = srv.URL + "/front-500"
 
 	r := NewResolver(nil, logger.New(false), 0).WithReleaseFinder(&fakeFinder{byTitle: map[string][]Tracklist{"Persona": {release}}})
-	r.resolveAlbum(context.Background(), album)
+	r.resolveAlbum(t.Context(), album)
 
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(readTestImage(t, pathAt(album, 1))))
 	if err != nil || cfg.Width != 90 || cfg.Height != 90 {
@@ -299,7 +299,7 @@ func TestAlbumPhaseAlbumArtistWithoutAMajority(t *testing.T) {
 		3: {taglib.Title: {"C"}, taglib.Artist: {"Charlie, Alpha"}},
 	})
 
-	NewResolver(nil, logger.New(false), 0).resolveAlbum(context.Background(), album)
+	NewResolver(nil, logger.New(false), 0).resolveAlbum(t.Context(), album)
 
 	if got := readTestTag(t, pathAt(album, 1), taglib.AlbumArtist); got != "Various Artists" {
 		t.Errorf("album artist = %q, want Various Artists: no artist leads more than half the tracks", got)
@@ -338,7 +338,7 @@ func TestResolveKeepsEveryTrackOfAnAlbumDownloadInTheAlbum(t *testing.T) {
 
 	r := NewResolver([]Provider{provider}, logger.New(false), 0)
 	files := []string{pathAt(album, 1), pathAt(album, 2)}
-	if err := r.Resolve(context.Background(), files, album); err != nil {
+	if err := r.Resolve(t.Context(), files, album); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 
@@ -371,7 +371,7 @@ func TestResolveKeepsTheReleaseISRCOfAnAlbumTrack(t *testing.T) {
 	}}
 
 	r := NewResolver([]Provider{provider}, logger.New(false), 0).WithReleaseFinder(&fakeFinder{byTitle: map[string][]Tracklist{"Persona": {release}}})
-	if err := r.Resolve(context.Background(), []string{pathAt(album, 1)}, album); err != nil {
+	if err := r.Resolve(t.Context(), []string{pathAt(album, 1)}, album); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 
@@ -393,7 +393,7 @@ func TestResolveSearchesNoFurtherForAnISRCTheReleaseGave(t *testing.T) {
 	filler := &mockProvider{name: "filler"}
 
 	r := NewResolver([]Provider{primary, filler}, logger.New(false), 0).WithReleaseFinder(&fakeFinder{byTitle: map[string][]Tracklist{"Persona": {release}}})
-	if err := r.Resolve(context.Background(), []string{pathAt(album, 1)}, album); err != nil {
+	if err := r.Resolve(t.Context(), []string{pathAt(album, 1)}, album); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 
@@ -409,7 +409,7 @@ func TestAlbumPhaseStopsAtTheFirstMatchingEdition(t *testing.T) {
 	release := tracklist("r1", "Official", "2019-10-31", "NEON - Le Ali")
 	finder := &fakeFinder{byTitle: map[string][]Tracklist{"Persona (Deluxe)": {release}, "Persona": {release}}}
 
-	NewResolver(nil, logger.New(false), 0).WithReleaseFinder(finder).resolveAlbum(context.Background(), album)
+	NewResolver(nil, logger.New(false), 0).WithReleaseFinder(finder).resolveAlbum(t.Context(), album)
 
 	if want := []string{"Persona (Deluxe)|Marracash|1"}; !slices.Equal(finder.queries, want) {
 		t.Errorf("queries = %q, want %q: the first title already found the edition", finder.queries, want)
@@ -428,7 +428,7 @@ func TestResolveTagsAFileWithoutAPositionOnItsOwn(t *testing.T) {
 	}}
 
 	r := NewResolver([]Provider{provider}, logger.New(false), 0)
-	if err := r.Resolve(context.Background(), []string{pathAt(album, 1), stray}, album); err != nil {
+	if err := r.Resolve(t.Context(), []string{pathAt(album, 1), stray}, album); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 

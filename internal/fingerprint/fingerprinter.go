@@ -64,9 +64,7 @@ func (f *Fingerprinter) BatchLookupByFiles(ctx context.Context, paths []string) 
 	sem := make(chan struct{}, 4)
 
 	for i, path := range paths {
-		wg.Add(1)
-		go func(i int, path string) {
-			defer wg.Done()
+		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			defer func() {
@@ -81,7 +79,7 @@ func (f *Fingerprinter) BatchLookupByFiles(ctx context.Context, paths []string) 
 				return
 			}
 			slots[i] = slot{match: metadata.FileMatch{Path: path, MBID: recs[0].MBID}, ok: true}
-		}(i, path)
+		})
 	}
 	wg.Wait()
 

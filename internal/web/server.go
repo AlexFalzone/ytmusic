@@ -54,19 +54,24 @@ func (s *Server) Router() http.Handler {
 	mux := http.NewServeMux()
 
 	static, _ := fs.Sub(staticFiles, "static") // fails only on an invalid path
-	mux.Handle("/", s.staticCacheMiddleware(http.FileServerFS(static)))
+	mux.Handle("GET /", s.staticCacheMiddleware(http.FileServerFS(static)))
 
-	mux.HandleFunc("/api/health", s.handleHealth)
-	mux.HandleFunc("/api/login", s.handleLogin)
-	mux.HandleFunc("/api/logout", s.handleLogout)
-	mux.HandleFunc("/api/me", s.handleMe)
-	mux.HandleFunc("/api/download", s.handleDownload)
-	mux.HandleFunc("/api/jobs", s.handleListJobs)
-	mux.HandleFunc("/api/jobs/", s.handleJobAction)
-	mux.HandleFunc("/ws", s.handleWebSocket)
+	mux.HandleFunc("GET /api/health", s.handleHealth)
+	mux.HandleFunc("POST /api/login", s.handleLogin)
+	mux.HandleFunc("POST /api/logout", s.handleLogout)
+	mux.HandleFunc("GET /api/me", s.handleMe)
+	mux.HandleFunc("POST /api/download", s.handleDownload)
+	mux.HandleFunc("GET /api/jobs", s.handleListJobs)
+	mux.HandleFunc("GET /api/jobs/{id}", s.handleGetJob)
+	mux.HandleFunc("GET /api/jobs/{id}/log", s.handleJobLog)
+	mux.HandleFunc("POST /api/jobs/{id}/cancel", s.handleCancelJob)
+	mux.HandleFunc("GET /ws", s.handleWebSocket)
+
+	// SameSite=Lax stops most cross-site requests; this closes the rest.
+	csrf := http.NewCrossOriginProtection()
 
 	// Outermost first: a cross-site request is rejected before it touches a session.
-	return s.loggingMiddleware(s.requireSameOrigin(s.requireAuth(mux)))
+	return s.loggingMiddleware(csrf.Handler(s.requireAuth(mux)))
 }
 
 func (s *Server) StartSessionGC(ctx context.Context) {
@@ -94,31 +99,7 @@ func (s *Server) StartSessionGC(ctx context.Context) {
 
 const sessionGCInterval = 10 * time.Minute
 
-// SameSite=Lax stops most cross-site requests; this closes the rest.
-func (s *Server) requireSameOrigin(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet, http.MethodHead, http.MethodOptions:
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		if !isSameOrigin(r) {
-			http.Error(w, "Cross-site request rejected", http.StatusForbidden)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func isSameOrigin(r *http.Request) bool {
-	if site := r.Header.Get("Sec-Fetch-Site"); site != "" {
-		return site == "same-origin" || site == "none"
-	}
-	return originMatchesHost(r)
-}
-
-// No Origin means a non-browser client: browsers always send it cross-origin.
+// The WebSocket upgrade is a GET, which CrossOriginProtection lets through. No Origin means a non-browser client: browsers always send it cross-origin.
 func originMatchesHost(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {

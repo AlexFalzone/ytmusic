@@ -195,7 +195,7 @@ func TestResolveCorpus(t *testing.T) {
 	}
 
 	r := NewResolver([]Provider{first, second}, logger.New(false), 0).WithWorkers(4)
-	if err := r.Resolve(context.Background(), paths, nil); err != nil {
+	if err := r.Resolve(t.Context(), paths, nil); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 
@@ -230,7 +230,7 @@ func TestResolveCorpusScatteredAlbum(t *testing.T) {
 
 	r := NewResolver([]Provider{first, second}, logger.New(false), 0).WithWorkers(4)
 	files := []string{pathAt(album, 4), pathAt(album, 14), pathAt(album, 19)}
-	if err := r.Resolve(context.Background(), files, album); err != nil {
+	if err := r.Resolve(t.Context(), files, album); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 
@@ -275,7 +275,7 @@ func TestResolveCorpusFingerprintWrongRecordingFirst(t *testing.T) {
 		},
 	}
 	r := NewResolver([]Provider{corpusProvider{name: "empty"}}, logger.New(false), 0).WithFingerprinter(stub).WithWorkers(2)
-	if err := r.Resolve(context.Background(), []string{lwyd, takeCare}, nil); err != nil {
+	if err := r.Resolve(t.Context(), []string{lwyd, takeCare}, nil); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 

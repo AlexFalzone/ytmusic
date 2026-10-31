@@ -129,7 +129,7 @@ func TestFindDominantRelease_ReturnsMajority(t *testing.T) {
 	r := NewResolver(nil, log, 0)
 	r.WithReleaseResolver(rr)
 
-	dominantID, found := r.findDominantRelease(context.Background(), []string{"mbid-1", "mbid-2", "mbid-3"})
+	dominantID, found := r.findDominantRelease(t.Context(), []string{"mbid-1", "mbid-2", "mbid-3"})
 	if !found {
 		t.Fatal("expected dominant release to be found")
 	}
@@ -151,7 +151,7 @@ func TestFindDominantRelease_NoQuorum_NotFound(t *testing.T) {
 	r := NewResolver(nil, log, 0)
 	r.WithReleaseResolver(rr)
 
-	_, found := r.findDominantRelease(context.Background(), []string{"mbid-1", "mbid-2", "mbid-3"})
+	_, found := r.findDominantRelease(t.Context(), []string{"mbid-1", "mbid-2", "mbid-3"})
 	if found {
 		t.Fatal("expected no dominant release when no quorum")
 	}
@@ -164,7 +164,7 @@ func TestFindDominantRelease_EmptyMBIDs(t *testing.T) {
 	r := NewResolver(nil, log, 0)
 	r.WithReleaseResolver(rr)
 
-	_, found := r.findDominantRelease(context.Background(), nil)
+	_, found := r.findDominantRelease(t.Context(), nil)
 	if found {
 		t.Fatal("expected no dominant release for empty MBIDs")
 	}
@@ -213,7 +213,7 @@ func TestResolveGroupByFingerprint_WritesPositionalTags(t *testing.T) {
 	r.WithBatchFingerprinter(bf)
 	r.WithReleaseResolver(rr)
 
-	resolved := r.resolveGroupByFingerprint(context.Background(), []string{p1, p2})
+	resolved := r.resolveGroupByFingerprint(t.Context(), []string{p1, p2})
 
 	if len(resolved) != 2 {
 		t.Fatalf("resolved %d files, want 2", len(resolved))
@@ -253,7 +253,7 @@ func TestResolveGroupByFingerprint_TooFewFingerprinted_DoesNothing(t *testing.T)
 	r.WithBatchFingerprinter(bf)
 	r.WithReleaseResolver(rr)
 
-	resolved := r.resolveGroupByFingerprint(context.Background(), []string{p1, p2, p3})
+	resolved := r.resolveGroupByFingerprint(t.Context(), []string{p1, p2, p3})
 
 	if len(resolved) != 0 {
 		t.Errorf("expected 0 resolved, got %d (coverage too low)", len(resolved))
@@ -294,7 +294,7 @@ func TestResolveGroup_WritesPositionalTags(t *testing.T) {
 
 	log := logger.New(false)
 	r := NewResolver(nil, log, 0)
-	if err := r.resolveGroup(context.Background(), "LP!", []string{p1, p2}, ar); err != nil {
+	if err := r.resolveGroup(t.Context(), "LP!", []string{p1, p2}, ar); err != nil {
 		t.Fatalf("resolveGroup: %v", err)
 	}
 
@@ -323,7 +323,7 @@ func TestResolveGroup_NotFound_DoesNothing(t *testing.T) {
 
 	log := logger.New(false)
 	r := NewResolver(nil, log, 0)
-	if err := r.resolveGroup(context.Background(), "LP!", []string{p}, ar); err != nil {
+	if err := r.resolveGroup(t.Context(), "LP!", []string{p}, ar); err != nil {
 		t.Fatalf("resolveGroup: %v", err)
 	}
 
@@ -352,7 +352,7 @@ func TestResolveGroup_LowTitleMatch_DoesNotWriteTags(t *testing.T) {
 
 	log := logger.New(false)
 	r := NewResolver(nil, log, 0)
-	if err := r.resolveGroup(context.Background(), "LP!", []string{p}, ar); err != nil {
+	if err := r.resolveGroup(t.Context(), "LP!", []string{p}, ar); err != nil {
 		t.Fatalf("resolveGroup: %v", err)
 	}
 
@@ -394,7 +394,7 @@ func TestResolve_AlbumFirstPhaseWritesPositionalTags(t *testing.T) {
 	r := NewResolver([]Provider{mock}, log, 0.9)
 	r.WithAlbumResolver(ar)
 
-	if err := r.Resolve(context.Background(), []string{p1, p2}, nil); err != nil {
+	if err := r.Resolve(t.Context(), []string{p1, p2}, nil); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 
@@ -427,7 +427,7 @@ func TestResolveGroupByFingerprint_KeepsMatchesBesideAFailure(t *testing.T) {
 	}
 	r := NewResolver(nil, logger.New(false), 0).WithBatchFingerprinter(bf).WithReleaseResolver(rr)
 
-	if got := r.resolveGroupByFingerprint(context.Background(), []string{p1, p2}); len(got) != 2 {
+	if got := r.resolveGroupByFingerprint(t.Context(), []string{p1, p2}); len(got) != 2 {
 		t.Errorf("resolved %d files, want 2: coverage is 50%%, the tracklist covers both", len(got))
 	}
 }

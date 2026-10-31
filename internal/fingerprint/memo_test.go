@@ -33,13 +33,13 @@ func TestFingerprinter_FingerprintsEachFileOnce(t *testing.T) {
 	fc, ac := &countingFpcalc{}, &countingAcoustID{}
 	fp := fingerprint.NewFingerprinter(fc, ac, makeMBIDLookup(metadata.TrackInfo{Title: "Song"}, nil))
 
-	if got, err := fp.BatchLookupByFiles(context.Background(), []string{"/a.mp3", "/b.mp3"}); err != nil || len(got) != 2 {
+	if got, err := fp.BatchLookupByFiles(t.Context(), []string{"/a.mp3", "/b.mp3"}); err != nil || len(got) != 2 {
 		t.Fatalf("batch matched %d files (err %v), want 2", len(got), err)
 	}
-	if recs, err := fp.Recordings(context.Background(), "/a.mp3"); err != nil || len(recs) != 1 {
+	if recs, err := fp.Recordings(t.Context(), "/a.mp3"); err != nil || len(recs) != 1 {
 		t.Fatalf("Recordings = %v, %v, want the batch's recording", recs, err)
 	}
-	if recs, err := fp.Recordings(context.Background(), "/a.mp3"); err != nil || len(recs) != 1 {
+	if recs, err := fp.Recordings(t.Context(), "/a.mp3"); err != nil || len(recs) != 1 {
 		t.Fatalf("Recordings again = %v, %v, want it from the cache", recs, err)
 	}
 
@@ -55,10 +55,10 @@ func TestFingerprinter_RetriesAfterAFailure(t *testing.T) {
 	fc := &countingFpcalc{failFirst: true}
 	fp := fingerprint.NewFingerprinter(fc, &countingAcoustID{}, makeMBIDLookup(metadata.TrackInfo{Title: "Song"}, nil))
 
-	if _, err := fp.Recordings(context.Background(), "/a.mp3"); err == nil {
+	if _, err := fp.Recordings(t.Context(), "/a.mp3"); err == nil {
 		t.Fatal("first lookup: want the fpcalc error")
 	}
-	if recs, err := fp.Recordings(context.Background(), "/a.mp3"); err != nil || len(recs) != 1 {
+	if recs, err := fp.Recordings(t.Context(), "/a.mp3"); err != nil || len(recs) != 1 {
 		t.Fatalf("second lookup = %v, %v, want the recording", recs, err)
 	}
 }

@@ -40,11 +40,6 @@ type LogResponse struct {
 }
 
 func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	if !hasJSONContentType(r) {
 		http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
 		return
@@ -78,8 +73,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logger.Info("Created job %s for URL: %s", job.ID, req.URL)
 
-	s.wg.Add(1)
-	go s.processJob(job)
+	s.wg.Go(func() { s.processJob(job) })
 
 	s.writeJSON(w, s.jobToResponse(job))
 }
@@ -120,18 +114,10 @@ func hostAllowed(host string, allowed []string) bool {
 }
 
 func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	limit := 50
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-			if n > 200 {
-				n = 200
-			}
-			limit = n
+			limit = min(n, 200)
 		}
 	}
 
@@ -144,59 +130,39 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, responses)
 }
 
-func (s *Server) handleJobAction(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/api/jobs/")
-	parts := strings.Split(path, "/")
-	if len(parts) == 0 || parts[0] == "" {
-		http.Error(w, "Job ID required", http.StatusBadRequest)
+func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
+	job, err := s.jobMgr.GetJob(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "Job not found", http.StatusNotFound)
+		return
+	}
+	s.writeJSON(w, s.jobToResponse(job))
+}
+
+func (s *Server) handleJobLog(w http.ResponseWriter, r *http.Request) {
+	lines, dropped, err := s.jobMgr.LogSince(r.PathValue("id"), 0)
+	if err != nil {
+		http.Error(w, "Job not found", http.StatusNotFound)
+		return
+	}
+	s.writeJSON(w, LogResponse{Lines: lines, Dropped: dropped})
+}
+
+func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
+	job, err := s.jobMgr.GetJob(r.PathValue("id"))
+	if err != nil {
+		http.Error(w, "Job not found", http.StatusNotFound)
 		return
 	}
 
-	jobID := parts[0]
-
-	if r.Method == http.MethodGet && len(parts) == 1 {
-		job, err := s.jobMgr.GetJob(jobID)
-		if err != nil {
-			http.Error(w, "Job not found", http.StatusNotFound)
-			return
-		}
-
-		s.writeJSON(w, s.jobToResponse(job))
-		return
-	}
-
-	if r.Method == http.MethodGet && len(parts) == 2 && parts[1] == "log" {
-		lines, dropped, err := s.jobMgr.LogSince(jobID, 0)
-		if err != nil {
-			http.Error(w, "Job not found", http.StatusNotFound)
-			return
-		}
-
-		s.writeJSON(w, LogResponse{Lines: lines, Dropped: dropped})
-		return
-	}
-
-	if r.Method == http.MethodPost && len(parts) == 2 && parts[1] == "cancel" {
-		job, err := s.jobMgr.GetJob(jobID)
-		if err != nil {
-			http.Error(w, "Job not found", http.StatusNotFound)
-			return
-		}
-
-		// The job writes its own final state: a run that finishes moving its files despite the cancel is completed.
-		job.Cancel()
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusAccepted)
-		s.writeJSON(w, map[string]string{"status": "cancelling"})
-		return
-	}
-
-	http.Error(w, "Invalid request", http.StatusBadRequest)
+	// The job writes its own final state: a run that finishes moving its files despite the cancel is completed.
+	job.Cancel()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	s.writeJSON(w, map[string]string{"status": "cancelling"})
 }
 
 func (s *Server) processJob(job Job) {
-	defer s.wg.Done()
-
 	jobLog := s.logger.WithPrefix(job.ID).WithSink(func(l logger.Line) {
 		s.jobMgr.AppendLog(job.ID, l)
 	})
@@ -315,13 +281,11 @@ func (s *Server) jobToResponse(job Job) *JobResponse {
 	}
 
 	if job.StartedAt != nil {
-		started := job.StartedAt.Format(time.DateTime)
-		resp.StartedAt = &started
+		resp.StartedAt = new(job.StartedAt.Format(time.DateTime))
 	}
 
 	if job.CompletedAt != nil {
-		completed := job.CompletedAt.Format(time.DateTime)
-		resp.CompletedAt = &completed
+		resp.CompletedAt = new(job.CompletedAt.Format(time.DateTime))
 	}
 
 	return resp

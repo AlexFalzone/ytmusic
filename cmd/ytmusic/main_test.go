@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -23,7 +22,7 @@ func TestRunRemovesItsTempDir(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.DryRun = true
 	cfg.PlaylistURL = "https://www.youtube.com/playlist?list=x"
-	if err := run(context.Background(), cfg, logger.New(false)); err != nil {
+	if err := run(t.Context(), cfg, logger.New(false)); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 

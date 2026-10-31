@@ -61,15 +61,13 @@ func TestDoIsSafeForConcurrentUse(t *testing.T) {
 	var c Cache[int, string]
 	var wg sync.WaitGroup
 	for i := range 50 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			key := i % 5
 			got, err := c.Do(key, func() (string, error) { return fmt.Sprint(key), nil })
 			if err != nil || got != fmt.Sprint(key) {
 				t.Errorf("Do(%d) = %q, %v", key, got, err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }

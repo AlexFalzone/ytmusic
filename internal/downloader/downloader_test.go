@@ -171,7 +171,7 @@ func TestProducedListsEveryFileInOrder(t *testing.T) {
 }
 
 func TestCancellationWrapsContextCanceled(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
 	cfg := config.DefaultConfig()
@@ -217,7 +217,7 @@ func TestDownloadAllSurvivesPanicInProgressHook(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = d.DownloadAll(context.Background(), []string{"not-a-url-1", "not-a-url-2", "not-a-url-3"})
+		_, _ = d.DownloadAll(t.Context(), []string{"not-a-url-1", "not-a-url-2", "not-a-url-3"})
 	}()
 
 	select {
@@ -257,7 +257,7 @@ func TestDownloadSingleFailsWhenNothingWasProduced(t *testing.T) {
 	fakeYtdlp(t, ":", 0)
 
 	d := New(config.DefaultConfig(), logger.New(false), t.TempDir())
-	if _, err := d.DownloadSingle(context.Background(), "https://example.com/watch?v=x"); err == nil {
+	if _, err := d.DownloadSingle(t.Context(), "https://example.com/watch?v=x"); err == nil {
 		t.Error("expected an error: yt-dlp exited 0 without downloading anything")
 	}
 }
@@ -271,7 +271,7 @@ func TestDownloadSingleAcceptsAnExistingFile(t *testing.T) {
 	fakeYtdlp(t, fmt.Sprintf(`printf '%%s\n' %q > "$list"`, produced), 0)
 
 	d := New(config.DefaultConfig(), logger.New(false), tmp)
-	got, err := d.DownloadSingle(context.Background(), "https://example.com/watch?v=x")
+	got, err := d.DownloadSingle(t.Context(), "https://example.com/watch?v=x")
 	if err != nil {
 		t.Fatalf("DownloadSingle = %v, want nil", err)
 	}
@@ -285,7 +285,7 @@ func TestDownloadSingleFailsWhenThePrintedFileIsMissing(t *testing.T) {
 	fakeYtdlp(t, fmt.Sprintf(`printf '%%s\n' %q > "$list"`, filepath.Join(tmp, "gone.mp3")), 0)
 
 	d := New(config.DefaultConfig(), logger.New(false), tmp)
-	if _, err := d.DownloadSingle(context.Background(), "https://example.com/watch?v=x"); err == nil {
+	if _, err := d.DownloadSingle(t.Context(), "https://example.com/watch?v=x"); err == nil {
 		t.Error("expected an error: the path yt-dlp printed does not exist")
 	}
 }
@@ -299,7 +299,7 @@ printf x > %q/"$id".mp3
 printf '%%s\n' %q/"$id".mp3 > "$list"`, tmp, tmp), 0)
 
 	d := New(config.DefaultConfig(), logger.New(false), tmp)
-	stats, err := d.DownloadAll(context.Background(), []string{"https://example.com/watch?v=a", "https://example.com/watch?v=dead"})
+	stats, err := d.DownloadAll(t.Context(), []string{"https://example.com/watch?v=a", "https://example.com/watch?v=dead"})
 	if err != nil {
 		t.Fatalf("DownloadAll: %v", err)
 	}

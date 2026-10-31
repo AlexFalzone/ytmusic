@@ -1,7 +1,6 @@
 package musicbrainz
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -42,7 +41,7 @@ func TestFindReleasesSearchesByTrackCountAndLooksUpEachCandidate(t *testing.T) {
 
 	c := NewWithURL(srv.URL, "https://caa.test/release")
 	c.api.Throttle = throttle.New(0)
-	got, err := c.FindReleases(context.Background(), "The Divine Feminine", "Mac Miller", 13)
+	got, err := c.FindReleases(t.Context(), "The Divine Feminine", "Mac Miller", 13)
 	if err != nil {
 		t.Fatalf("FindReleases: %v", err)
 	}
@@ -62,7 +61,7 @@ func TestFindReleasesSearchesByTrackCountAndLooksUpEachCandidate(t *testing.T) {
 		t.Errorf("r2 has no front cover, got artwork %q", got[1].ArtworkURL)
 	}
 
-	if _, err := c.LookupTracklist(context.Background(), "r1"); err != nil {
+	if _, err := c.LookupTracklist(t.Context(), "r1"); err != nil {
 		t.Fatal(err)
 	}
 	if n := lookups.Load(); n != 1 {
@@ -85,7 +84,7 @@ func TestFindReleasesKeepsTheCandidatesThatLoaded(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	got, err := newTestClient(srv.URL).FindReleases(context.Background(), "Album", "Artist", 1)
+	got, err := newTestClient(srv.URL).FindReleases(t.Context(), "Album", "Artist", 1)
 	if err == nil {
 		t.Error("expected the failed lookup to be reported")
 	}

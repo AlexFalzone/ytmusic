@@ -90,7 +90,7 @@ func readTestTag(t *testing.T, path, key string) string {
 func resolveOne(t *testing.T, path string, providers ...Provider) {
 	t.Helper()
 	r := NewResolver(providers, logger.New(false), 0)
-	if err := r.Resolve(context.Background(), []string{path}, nil); err != nil {
+	if err := r.Resolve(t.Context(), []string{path}, nil); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 }
@@ -145,7 +145,7 @@ func TestResolve_PhaseA_RunsBeforePhaseB(t *testing.T) {
 	r.WithReleaseResolver(rr)
 	r.WithAlbumResolver(tar)
 
-	if err := r.Resolve(context.Background(), []string{p1, p2}, nil); err != nil {
+	if err := r.Resolve(t.Context(), []string{p1, p2}, nil); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 
@@ -194,7 +194,7 @@ func TestFingerprintOffIsLoggedOnce(t *testing.T) {
 	r := NewResolver([]Provider{&mockProvider{name: "empty"}}, log, 0).WithWorkers(4)
 	r.WithFingerprinter(&stubFingerprinter{err: fmt.Errorf("%w: rejected key", ErrFingerprintOff)})
 
-	if err := r.Resolve(context.Background(), files, nil); err != nil {
+	if err := r.Resolve(t.Context(), files, nil); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 	if got := warnings(read(), "off for the rest"); got != 1 {
@@ -209,7 +209,7 @@ func TestFingerprintErrorIsLoggedPerFile(t *testing.T) {
 	r := NewResolver([]Provider{&mockProvider{name: "empty"}}, log, 0)
 	r.WithFingerprinter(&stubFingerprinter{err: errors.New("fpcalc: exit status 3")})
 
-	if err := r.Resolve(context.Background(), []string{path}, nil); err != nil {
+	if err := r.Resolve(t.Context(), []string{path}, nil); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 	out := read()
@@ -222,7 +222,7 @@ func TestFingerprintErrorIsLoggedPerFile(t *testing.T) {
 func TestFingerprintErrorIsQuietWhenCancelled(t *testing.T) {
 	log, read := fileLogger(t)
 	r := NewResolver(nil, log, 0).WithFingerprinter(&stubFingerprinter{err: errors.New("fpcalc: signal: killed")})
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
 	if _, found := r.fingerprintMatch(ctx, "/a.mp3", source{}, "", ""); found {

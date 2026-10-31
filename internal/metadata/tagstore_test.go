@@ -1,7 +1,6 @@
 package metadata
 
 import (
-	"context"
 	"testing"
 
 	"ytmusic/internal/logger"
@@ -65,7 +64,7 @@ func TestResolve_PerFilePhaseKeepsAlbumFirstTrackNumber(t *testing.T) {
 		{Title: "TRUST!", Artist: "JPEGMAFIA", Album: "LP!", TrackNumber: 9, DiscNumber: 2},
 	}}
 	r := NewResolver([]Provider{provider}, logger.New(false), 0).WithAlbumResolver(ar)
-	if err := r.Resolve(context.Background(), []string{path}, nil); err != nil {
+	if err := r.Resolve(t.Context(), []string{path}, nil); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 

@@ -1,7 +1,6 @@
 package musicbrainz
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -36,11 +35,11 @@ func TestRecordingIsFetchedOncePerRun(t *testing.T) {
 	defer srv.Close()
 	c := newTestClient(srv.URL)
 
-	ids, err := c.ReleaseIDsForRecording(context.Background(), "rec-1")
+	ids, err := c.ReleaseIDsForRecording(t.Context(), "rec-1")
 	if err != nil || len(ids) != 2 || ids[0] != "rel-1" || ids[1] != "rel-2" {
 		t.Fatalf("ReleaseIDsForRecording = %v, %v, want [rel-1 rel-2]", ids, err)
 	}
-	info, err := c.LookupByMBID(context.Background(), "rec-1", "")
+	info, err := c.LookupByMBID(t.Context(), "rec-1", "")
 	if err != nil || info.Title != "Song" || info.Album != "Album" {
 		t.Fatalf("LookupByMBID = %+v, %v, want Song on Album", info, err)
 	}
@@ -66,10 +65,10 @@ func TestReleaseIsFetchedOncePerRun(t *testing.T) {
 	defer srv.Close()
 	c := newTestClient(srv.URL)
 
-	if _, err := c.LookupTracklist(context.Background(), "rel-1"); err != nil {
+	if _, err := c.LookupTracklist(t.Context(), "rel-1"); err != nil {
 		t.Fatalf("LookupTracklist: %v", err)
 	}
-	tl, found, err := c.ResolveAlbum(context.Background(), "Album", "Artist")
+	tl, found, err := c.ResolveAlbum(t.Context(), "Album", "Artist")
 	if err != nil || !found || len(tl.Tracks) != 1 {
 		t.Fatalf("ResolveAlbum = %+v, %v, %v, want the one-track release", tl, found, err)
 	}
@@ -92,10 +91,10 @@ func TestFailedLookupIsAskedAgain(t *testing.T) {
 	defer srv.Close()
 	c := newTestClient(srv.URL)
 
-	if _, err := c.ReleaseIDsForRecording(context.Background(), "rec-1"); err == nil {
+	if _, err := c.ReleaseIDsForRecording(t.Context(), "rec-1"); err == nil {
 		t.Fatal("first lookup: want the server error")
 	}
-	if _, err := c.LookupByMBID(context.Background(), "rec-1", ""); err != nil {
+	if _, err := c.LookupByMBID(t.Context(), "rec-1", ""); err != nil {
 		t.Fatalf("second lookup: %v", err)
 	}
 	if n := lookups.Load(); n != 2 {

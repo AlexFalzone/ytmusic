@@ -31,7 +31,7 @@ func TestSessionCreateReturnsDistinctTokens(t *testing.T) {
 	s := newSessionStore(time.Hour)
 
 	seen := make(map[string]bool)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		token, err := s.create()
 		if err != nil {
 			t.Fatalf("create: %v", err)
@@ -90,7 +90,7 @@ func TestSessionValidateRenewsExpiry(t *testing.T) {
 
 	token, _ := s.create()
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		clock.advance(50 * time.Minute)
 		if !s.validate(token) {
 			t.Fatalf("token expired on use %d despite continuous use", i)
@@ -132,10 +132,8 @@ func TestSessionStoreConcurrentUse(t *testing.T) {
 	s := newSessionStore(time.Hour)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 50 {
+		wg.Go(func() {
 			token, err := s.create()
 			if err != nil {
 				t.Errorf("create: %v", err)
@@ -144,7 +142,7 @@ func TestSessionStoreConcurrentUse(t *testing.T) {
 			s.validate(token)
 			s.gc()
 			s.revoke(token)
-		}()
+		})
 	}
 	wg.Wait()
 }

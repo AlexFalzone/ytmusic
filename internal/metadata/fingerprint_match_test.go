@@ -137,7 +137,7 @@ func TestFingerprintMatchTakesOnlyARecordingTheFileConfirms(t *testing.T) {
 			query.Album = tt.album
 			src := source{query: query, version: version, duration: seconds(tt.length)}
 
-			_, found := r.fingerprintMatch(context.Background(), "/f.mp3", src, tt.title, tt.artist)
+			_, found := r.fingerprintMatch(t.Context(), "/f.mp3", src, tt.title, tt.artist)
 			if found != (tt.want != "") {
 				t.Errorf("found = %v, want %v", found, tt.want != "")
 			}

@@ -202,10 +202,8 @@ func resolveLyrics(ctx context.Context, dir string, log *logger.Logger, lf lyric
 			continue
 		}
 
-		wg.Add(1)
 		sem <- struct{}{}
-		go func(path, lrcPath, artist, title, album string) {
-			defer wg.Done()
+		wg.Go(func() {
 			defer func() { <-sem }()
 
 			defer func() {
@@ -237,7 +235,7 @@ func resolveLyrics(ctx context.Context, dir string, log *logger.Logger, lf lyric
 			} else {
 				log.Debug("no lyrics found for %q", title)
 			}
-		}(path, lrcPath, artist, title, album)
+		})
 	}
 
 	wg.Wait()

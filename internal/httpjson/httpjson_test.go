@@ -70,7 +70,7 @@ func TestGetSendsIdentityAndHeaders(t *testing.T) {
 	defer srv.Close()
 
 	var got struct{ Name string }
-	err := newClient().Get(context.Background(), srv.URL, http.Header{"Authorization": {"Bearer x"}}, &got)
+	err := newClient().Get(t.Context(), srv.URL, http.Header{"Authorization": {"Bearer x"}}, &got)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestGetSendsIdentityAndHeaders(t *testing.T) {
 func TestGetReportsStatusWithTheStartOfTheBody(t *testing.T) {
 	srv, _ := serve(t, reply{status: http.StatusInternalServerError, body: strings.Repeat("x", 2000)})
 
-	err := newClient().Get(context.Background(), srv.URL, nil, &struct{}{})
+	err := newClient().Get(t.Context(), srv.URL, nil, &struct{}{})
 	var se *StatusError
 	if !errors.As(err, &se) {
 		t.Fatalf("err = %v, want a *StatusError", err)
@@ -104,7 +104,7 @@ func TestGetRetriesOnceWhenAskedToSlowDown(t *testing.T) {
 		c := newClient()
 		c.Retries = 1
 
-		if err := c.Get(context.Background(), srv.URL, nil, &struct{}{}); err != nil {
+		if err := c.Get(t.Context(), srv.URL, nil, &struct{}{}); err != nil {
 			t.Errorf("%d: Get = %v, want the retry to succeed", status, err)
 		}
 		if got := calls.Load(); got != 2 {
@@ -119,7 +119,7 @@ func TestGetRetriesUpToRetries(t *testing.T) {
 	c := newClient()
 	c.Retries = 3
 
-	err := c.Get(context.Background(), srv.URL, nil, &struct{}{})
+	err := c.Get(t.Context(), srv.URL, nil, &struct{}{})
 	var se *StatusError
 	if !errors.As(err, &se) || se.Code != http.StatusServiceUnavailable {
 		t.Errorf("err = %v, want the last 503", err)
@@ -135,7 +135,7 @@ func TestGetDoesNotWaitBeyondTheCap(t *testing.T) {
 	c.Retries = 1
 
 	start := time.Now()
-	err := c.Get(context.Background(), srv.URL, nil, &struct{}{})
+	err := c.Get(t.Context(), srv.URL, nil, &struct{}{})
 	var se *StatusError
 	if !errors.As(err, &se) || se.Code != http.StatusTooManyRequests {
 		t.Errorf("err = %v, want the 429", err)
@@ -178,7 +178,7 @@ func TestRetryWait(t *testing.T) {
 func TestGetDoesNotRetryUnlessTold(t *testing.T) {
 	srv, calls := serve(t, reply{status: http.StatusTooManyRequests, retryAfter: "0"})
 
-	if err := newClient().Get(context.Background(), srv.URL, nil, &struct{}{}); err == nil {
+	if err := newClient().Get(t.Context(), srv.URL, nil, &struct{}{}); err == nil {
 		t.Error("Get = nil, want the 429")
 	}
 	if got := calls.Load(); got != 1 {
@@ -190,7 +190,7 @@ func TestGetStopsWaitingToRetryWhenCancelled(t *testing.T) {
 	srv, _ := serve(t, reply{status: http.StatusTooManyRequests, retryAfter: "20"})
 	c := newClient()
 	c.Retries = 1
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	time.AfterFunc(50*time.Millisecond, cancel)
 
 	start := time.Now()
@@ -210,7 +210,7 @@ func TestGetWaitsForTheThrottle(t *testing.T) {
 
 	start := time.Now()
 	for range 3 {
-		if err := c.Get(context.Background(), srv.URL, nil, &struct{}{}); err != nil {
+		if err := c.Get(t.Context(), srv.URL, nil, &struct{}{}); err != nil {
 			t.Fatalf("Get: %v", err)
 		}
 	}
@@ -224,16 +224,15 @@ func TestGetKeepsNetworkErrorsInspectable(t *testing.T) {
 	url := srv.URL
 	srv.Close()
 
-	err := newClient().Get(context.Background(), url, nil, &struct{}{})
-	var netErr net.Error
-	if !errors.As(err, &netErr) {
+	err := newClient().Get(t.Context(), url, nil, &struct{}{})
+	if _, ok := errors.AsType[net.Error](err); !ok {
 		t.Errorf("err = %v, want a net.Error in its chain", err)
 	}
 }
 
 func TestGetFailsOnInvalidJSON(t *testing.T) {
 	srv, _ := serve(t, reply{status: http.StatusOK, body: `not json`})
-	if err := newClient().Get(context.Background(), srv.URL, nil, &struct{}{}); err == nil {
+	if err := newClient().Get(t.Context(), srv.URL, nil, &struct{}{}); err == nil {
 		t.Error("Get = nil, want a decoding error")
 	}
 }
@@ -261,7 +260,7 @@ func TestPostFormSendsTheFormInTheBody(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if err := newClient().PostForm(context.Background(), srv.URL, nil, url.Values{"a": {"b"}}, &struct{}{}); err != nil {
+	if err := newClient().PostForm(t.Context(), srv.URL, nil, url.Values{"a": {"b"}}, &struct{}{}); err != nil {
 		t.Fatalf("PostForm: %v", err)
 	}
 }
@@ -287,7 +286,7 @@ func TestPostFormRetriesWithTheWholeBody(t *testing.T) {
 	c := newClient()
 	c.Retries = 1
 
-	if err := c.PostForm(context.Background(), srv.URL, nil, url.Values{"a": {"b"}}, &struct{}{}); err != nil {
+	if err := c.PostForm(t.Context(), srv.URL, nil, url.Values{"a": {"b"}}, &struct{}{}); err != nil {
 		t.Fatalf("PostForm: %v", err)
 	}
 	if got := calls.Load(); got != 2 {

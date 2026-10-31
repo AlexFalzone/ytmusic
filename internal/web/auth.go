@@ -94,10 +94,6 @@ type loginRequestBody struct {
 const invalidCredentials = "Invalid credentials"
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	if !hasJSONContentType(r) {
 		http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
 		return
@@ -142,11 +138,6 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Clearing the cookie alone would leave a copied token valid.
 	if cookie, err := r.Cookie(sessionCookieName); err == nil {
 		s.sessions.revoke(cookie.Value)
@@ -166,10 +157,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // A cross-origin text/plain post is a simple request: no preflight, no protection.
 func hasJSONContentType(r *http.Request) bool {
-	ct := r.Header.Get("Content-Type")
-	if i := strings.Index(ct, ";"); i >= 0 {
-		ct = ct[:i]
-	}
+	ct, _, _ := strings.Cut(r.Header.Get("Content-Type"), ";")
 	return strings.EqualFold(strings.TrimSpace(ct), "application/json")
 }
 
