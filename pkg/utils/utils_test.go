@@ -1,10 +1,16 @@
 package utils
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 )
 
@@ -109,41 +115,39 @@ func TestMoveFileRejectsBadInput(t *testing.T) {
 }
 
 // Called directly: two filesystems cannot be arranged in a unit test.
-func TestCopyAndDeleteDiscardsAFailedCopy(t *testing.T) {
-	dir := t.TempDir()
-	// Reading a directory fails after it opens: a copy that breaks mid-stream.
-	src := filepath.Join(dir, "src")
-	if err := os.Mkdir(src, 0755); err != nil {
-		t.Fatal(err)
-	}
-	dst := filepath.Join(dir, "dst.mp3")
-
-	if err := copyAndDelete(src, dst); err == nil {
-		t.Fatal("want an error from a copy that cannot read its source")
-	}
-	if _, err := os.Stat(dst); !os.IsNotExist(err) {
-		t.Errorf("partial destination left behind (stat err: %v)", err)
-	}
-	if _, err := os.Stat(src); err != nil {
-		t.Errorf("source lost after a failed copy: %v", err)
+// The hidden stage is the one rename that crosses filesystems when the temp dir and the library differ.
+func acrossFilesystems(t *testing.T) {
+	t.Helper()
+	real := rename
+	t.Cleanup(func() { rename = real })
+	rename = func(oldPath, newPath string) error {
+		if strings.HasSuffix(newPath, stageSuffix) {
+			return &os.LinkError{Op: "rename", Old: oldPath, New: newPath, Err: syscall.EXDEV}
+		}
+		return real(oldPath, newPath)
 	}
 }
 
-func TestCopyAndDelete(t *testing.T) {
-	dir := t.TempDir()
+func TestMoveAcrossFilesystems(t *testing.T) {
+	acrossFilesystems(t)
+	dir, library := t.TempDir(), t.TempDir()
 	src := filepath.Join(dir, "src.mp3")
 	writeFile(t, src, "payload")
 	if err := os.Chmod(src, 0640); err != nil {
 		t.Fatalf("chmod: %v", err)
 	}
 
-	dst := filepath.Join(dir, "dst.mp3")
-	if err := copyAndDelete(src, dst); err != nil {
-		t.Fatalf("copyAndDelete: %v", err)
+	dst := filepath.Join(library, "dst.mp3")
+	got, err := moveToLibrary(src, dst)
+	if err != nil {
+		t.Fatalf("moveToLibrary: %v", err)
+	}
+	if got != dst {
+		t.Errorf("moved to %s, want %s", got, dst)
 	}
 
-	if _, err := os.Stat(src); !os.IsNotExist(err) {
-		t.Error("source still exists after copyAndDelete")
+	if _, err := os.Stat(src); !errors.Is(err, fs.ErrNotExist) {
+		t.Error("source still exists after the move")
 	}
 	info, err := os.Stat(dst)
 	if err != nil {
@@ -159,6 +163,111 @@ func TestCopyAndDelete(t *testing.T) {
 	if string(content) != "payload" {
 		t.Errorf("destination content = %q, want %q", content, "payload")
 	}
+	assertOnly(t, library, "dst.mp3")
+}
+
+func TestFailedCopyLeavesNothingInTheLibrary(t *testing.T) {
+	acrossFilesystems(t)
+	dir, library := t.TempDir(), t.TempDir()
+	// Reading a directory fails after it opens: a copy that breaks mid-stream.
+	src := filepath.Join(dir, "src.mp3")
+	if err := os.Mkdir(src, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := moveToLibrary(src, filepath.Join(library, "dst.mp3")); err == nil {
+		t.Fatal("want an error from a copy that cannot read its source")
+	}
+	assertOnly(t, library)
+	if _, err := os.Stat(src); err != nil {
+		t.Errorf("source lost after a failed copy: %v", err)
+	}
+}
+
+func assertOnly(t *testing.T, dir string, names ...string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read %s: %v", dir, err)
+	}
+	var got []string
+	for _, e := range entries {
+		got = append(got, e.Name())
+	}
+	if !slices.Equal(got, names) {
+		t.Errorf("%s holds %v, want %v", dir, got, names)
+	}
+}
+
+// Jobs running side by side move files of the same name into the same album.
+func TestConcurrentMovesNeverOverwrite(t *testing.T) {
+	library := t.TempDir()
+	const jobs = 32
+
+	var wg sync.WaitGroup
+	for i := range jobs {
+		src := t.TempDir()
+		writeFile(t, filepath.Join(src, "song.mp3"), strconv.Itoa(i))
+		wg.Go(func() {
+			if report, err := MoveAudioFiles(src, library, nil); err != nil || len(report.Failed) != 0 {
+				t.Errorf("job %d: report %+v, err %v", i, report, err)
+			}
+		})
+	}
+	wg.Wait()
+
+	entries, err := os.ReadDir(library)
+	if err != nil {
+		t.Fatalf("read library: %v", err)
+	}
+	seen := make(map[string]bool)
+	for _, e := range entries {
+		content, err := os.ReadFile(filepath.Join(library, e.Name()))
+		if err != nil {
+			t.Fatalf("read %s: %v", e.Name(), err)
+		}
+		seen[string(content)] = true
+	}
+	if len(entries) != jobs || len(seen) != jobs {
+		t.Errorf("%d files with %d distinct contents, want %d of each", len(entries), len(seen), jobs)
+	}
+}
+
+func TestMoveAudioFilesReportsWhyAFileDidNotMove(t *testing.T) {
+	src, library := t.TempDir(), t.TempDir()
+	writeFile(t, filepath.Join(src, "song.mp3"), "audio")
+	writeFile(t, filepath.Join(library, "blocked"), "a file where the album folder should go")
+
+	report, err := MoveAudioFiles(src, library, func(string) string { return "blocked" })
+	if err != nil {
+		t.Fatalf("MoveAudioFiles: %v", err)
+	}
+	if len(report.Failed) != 1 || !strings.Contains(report.Failed[0].Error(), "blocked") {
+		t.Errorf("Failed = %v, want the reason naming the blocked folder", report.Failed)
+	}
+}
+
+func TestMoveAudioFilesNeverOverwritesALyricsFile(t *testing.T) {
+	src, library := t.TempDir(), t.TempDir()
+	writeFile(t, filepath.Join(src, "song.mp3"), "audio")
+	writeFile(t, filepath.Join(src, "song.lrc"), "new")
+	writeFile(t, filepath.Join(library, "song.lrc"), "already there")
+
+	report, err := MoveAudioFiles(src, library, nil)
+	if err != nil {
+		t.Fatalf("MoveAudioFiles: %v", err)
+	}
+	if len(report.LyricsFailed) != 1 {
+		t.Errorf("LyricsFailed = %v, want one", report.LyricsFailed)
+	}
+	content, err := os.ReadFile(filepath.Join(library, "song.lrc"))
+	if err != nil {
+		t.Fatalf("read lyrics: %v", err)
+	}
+	if string(content) != "already there" {
+		t.Errorf("lyrics = %q, overwritten", content)
+	}
+	assertOnly(t, library, "song.lrc", "song.mp3")
 }
 
 func TestMoveAudioFiles(t *testing.T) {
@@ -168,12 +277,12 @@ func TestMoveAudioFiles(t *testing.T) {
 	writeFile(t, filepath.Join(src, "two.flac"), "2")
 	writeFile(t, filepath.Join(src, "cover.jpg"), "x")
 
-	moved, failed, _, err := MoveAudioFiles(src, dst, nil)
+	report, err := MoveAudioFiles(src, dst, nil)
 	if err != nil {
 		t.Fatalf("MoveAudioFiles: %v", err)
 	}
-	if moved != 2 || failed != 0 {
-		t.Errorf("moved=%d failed=%d, want 2 and 0", moved, failed)
+	if report.Moved != 2 || len(report.Failed) != 0 {
+		t.Errorf("moved=%d failed=%d, want 2 and 0", report.Moved, len(report.Failed))
 	}
 	for _, name := range []string{"one.mp3", "two.flac"} {
 		if _, err := os.Stat(filepath.Join(dst, name)); err != nil {
@@ -190,14 +299,14 @@ func TestMoveAudioFilesWithSubDir(t *testing.T) {
 	dst := t.TempDir()
 	writeFile(t, filepath.Join(src, "song.mp3"), "1")
 
-	moved, _, _, err := MoveAudioFiles(src, dst, func(string) string {
+	report, err := MoveAudioFiles(src, dst, func(string) string {
 		return filepath.Join("Artist", "Album")
 	})
 	if err != nil {
 		t.Fatalf("MoveAudioFiles: %v", err)
 	}
-	if moved != 1 {
-		t.Errorf("moved = %d, want 1", moved)
+	if report.Moved != 1 {
+		t.Errorf("moved = %d, want 1", report.Moved)
 	}
 	if _, err := os.Stat(filepath.Join(dst, "Artist", "Album", "song.mp3")); err != nil {
 		t.Errorf("file not in its subdirectory: %v", err)
@@ -210,7 +319,7 @@ func TestMoveAudioFilesMovesLyricsSidecar(t *testing.T) {
 	writeFile(t, filepath.Join(src, "song.mp3"), "audio")
 	writeFile(t, filepath.Join(src, "song.lrc"), "lyrics")
 
-	if _, _, _, err := MoveAudioFiles(src, dst, nil); err != nil {
+	if _, err := MoveAudioFiles(src, dst, nil); err != nil {
 		t.Fatalf("MoveAudioFiles: %v", err)
 	}
 
@@ -266,12 +375,12 @@ func TestMoveAudioFilesKeepsTheExistingFile(t *testing.T) {
 	writeFile(t, filepath.Join(dst, "song.mp3"), "already here")
 	writeFile(t, filepath.Join(src, "song.mp3"), "the new one")
 
-	moved, failed, _, err := MoveAudioFiles(src, dst, nil)
+	report, err := MoveAudioFiles(src, dst, nil)
 	if err != nil {
 		t.Fatalf("MoveAudioFiles: %v", err)
 	}
-	if moved != 1 || failed != 0 {
-		t.Errorf("moved=%d failed=%d, want 1 and 0", moved, failed)
+	if report.Moved != 1 || len(report.Failed) != 0 {
+		t.Errorf("moved=%d failed=%d, want 1 and 0", report.Moved, len(report.Failed))
 	}
 
 	old, err := os.ReadFile(filepath.Join(dst, "song.mp3"))
@@ -296,7 +405,7 @@ func TestMoveAudioFilesNumbersEveryCollision(t *testing.T) {
 	for i, content := range []string{"first", "second", "third"} {
 		src := t.TempDir()
 		writeFile(t, filepath.Join(src, "song.mp3"), content)
-		if _, _, _, err := MoveAudioFiles(src, dst, nil); err != nil {
+		if _, err := MoveAudioFiles(src, dst, nil); err != nil {
 			t.Fatalf("move %d: %v", i, err)
 		}
 	}
@@ -325,7 +434,7 @@ func TestMoveAudioFilesSidecarFollowsTheResolvedName(t *testing.T) {
 	writeFile(t, filepath.Join(src, "song.mp3"), "the new one")
 	writeFile(t, filepath.Join(src, "song.lrc"), "the new lyrics")
 
-	if _, _, _, err := MoveAudioFiles(src, dst, nil); err != nil {
+	if _, err := MoveAudioFiles(src, dst, nil); err != nil {
 		t.Fatalf("MoveAudioFiles: %v", err)
 	}
 
@@ -341,7 +450,7 @@ func TestMoveAudioFilesSidecarFollowsTheResolvedName(t *testing.T) {
 	}
 }
 
-func TestUniquePathOddNames(t *testing.T) {
+func TestMoveToLibraryNumbersOddNames(t *testing.T) {
 	dir := t.TempDir()
 	tests := []struct {
 		name string
@@ -358,26 +467,17 @@ func TestUniquePathOddNames(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			taken := filepath.Join(dir, tt.base)
 			writeFile(t, taken, "x")
+			src := filepath.Join(t.TempDir(), "src")
+			writeFile(t, src, "y")
 
-			got, err := uniquePath(taken)
+			got, err := moveToLibrary(src, taken)
 			if err != nil {
-				t.Fatalf("uniquePath: %v", err)
+				t.Fatalf("moveToLibrary: %v", err)
 			}
 			if got != filepath.Join(dir, tt.want) {
-				t.Errorf("uniquePath(%q) = %q, want %q", tt.base, filepath.Base(got), tt.want)
+				t.Errorf("moved over %q to %q, want %q", tt.base, filepath.Base(got), tt.want)
 			}
 		})
-	}
-}
-
-func TestUniquePathLeavesFreeNamesAlone(t *testing.T) {
-	free := filepath.Join(t.TempDir(), "song.mp3")
-	got, err := uniquePath(free)
-	if err != nil {
-		t.Fatalf("uniquePath: %v", err)
-	}
-	if got != free {
-		t.Errorf("uniquePath(%q) = %q, want it unchanged", free, got)
 	}
 }
 
@@ -387,14 +487,14 @@ func TestMoveAudioFilesStaysInsideDestination(t *testing.T) {
 	dst := filepath.Join(root, "music")
 	writeFile(t, filepath.Join(src, "song.mp3"), "audio")
 
-	moved, _, _, err := MoveAudioFiles(src, dst, func(string) string {
+	report, err := MoveAudioFiles(src, dst, func(string) string {
 		return filepath.Join("..", "..", "etc")
 	})
 	if err != nil {
 		t.Fatalf("MoveAudioFiles: %v", err)
 	}
-	if moved != 1 {
-		t.Errorf("moved = %d, want 1", moved)
+	if report.Moved != 1 {
+		t.Errorf("moved = %d, want 1", report.Moved)
 	}
 
 	escaped := filepath.Join(filepath.Dir(root), "etc", "song.mp3")
@@ -462,15 +562,15 @@ func TestMoveAudioFilesCountsFailedSidecars(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	moved, failed, lyricsFailed, err := MoveAudioFiles(src, dst, nil)
+	report, err := MoveAudioFiles(src, dst, nil)
 	if err != nil {
 		t.Fatalf("MoveAudioFiles: %v", err)
 	}
-	if moved != 1 || failed != 0 {
-		t.Errorf("moved=%d failed=%d, want 1 and 0", moved, failed)
+	if report.Moved != 1 || len(report.Failed) != 0 {
+		t.Errorf("moved=%d failed=%d, want 1 and 0", report.Moved, len(report.Failed))
 	}
-	if lyricsFailed != 1 {
-		t.Errorf("lyricsFailed = %d, want 1: a sidecar left behind must not be silent", lyricsFailed)
+	if len(report.LyricsFailed) != 1 {
+		t.Errorf("lyricsFailed = %d, want 1: a sidecar left behind must not be silent", len(report.LyricsFailed))
 	}
 }
 
@@ -499,12 +599,12 @@ func TestMoveAudioFilesKeepsAFileWhoseNameIsAtTheLimit(t *testing.T) {
 	writeFile(t, filepath.Join(dst, name), "already here")
 	writeFile(t, filepath.Join(src, name), "the new one")
 
-	moved, failed, _, err := MoveAudioFiles(src, dst, nil)
+	report, err := MoveAudioFiles(src, dst, nil)
 	if err != nil {
 		t.Fatalf("MoveAudioFiles: %v", err)
 	}
-	if moved != 1 || failed != 0 {
-		t.Errorf("moved=%d failed=%d, want 1 and 0", moved, failed)
+	if report.Moved != 1 || len(report.Failed) != 0 {
+		t.Errorf("moved=%d failed=%d, want 1 and 0", report.Moved, len(report.Failed))
 	}
 
 	entries, err := os.ReadDir(dst)

@@ -278,26 +278,29 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadSt
 	return stats, nil
 }
 
+type Merged struct {
+	Dir    string
+	Moved  map[string]string // each file's path before the merge → its path after
+	Failed []error
+}
+
 // files are those yt-dlp reported: a failed conversion leaves its output in the temp dir too.
-// moved maps each file's path before the merge to its path after.
-func (d *Downloader) MergeFiles(files []string) (dir string, moved map[string]string, err error) {
+func (d *Downloader) MergeFiles(files []string) (Merged, error) {
 	d.Logger.Info("merging audio files")
 
 	if len(files) == 0 {
-		return "", nil, fmt.Errorf("no audio files found - all downloads may have failed")
+		return Merged{}, fmt.Errorf("no audio files found - all downloads may have failed")
 	}
 	// Only for a debug count: a failed walk just leaves the line out.
 	if all, err := utils.FindAudioFiles(d.TmpDir); err == nil && len(all) > len(files) {
 		d.Logger.Debug("leaving out %d audio files yt-dlp did not report", len(all)-len(files))
 	}
 
-	mergedDir := filepath.Join(d.TmpDir, "merged")
-	if err := os.MkdirAll(mergedDir, 0755); err != nil {
-		return "", nil, fmt.Errorf("failed to create merged folder: %w", err)
+	merged := Merged{Dir: filepath.Join(d.TmpDir, "merged"), Moved: make(map[string]string, len(files))}
+	if err := os.MkdirAll(merged.Dir, 0755); err != nil {
+		return Merged{}, fmt.Errorf("failed to create merged folder: %w", err)
 	}
 
-	moved = make(map[string]string, len(files))
-	var moveErrors int
 	seen := make(map[string]bool)
 	for _, file := range files {
 		base := filepath.Base(file)
@@ -306,20 +309,15 @@ func (d *Downloader) MergeFiles(files []string) (dir string, moved map[string]st
 			name = utils.NumberedName(base, n+1)
 		}
 		seen[name] = true
-		dst := filepath.Join(mergedDir, name)
+		dst := filepath.Join(merged.Dir, name)
 
 		if err := utils.MoveFile(file, dst); err != nil {
-			d.Logger.Warn("Error moving %s: %v", file, err)
-			moveErrors++
+			merged.Failed = append(merged.Failed, err)
 			continue
 		}
-		moved[file] = dst
+		merged.Moved[file] = dst
 	}
 
-	if moveErrors > 0 {
-		d.Logger.Warn("%d files could not be moved", moveErrors)
-	}
-
-	d.Logger.Info("Audio files moved to: %s", mergedDir)
-	return mergedDir, moved, nil
+	d.Logger.Info("Audio files moved to: %s", merged.Dir)
+	return merged, nil
 }

@@ -251,7 +251,7 @@ func TestRunReportsFilesItCouldNotMove(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 
-	if !hasWarning(res.warnings, "1 files could not be moved") {
+	if !hasWarning(res.warnings, "file not moved to the library") {
 		t.Errorf("warnings = %q, want the file that stayed out of the library reported", res.warnings)
 	}
 }

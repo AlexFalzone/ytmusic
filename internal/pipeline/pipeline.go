@@ -89,12 +89,15 @@ func run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 		hooks.warn(log, fmt.Sprintf("%d of %d videos failed to download (private, unavailable, or geo-restricted)", stats.Failed, stats.Total))
 	}
 
-	mergedDir, mergedPaths, err := dl.MergeFiles(stats.Produced())
+	merged, err := dl.MergeFiles(stats.Produced())
 	if err != nil {
 		return fmt.Errorf("failed to merge files: %w", err)
 	}
+	for _, err := range merged.Failed {
+		hooks.warn(log, fmt.Sprintf("file left out of the run: %v", err))
+	}
 
-	importErr := imp.Import(ctx, mergedDir, albumFor(pl, stats.Files, mergedPaths))
+	importErr := imp.Import(ctx, merged.Dir, albumFor(pl, stats.Files, merged.Moved))
 	if err := checkCancelled(ctx, "while resolving metadata"); err != nil {
 		return err
 	}
@@ -103,24 +106,24 @@ func run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 	}
 
 	if !cfg.SkipLyrics {
-		resolveLyrics(ctx, mergedDir, log, lf)
+		resolveLyrics(ctx, merged.Dir, log, lf)
 		if err := checkCancelled(ctx, "while fetching lyrics"); err != nil {
 			return err
 		}
 	}
 
 	log.Info("moving files to %s", cfg.OutputDir)
-	moved, failed, lyricsFailed, err := utils.MoveAudioFiles(mergedDir, cfg.OutputDir, metadata.SubDirFromTags)
+	report, err := utils.MoveAudioFiles(merged.Dir, cfg.OutputDir, metadata.SubDirFromTags)
 	if err != nil {
 		return fmt.Errorf("failed to move files to output: %w", err)
 	}
-	if failed > 0 {
-		hooks.warn(log, fmt.Sprintf("%d files could not be moved", failed))
+	for _, err := range report.Failed {
+		hooks.warn(log, fmt.Sprintf("file not moved to the library: %v", err))
 	}
-	if lyricsFailed > 0 {
-		hooks.warn(log, fmt.Sprintf("%d lyrics files could not be moved next to their track", lyricsFailed))
+	for _, err := range report.LyricsFailed {
+		hooks.warn(log, fmt.Sprintf("lyrics not moved next to their track: %v", err))
 	}
-	log.Info("Moved %d files to %s", moved, cfg.OutputDir)
+	log.Info("Moved %d files to %s", report.Moved, cfg.OutputDir)
 
 	return nil
 }

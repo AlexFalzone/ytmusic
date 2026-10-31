@@ -92,15 +92,23 @@ func FindAudioFiles(dir string) ([]string, error) {
 	return files, nil
 }
 
+// What a move left undone. Each error names its file, which stays where it was.
+type MoveReport struct {
+	Moved        int
+	Failed       []error
+	LyricsFailed []error
+}
+
 // subDirFunc may return "Artist/Album", or "" for dstDir itself.
-func MoveAudioFiles(srcDir, dstDir string, subDirFunc func(string) string) (moved int, failed int, lyricsFailed int, err error) {
+func MoveAudioFiles(srcDir, dstDir string, subDirFunc func(string) string) (MoveReport, error) {
+	var report MoveReport
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
-		return 0, 0, 0, fmt.Errorf("failed to create output directory: %w", err)
+		return report, fmt.Errorf("failed to create output directory: %w", err)
 	}
 
 	files, err := FindAudioFiles(srcDir)
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("failed to find audio files: %w", err)
+		return report, fmt.Errorf("failed to find audio files: %w", err)
 	}
 
 	for _, file := range files {
@@ -112,28 +120,24 @@ func MoveAudioFiles(srcDir, dstDir string, subDirFunc func(string) string) (move
 			}
 		}
 
-		dst, uniqueErr := uniquePath(filepath.Join(destDir, filepath.Base(file)))
-		if uniqueErr != nil {
-			failed++
+		dst, err := moveToLibrary(file, filepath.Join(destDir, filepath.Base(file)))
+		if err != nil {
+			report.Failed = append(report.Failed, err)
 			continue
 		}
-		if moveErr := MoveFile(file, dst); moveErr != nil {
-			failed++
-			continue
-		}
-		moved++
+		report.Moved++
 
 		// The sidecar follows the name the audio file actually got.
 		lrcSrc := strings.TrimSuffix(file, filepath.Ext(file)) + ".lrc"
 		if _, err := os.Stat(lrcSrc); err == nil {
 			lrcDst := strings.TrimSuffix(dst, filepath.Ext(dst)) + ".lrc"
-			if lrcErr := MoveFile(lrcSrc, lrcDst); lrcErr != nil {
-				lyricsFailed++
+			if err := moveExact(lrcSrc, lrcDst); err != nil {
+				report.LyricsFailed = append(report.LyricsFailed, err)
 			}
 		}
 	}
 
-	return moved, failed, lyricsFailed, nil
+	return report, nil
 }
 
 func within(root, path string) bool {
@@ -178,21 +182,121 @@ func NumberedName(base string, n int) string {
 	return stem + counter + ext
 }
 
-// Stat-then-rename: correct only while the move phase is sequential and single-process.
-func uniquePath(dst string) (string, error) {
+// A var so tests can put the library on another filesystem.
+var rename = os.Rename
+
+const stageSuffix = ".part"
+
+type stagedFile struct {
+	path    string // hidden, next to the destination
+	src     string
+	renamed bool // src is gone; otherwise it goes once the file is published
+}
+
+// Complete before it has a visible name: a kill during the copy leaves a hidden .part, never a truncated track.
+func stage(src, dir string) (stagedFile, error) {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return stagedFile{}, fmt.Errorf("failed to create destination directory: %w", err)
+	}
+	tmp, err := os.CreateTemp(dir, ".ytmusic-*"+stageSuffix)
+	if err != nil {
+		return stagedFile{}, fmt.Errorf("staging %s: %w", src, err)
+	}
+
+	err = rename(src, tmp.Name())
+	renamed := err == nil
+	if errors.Is(err, syscall.EXDEV) {
+		err = copyInto(tmp, src)
+	}
+	if err := errors.Join(err, tmp.Close()); err != nil {
+		if !renamed {
+			err = errors.Join(err, os.Remove(tmp.Name()))
+		}
+		return stagedFile{}, fmt.Errorf("staging %s: %w", src, err)
+	}
+	return stagedFile{path: tmp.Name(), src: src, renamed: renamed}, nil
+}
+
+func copyInto(dst *os.File, src string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = in.Close() }() // only read from
+
+	info, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(dst, in); err != nil {
+		return err
+	}
+	if err := dst.Chmod(info.Mode()); err != nil {
+		return err
+	}
+	// The source goes next: a write the disk refuses has to show up before that.
+	return dst.Sync()
+}
+
+// O_EXCL takes the name atomically, whoever else is moving files here, and the rename replaces the empty claim.
+// fs.ErrExist: the name is taken.
+func (f stagedFile) publish(dst string) error {
+	claim, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	if err := claim.Close(); err != nil {
+		return errors.Join(err, os.Remove(dst))
+	}
+	if err := rename(f.path, dst); err != nil {
+		return errors.Join(err, os.Remove(dst))
+	}
+	if !f.renamed {
+		_ = os.Remove(f.src) // the file is in the library; a leftover source dies with the temp dir
+	}
+	return nil
+}
+
+// A renamed source goes back, so a failed move leaves the file where it was.
+func (f stagedFile) abort() error {
+	if f.renamed {
+		return rename(f.path, f.src)
+	}
+	return os.Remove(f.path)
+}
+
+// To dst, or the first free "name_2.ext": nothing in the library is ever overwritten.
+func moveToLibrary(src, dst string) (string, error) {
 	dir, base := filepath.Split(dst)
+	f, err := stage(src, dir)
+	if err != nil {
+		return "", err
+	}
 	for n := 1; ; n++ {
 		candidate := filepath.Join(dir, NumberedName(base, n))
-		// Lstat: a dangling symlink still counts as taken.
-		if _, err := os.Lstat(candidate); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return candidate, nil
-			}
-			return "", fmt.Errorf("failed to check %s: %w", candidate, err)
+		err := f.publish(candidate)
+		if err == nil {
+			return candidate, nil
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			return "", errors.Join(fmt.Errorf("moving %s to %s: %w", src, candidate, err), f.abort())
 		}
 	}
 }
 
+// Like moveToLibrary for a file that must keep its name: a taken name is a failure.
+func moveExact(src, dst string) error {
+	f, err := stage(src, filepath.Dir(dst))
+	if err != nil {
+		return err
+	}
+	if err := f.publish(dst); err != nil {
+		return errors.Join(fmt.Errorf("moving %s to %s: %w", src, dst, err), f.abort())
+	}
+	return nil
+}
+
+// Within one filesystem, and over whatever dst already is: not for the library.
 func MoveFile(src, dst string) error {
 	if src == "" || dst == "" {
 		return fmt.Errorf("source and destination paths cannot be empty")
@@ -207,41 +311,8 @@ func MoveFile(src, dst string) error {
 	}
 
 	if err := os.Rename(src, dst); err != nil {
-		if errors.Is(err, syscall.EXDEV) {
-			return copyAndDelete(src, dst)
-		}
 		return fmt.Errorf("failed to move %s to %s: %w", src, dst, err)
 	}
 
 	return nil
-}
-
-func copyAndDelete(src, dst string) error {
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return fmt.Errorf("failed to open source %s: %w", src, err)
-	}
-	defer func() { _ = srcFile.Close() }() // only read from
-
-	srcInfo, err := srcFile.Stat()
-	if err != nil {
-		return fmt.Errorf("failed to stat source %s: %w", src, err)
-	}
-
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode())
-	if err != nil {
-		return fmt.Errorf("failed to create destination %s: %w", dst, err)
-	}
-
-	// On a written file, Close can be what reports the data never reached the disk.
-	_, copyErr := io.Copy(dstFile, srcFile)
-	if err := errors.Join(copyErr, dstFile.Close()); err != nil {
-		// A partial copy left in the library would pass for the real track.
-		if rmErr := os.Remove(dst); rmErr != nil {
-			err = errors.Join(err, fmt.Errorf("removing the partial copy: %w", rmErr))
-		}
-		return fmt.Errorf("failed to copy %s to %s: %w", src, dst, err)
-	}
-
-	return os.Remove(src)
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -34,12 +35,12 @@ func TestMergeFilesDeduplicate(t *testing.T) {
 	writeFile(t, p1, "content-1")
 	writeFile(t, p2, "content-2")
 
-	mergedDir, _, err := d.MergeFiles([]string{p1, p2})
+	merged, err := d.MergeFiles([]string{p1, p2})
 	if err != nil {
 		t.Fatalf("MergeFiles() error: %v", err)
 	}
 
-	entries, err := os.ReadDir(mergedDir)
+	entries, err := os.ReadDir(merged.Dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,8 +61,8 @@ func TestMergeFilesDeduplicate(t *testing.T) {
 		t.Error("expected song_2.mp3 in merged dir")
 	}
 
-	b1, _ := os.ReadFile(filepath.Join(mergedDir, "song.mp3"))
-	b2, _ := os.ReadFile(filepath.Join(mergedDir, "song_2.mp3"))
+	b1, _ := os.ReadFile(filepath.Join(merged.Dir, "song.mp3"))
+	b2, _ := os.ReadFile(filepath.Join(merged.Dir, "song_2.mp3"))
 	contents := map[string]bool{string(b1): true, string(b2): true}
 	if !contents["content-1"] || !contents["content-2"] {
 		t.Error("file contents were lost during merge")
@@ -80,12 +81,12 @@ func TestMergeFilesTripleDuplicate(t *testing.T) {
 		files = append(files, path)
 	}
 
-	mergedDir, _, err := d.MergeFiles(files)
+	merged, err := d.MergeFiles(files)
 	if err != nil {
 		t.Fatalf("MergeFiles() error: %v", err)
 	}
 
-	entries, err := os.ReadDir(mergedDir)
+	entries, err := os.ReadDir(merged.Dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,12 +106,12 @@ func TestMergeFilesNoDuplicates(t *testing.T) {
 	writeFile(t, p1, "a")
 	writeFile(t, p2, "b")
 
-	mergedDir, _, err := d.MergeFiles([]string{p1, p2})
+	merged, err := d.MergeFiles([]string{p1, p2})
 	if err != nil {
 		t.Fatalf("MergeFiles() error: %v", err)
 	}
 
-	entries, err := os.ReadDir(mergedDir)
+	entries, err := os.ReadDir(merged.Dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +126,7 @@ func TestMergeFilesEmpty(t *testing.T) {
 	log := logger.New(false)
 	d := New(config.DefaultConfig(), log, tmpDir)
 
-	_, _, err := d.MergeFiles(nil)
+	_, err := d.MergeFiles(nil)
 	if err == nil {
 		t.Error("MergeFiles() should fail with no audio files")
 	}
@@ -142,20 +143,20 @@ func TestMergeFilesLeavesUndeclaredFilesOut(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "partial.mp3"), "half")
 	writeFile(t, filepath.Join(dir, "x.temp.m4a"), "")
 
-	mergedDir, moved, err := d.MergeFiles([]string{song})
+	merged, err := d.MergeFiles([]string{song})
 	if err != nil {
 		t.Fatalf("MergeFiles() error: %v", err)
 	}
 
-	entries, err := os.ReadDir(mergedDir)
+	entries, err := os.ReadDir(merged.Dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(entries) != 1 || entries[0].Name() != "song.mp3" {
 		t.Errorf("merged dir holds %v, want only song.mp3", entries)
 	}
-	if len(moved) != 1 {
-		t.Errorf("moved = %v, want only the declared file", moved)
+	if len(merged.Moved) != 1 {
+		t.Errorf("moved = %v, want only the declared file", merged.Moved)
 	}
 }
 
@@ -312,6 +313,27 @@ printf '%%s\n' %q/"$id".mp3 > "$list"`, tmp, tmp), 0)
 	}
 }
 
+func TestMergeFilesReportsAFileItCouldNotMove(t *testing.T) {
+	tmp := t.TempDir()
+	song := filepath.Join(tmp, "a", "song.mp3")
+	if err := os.MkdirAll(filepath.Dir(song), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(song, []byte("audio"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	gone := filepath.Join(tmp, "b", "gone.mp3")
+
+	d := New(config.Config{}, logger.New(false), tmp)
+	merged, err := d.MergeFiles([]string{song, gone})
+	if err != nil {
+		t.Fatalf("MergeFiles() error: %v", err)
+	}
+	if len(merged.Failed) != 1 || !strings.Contains(merged.Failed[0].Error(), "gone.mp3") {
+		t.Errorf("Failed = %v, want the file that was not there", merged.Failed)
+	}
+}
+
 func TestMergeFilesReportsWhereEachFileWent(t *testing.T) {
 	tmpDir := t.TempDir()
 	d := New(config.DefaultConfig(), logger.New(false), tmpDir)
@@ -321,13 +343,13 @@ func TestMergeFilesReportsWhereEachFileWent(t *testing.T) {
 	writeFile(t, src1, "content-1")
 	writeFile(t, src2, "content-2")
 
-	_, moved, err := d.MergeFiles([]string{src1, src2})
+	merged, err := d.MergeFiles([]string{src1, src2})
 	if err != nil {
 		t.Fatalf("MergeFiles() error: %v", err)
 	}
 
 	for src, want := range map[string]string{src1: "content-1", src2: "content-2"} {
-		dst, ok := moved[src]
+		dst, ok := merged.Moved[src]
 		if !ok {
 			t.Errorf("no destination reported for %s", src)
 			continue
