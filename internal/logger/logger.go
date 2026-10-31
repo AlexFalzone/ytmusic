@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 type Logger struct {
@@ -143,7 +145,7 @@ func (l *Logger) writeFileLocked(msg string) {
 // Caller holds l.mu, so the sink sees lines in the order the file does. Returns the line as the file gets it.
 func (l *Logger) record(level, format string, args ...any) string {
 	now := time.Now()
-	body := fmt.Sprintf(format, args...)
+	body := fmt.Sprintf(format, cleanArgs(args)...)
 	if l.sink != nil {
 		l.sink(Line{Time: now, Level: level, Prefix: strings.TrimSpace(l.prefix[l.sinkFrom:]), Text: body})
 	}
@@ -152,4 +154,31 @@ func (l *Logger) record(level, format string, args ...any) string {
 		return fmt.Sprintf("%s [%s] %s %s\n", ts, level, l.prefix, body)
 	}
 	return fmt.Sprintf("%s [%s] %s\n", ts, level, body)
+}
+
+// Titles and yt-dlp's messages come from the web: an escape sequence must not reach the terminal, nor a newline forge a log line.
+// []byte stays as it is: that is how stack traces arrive.
+func cleanArgs(args []any) []any {
+	clean := slices.Clone(args)
+	for i, arg := range clean {
+		switch v := arg.(type) {
+		case string:
+			clean[i] = cleanText(v)
+		case error:
+			clean[i] = cleanText(v.Error())
+		}
+	}
+	return clean
+}
+
+func cleanText(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\t':
+			return ' '
+		case unicode.IsControl(r):
+			return -1
+		}
+		return r
+	}, s)
 }

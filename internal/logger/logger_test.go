@@ -2,6 +2,7 @@ package logger
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -165,5 +166,34 @@ func TestSinkIsInheritedWithoutTheOwnersPrefix(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "[job_1] [3/20] x") {
 		t.Errorf("stdout lost the full prefix: %q", buf.String())
+	}
+}
+
+// Titles and yt-dlp's messages come from the web, and reach the terminal.
+func TestArgumentsCannotDriveTheTerminalOrForgeALine(t *testing.T) {
+	l, buf := newTestLogger(false)
+
+	l.Info("title: %s, reason: %v", "a\x1b[2Jb\nFAKE [ERROR] line", errors.New("c\x07d"))
+
+	out := buf.String()
+	if strings.ContainsAny(out, "\x1b\x07") {
+		t.Errorf("control characters reached the output: %q", out)
+	}
+	if strings.Count(out, "\n") != 1 {
+		t.Errorf("one call wrote %d lines: %q", strings.Count(out, "\n"), out)
+	}
+	if !strings.Contains(out, "title: a[2Jb FAKE [ERROR] line, reason: cd") {
+		t.Errorf("out = %q", out)
+	}
+}
+
+// A stack trace is ours, and useless on one line.
+func TestFormatNewlinesAndStackTracesSurvive(t *testing.T) {
+	l, buf := newTestLogger(true)
+
+	l.Debug("panic: %v\n%s", "boom", []byte("goroutine 1\nmain.go:1"))
+
+	if !strings.Contains(buf.String(), "panic: boom\ngoroutine 1\nmain.go:1") {
+		t.Errorf("out = %q", buf.String())
 	}
 }

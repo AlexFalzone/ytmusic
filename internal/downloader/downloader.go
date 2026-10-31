@@ -51,7 +51,7 @@ func (d *Downloader) Extract(ctx context.Context) (Playlist, error) {
 		if ctx.Err() != nil {
 			return Playlist{}, fmt.Errorf("extracting URLs: %w", ctx.Err())
 		}
-		return Playlist{}, fmt.Errorf("yt-dlp failed to extract URLs: %w\nDetails: %s", err, stderr.String())
+		return Playlist{}, fmt.Errorf("yt-dlp failed to extract URLs: %s", failureReason(stderr.String(), err))
 	}
 
 	pl, err := parsePlaylist(&stdout)
@@ -84,7 +84,7 @@ func (d *Downloader) FetchMetadata(ctx context.Context, urls []string) error {
 			continue
 		}
 
-		d.Logger.Info("[%d/%d] %s", i+1, len(urls), stdout.String())
+		d.Logger.Info("[%d/%d] %s", i+1, len(urls), strings.TrimSpace(stdout.String()))
 	}
 
 	return nil
