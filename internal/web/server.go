@@ -45,8 +45,12 @@ func NewServer(ctx context.Context, jobMgr *JobManager, cfg config.Config, log *
 		sessions: newSessionStore(cfg.Auth.TTL()),
 		logins:   newLoginLimiter(),
 		// An unbuffered channel would deadlock every job.
-		jobSem:      make(chan struct{}, max(cfg.MaxConcurrentJobs, 1)),
-		runPipeline: pipeline.Run,
+		jobSem: make(chan struct{}, max(cfg.MaxConcurrentJobs, 1)),
+		// A job shows what the run left out through its warnings.
+		runPipeline: func(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir string, hooks pipeline.Hooks) error {
+			_, err := pipeline.Run(ctx, cfg, log, tmpDir, hooks)
+			return err
+		},
 	}
 }
 

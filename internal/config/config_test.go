@@ -210,13 +210,9 @@ output_dir: /tmp/test-music
 	}
 }
 
-func TestLoadConfigFileNotFound(t *testing.T) {
-	cfg, err := LoadConfigFile("/nonexistent/path/config.yaml")
-	if err != nil {
-		t.Fatalf("LoadConfigFile() should return defaults for missing file, got error: %v", err)
-	}
-	if cfg.ParallelJobs != 4 {
-		t.Errorf("expected default ParallelJobs=4, got %d", cfg.ParallelJobs)
+func TestLoadConfigFileRefusesANamedFileThatIsNotThere(t *testing.T) {
+	if _, err := LoadConfigFile("/nonexistent/path/config.yaml"); err == nil {
+		t.Error("want an error: the defaults would run in place of the config the user named")
 	}
 }
 

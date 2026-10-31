@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"ytmusic/internal/config"
+	"ytmusic/internal/downloader"
 	"ytmusic/internal/logger"
 	"ytmusic/internal/lyrics"
 	"ytmusic/internal/metadata"
@@ -17,6 +18,8 @@ import (
 
 	"go.senan.xyz/taglib"
 )
+
+func init() { downloader.RetryDelay = 0 }
 
 // listing is what --flat-playlist prints. Every other call copies fixture where -o points and reports it; name is the shell expression for the file's title.
 // Id "dead" leaves an empty file there and fails, like a conversion that ran out of disk.
@@ -93,6 +96,7 @@ type runResult struct {
 	tmp       string
 	extracted int
 	warnings  []string
+	report    Report
 }
 
 func runFake(t *testing.T, imp dirImporter) runResult {
@@ -103,9 +107,11 @@ func runFake(t *testing.T, imp dirImporter) runResult {
 func runFakePlaylist(t *testing.T, imp dirImporter, id, title string) runResult {
 	t.Helper()
 	cfg, hooks, res := setupFakeRun(t, id, title)
-	if err := run(t.Context(), cfg, logger.New(false), res.tmp, hooks, imp, songLyrics()); err != nil {
+	report, err := run(t.Context(), cfg, logger.New(false), res.tmp, hooks, imp, songLyrics())
+	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
+	res.report = report
 	return *res
 }
 
@@ -158,8 +164,11 @@ func TestRunDownloadsImportsAndFilesTheTracks(t *testing.T) {
 	if res.extracted != 2 {
 		t.Errorf("OnURLsExtracted(%d), want 2", res.extracted)
 	}
-	if !hasWarning(res.warnings, "1 of 2 videos failed") {
-		t.Errorf("warnings = %q, want the dead video reported", res.warnings)
+	if !hasWarning(res.warnings, "Dead (https://www.youtube.com/watch?v=dead): unable to write data") {
+		t.Errorf("warnings = %q, want the dead video reported with yt-dlp's reason", res.warnings)
+	}
+	if res.report.FailedDownloads != 1 || !res.report.Incomplete() {
+		t.Errorf("report = %+v, want one failed download", res.report)
 	}
 	if want := []string{filepath.Join(res.tmp, "merged")}; fmt.Sprint(imp.dirs) != fmt.Sprint(want) {
 		t.Errorf("imported %v, want %v", imp.dirs, want)
@@ -213,7 +222,7 @@ func TestRunCancelledDuringDownloadMovesNothing(t *testing.T) {
 	hooks.OnProgress = cancel
 	imp := &retagger{}
 
-	err := run(ctx, cfg, logger.New(false), res.tmp, hooks, imp, songLyrics())
+	_, err := run(ctx, cfg, logger.New(false), res.tmp, hooks, imp, songLyrics())
 
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("run = %v, want the cancellation", err)
@@ -239,7 +248,7 @@ func TestRunCancelledDuringImportMovesNothing(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	err := run(ctx, cfg, logger.New(false), res.tmp, hooks, cancellingImporter{cancel}, songLyrics())
+	_, err := run(ctx, cfg, logger.New(false), res.tmp, hooks, cancellingImporter{cancel}, songLyrics())
 
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("run = %v, want the cancellation", err)
@@ -259,12 +268,17 @@ func TestRunReportsFilesItCouldNotMove(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := run(t.Context(), cfg, logger.New(false), res.tmp, hooks, &retagger{}, songLyrics()); err != nil {
+	report, err := run(t.Context(), cfg, logger.New(false), res.tmp, hooks, &retagger{}, songLyrics())
+	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
+	res.report = report
 
 	if !hasWarning(res.warnings, "file not moved to the library") {
 		t.Errorf("warnings = %q, want the file that stayed out of the library reported", res.warnings)
+	}
+	if res.report.NotMoved != 1 {
+		t.Errorf("report = %+v, want one file not moved", res.report)
 	}
 }
 
@@ -278,9 +292,11 @@ func TestRunKeepsVideosWithTheSameTitleAndDownloadsARepeatOnce(t *testing.T) {
 	fixture := trackFile(t, t.TempDir(), "fixture.mp3", map[string][]string{taglib.Title: {"Same"}, taglib.Artist: {"Artist"}})
 	calls := writeFakeYtdlp(t, strings.Join(listing, "\n"), fixture, "Same")
 
-	if err := run(t.Context(), cfg, logger.New(false), res.tmp, hooks, &retagger{}, songLyrics()); err != nil {
+	report, err := run(t.Context(), cfg, logger.New(false), res.tmp, hooks, &retagger{}, songLyrics())
+	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
+	res.report = report
 
 	if got := libraryFiles(t, res.out); len(got) != 3 {
 		t.Errorf("library = %v, want one file per video", got)
@@ -295,4 +311,25 @@ func TestRunKeepsVideosWithTheSameTitleAndDownloadsARepeatOnce(t *testing.T) {
 	if n := strings.Count(string(ran), "\n"); n != 3 {
 		t.Errorf("yt-dlp downloaded %d times, want 3:\n%s", n, ran)
 	}
+}
+
+func TestRunClosesTheBarBeforeTheNextPhases(t *testing.T) {
+	cfg, hooks, res := setupFakeRun(t, "PLx", "Mix")
+	var order []string
+	hooks.OnDownloadsDone = func() { order = append(order, "downloads done") }
+
+	imp := importerFunc(func() { order = append(order, "import") })
+	if _, err := run(t.Context(), cfg, logger.New(false), res.tmp, hooks, imp, songLyrics()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if strings.Join(order, ", ") != "downloads done, import" {
+		t.Errorf("order = %v", order)
+	}
+}
+
+type importerFunc func()
+
+func (f importerFunc) Import(context.Context, string, *metadata.Album) error {
+	f()
+	return nil
 }

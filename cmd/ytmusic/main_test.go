@@ -11,7 +11,7 @@ import (
 
 func TestRunRemovesItsTempDir(t *testing.T) {
 	bin := t.TempDir()
-	ytdlp := "#!/bin/sh\necho '{\"id\": \"x\"}'\n"
+	ytdlp := "#!/bin/sh\necho '{\"webpage_url\": \"https://www.youtube.com/watch?v=x\"}'\n"
 	if err := os.WriteFile(filepath.Join(bin, "yt-dlp"), []byte(ytdlp), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -22,7 +22,7 @@ func TestRunRemovesItsTempDir(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.DryRun = true
 	cfg.PlaylistURL = "https://www.youtube.com/playlist?list=x"
-	if err := run(t.Context(), cfg, logger.New(false)); err != nil {
+	if _, err := run(t.Context(), cfg, logger.New(false)); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 

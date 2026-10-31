@@ -44,7 +44,6 @@ func (b *Bar) Finish() {
 	defer b.mu.Unlock()
 
 	if !b.done {
-		b.current = b.total
 		b.render()
 		fmt.Println()
 		b.done = true

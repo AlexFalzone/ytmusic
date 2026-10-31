@@ -3,7 +3,9 @@ package downloader
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"os/exec"
@@ -12,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"ytmusic/internal/config"
 	"ytmusic/internal/logger"
@@ -135,29 +138,40 @@ func (d *Downloader) DownloadSingle(ctx context.Context, url string) ([]string, 
 	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
 
 	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	if d.Config.Verbose {
 		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	} else {
-		cmd.Stderr = &stderr
+		cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
 	}
 
 	runErr := cmd.Run()
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("downloading %s: %w", url, ctx.Err())
 	}
-	if runErr != nil && stderr.Len() > 0 {
-		return nil, fmt.Errorf("yt-dlp error: %w\nDetails: %s", runErr, stderr.String())
-	}
 	if runErr != nil {
-		return nil, runErr
+		d.Logger.Debug("yt-dlp failed on %s:\n%s", url, stderr.String())
+		return nil, errors.New(failureReason(stderr.String(), runErr))
 	}
 
 	report, err := os.ReadFile(listPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading what yt-dlp produced for %s: %w", url, err)
 	}
-	return verifyProduced(url, string(report))
+	produced, err := verifyProduced(url, string(report))
+	if err != nil {
+		return nil, errors.New(failureReason(stderr.String(), err))
+	}
+	return produced, nil
+}
+
+// yt-dlp's last ERROR line says why; the rest of stderr is warnings and progress.
+func failureReason(stderr string, err error) string {
+	for _, line := range slices.Backward(strings.Split(stderr, "\n")) {
+		if reason, ok := strings.CutPrefix(strings.TrimSpace(line), "ERROR: "); ok {
+			return reason
+		}
+	}
+	return err.Error()
 }
 
 // Under --ignore-errors yt-dlp can exit 0 having downloaded nothing.
@@ -180,10 +194,15 @@ func verifyProduced(url, report string) ([]string, error) {
 	return produced, nil
 }
 
+type Failure struct {
+	URL    string
+	Reason string
+}
+
 type DownloadStats struct {
 	Total      int
 	Successful int
-	Failed     int
+	Failures   []Failure           // in playlist order
 	Files      map[string][]string // URL → the files yt-dlp produced for it
 }
 
@@ -194,6 +213,9 @@ func (s DownloadStats) Produced() []string {
 	return all
 }
 
+// YouTube refuses some requests at random: public videos have failed once and worked on the next try. A var so tests can shorten it.
+var RetryDelay = 5 * time.Second
+
 func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadStats, error) {
 	stats := DownloadStats{Total: len(urls), Files: make(map[string][]string)}
 
@@ -203,75 +225,89 @@ func (d *Downloader) DownloadAll(ctx context.Context, urls []string) (DownloadSt
 
 	d.Logger.Info("starting download (%d videos, %d parallel)", len(urls), d.Config.ParallelJobs)
 
-	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, d.Config.ParallelJobs)
-	var mu sync.Mutex // guards failed and stats.Files
-	var failed []string
+	stats.Failures = d.downloadBatch(ctx, urls, stats.Files, d.OnProgress)
+	if len(stats.Failures) > 0 && ctx.Err() == nil {
+		d.Logger.Info("retrying %d failed downloads", len(stats.Failures))
+		select {
+		case <-ctx.Done():
+		case <-time.After(RetryDelay):
+		}
+		// The retry already counted once as progress.
+		stats.Failures = d.downloadBatch(ctx, failedURLs(stats.Failures), stats.Files, nil)
+	}
+	if err := ctx.Err(); err != nil {
+		return stats, fmt.Errorf("downloading playlist: %w", err)
+	}
 
+	stats.Successful = stats.Total - len(stats.Failures)
+	d.Logger.Info("Download completed: %d successful, %d failed", stats.Successful, len(stats.Failures))
+
+	if len(stats.Failures) == len(urls) {
+		return stats, fmt.Errorf("all %d videos failed to download: %s", len(urls), stats.Failures[0].Reason)
+	}
+	return stats, nil
+}
+
+func failedURLs(failures []Failure) []string {
+	urls := make([]string, len(failures))
+	for i, f := range failures {
+		urls[i] = f.URL
+	}
+	return urls
+}
+
+// Successes land in files. A video a cancel cut short is no failure: the caller checks ctx.
+func (d *Downloader) downloadBatch(ctx context.Context, urls []string, files map[string][]string, onProgress func()) []Failure {
+	reasons := make([]string, len(urls))
+	var wg sync.WaitGroup
+	var mu sync.Mutex // guards files
+	semaphore := make(chan struct{}, d.Config.ParallelJobs)
+
+start:
 	for i, url := range urls {
 		select {
 		case <-ctx.Done():
 			d.Logger.Warn("Downloads cancelled, waiting for active downloads to finish...")
-			wg.Wait()
-			stats.Failed = len(failed)
-			stats.Successful = stats.Total - stats.Failed
-			return stats, fmt.Errorf("downloading playlist: %w", ctx.Err())
-		default:
+			break start
+		case semaphore <- struct{}{}:
 		}
 
 		wg.Go(func() {
+			defer func() { <-semaphore }()
 			defer func() {
 				if r := recover(); r != nil {
 					d.Logger.Error("panic while downloading %s: %v\n%s", url, r, debug.Stack())
-					mu.Lock()
-					failed = append(failed, url)
-					mu.Unlock()
+					reasons[i] = fmt.Sprintf("internal error: %v", r)
 				}
 			}()
 
-			semaphore <- struct{}{}
-			defer func() { <-semaphore }()
-
 			d.Logger.Debug("Downloading [%d/%d]: %s", i+1, len(urls), url)
 
-			files, err := d.DownloadSingle(ctx, url)
-			cancelled := ctx.Err() != nil
-			if err != nil && !cancelled {
-				d.Logger.Debug("Download error %s: %v", url, err)
-			}
-			mu.Lock()
+			got, err := d.DownloadSingle(ctx, url)
 			switch {
 			case err == nil:
-				stats.Files[url] = files
-			case !cancelled:
-				failed = append(failed, url)
+				mu.Lock()
+				files[url] = got
+				mu.Unlock()
+			case ctx.Err() == nil:
+				d.Logger.Debug("Download error %s: %v", url, err)
+				reasons[i] = err.Error()
 			}
-			mu.Unlock()
 
-			if d.OnProgress != nil {
-				d.OnProgress()
+			if onProgress != nil {
+				onProgress()
 			}
 		})
 	}
-
 	wg.Wait()
 
-	stats.Failed = len(failed)
-	stats.Successful = stats.Total - stats.Failed
-
-	if len(failed) > 0 {
-		d.Logger.Warn("⚠ %d videos not downloaded (private or unavailable)", len(failed))
-		if d.Config.Verbose {
-			d.Logger.Debug("Failed URLs: %v", failed)
-		}
-
-		if len(failed) == len(urls) {
-			return stats, fmt.Errorf("all %d videos failed to download (private, unavailable, or geo-restricted)", len(urls))
+	var failures []Failure
+	for i, reason := range reasons {
+		if reason != "" {
+			failures = append(failures, Failure{URL: urls[i], Reason: reason})
 		}
 	}
-
-	d.Logger.Info("Download completed: %d successful, %d failed", stats.Successful, stats.Failed)
-	return stats, nil
+	return failures
 }
 
 type Merged struct {

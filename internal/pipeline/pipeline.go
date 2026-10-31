@@ -23,7 +23,18 @@ import (
 type Hooks struct {
 	OnURLsExtracted func(total int)
 	OnProgress      func()
+	OnDownloadsDone func()
 	OnWarning       func(msg string)
+}
+
+// What a run that reached its end left out.
+type Report struct {
+	FailedDownloads int
+	NotMoved        int
+}
+
+func (r Report) Incomplete() bool {
+	return r.FailedDownloads > 0 || r.NotMoved > 0
 }
 
 func (h Hooks) warn(log *logger.Logger, msg string) {
@@ -48,21 +59,22 @@ type lyricsFetcher interface {
 	Fetch(ctx context.Context, artist, title, album string) (lyrics.Result, error)
 }
 
-func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir string, hooks Hooks) error {
+func Run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir string, hooks Hooks) (Report, error) {
 	return run(ctx, cfg, log, tmpDir, hooks, importer.New(cfg, log), lyrics.NewClient(cfg.LyricsTimeout))
 }
 
-func run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir string, hooks Hooks, imp dirImporter, lf lyricsFetcher) error {
+func run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir string, hooks Hooks, imp dirImporter, lf lyricsFetcher) (Report, error) {
+	var report Report
 	dl := downloader.New(cfg, log, tmpDir)
 	dl.OnProgress = hooks.OnProgress
 
 	pl, err := dl.Extract(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to extract URLs: %w", err)
+		return report, fmt.Errorf("failed to extract URLs: %w", err)
 	}
 	urls := pl.URLs()
 	if len(urls) == 0 {
-		return fmt.Errorf("no videos found in playlist - the playlist may be empty or private")
+		return report, fmt.Errorf("no videos found in playlist - the playlist may be empty or private")
 	}
 
 	if hooks.OnURLsExtracted != nil {
@@ -70,59 +82,76 @@ func run(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir stri
 	}
 
 	if cfg.DryRun {
-		return dl.FetchMetadata(ctx, urls)
+		return report, dl.FetchMetadata(ctx, urls)
 	}
 
 	stats, err := dl.DownloadAll(ctx, urls)
-	if err != nil {
-		return fmt.Errorf("download failed: %w", err)
+	if hooks.OnDownloadsDone != nil {
+		hooks.OnDownloadsDone()
 	}
-	// DownloadAll notices a cancel only while starting downloads; one that comes later leaves them neither failed nor done.
-	if err := checkCancelled(ctx, "while downloading"); err != nil {
-		return err
+	if err != nil {
+		return report, fmt.Errorf("download failed: %w", err)
 	}
 
-	if stats.Failed > 0 {
-		hooks.warn(log, fmt.Sprintf("%d of %d videos failed to download (private, unavailable, or geo-restricted)", stats.Failed, stats.Total))
+	report.FailedDownloads = len(stats.Failures)
+	for _, f := range stats.Failures {
+		hooks.warn(log, fmt.Sprintf("video not downloaded: %s: %s", videoLabel(pl, f.URL), f.Reason))
 	}
 
 	merged, err := dl.MergeFiles(stats.Produced())
 	if err != nil {
-		return fmt.Errorf("failed to merge files: %w", err)
+		return report, fmt.Errorf("failed to merge files: %w", err)
 	}
+	report.NotMoved = len(merged.Failed)
 	for _, err := range merged.Failed {
 		hooks.warn(log, fmt.Sprintf("file left out of the run: %v", err))
 	}
 
 	importErr := imp.Import(ctx, merged.Dir, albumFor(pl, stats.Files, merged.Moved))
 	if err := checkCancelled(ctx, "while resolving metadata"); err != nil {
-		return err
+		return report, err
 	}
 	if importErr != nil {
 		hooks.warn(log, fmt.Sprintf("metadata resolution failed: %v", importErr))
 	}
 
 	if !cfg.SkipLyrics {
-		resolveLyrics(ctx, merged.Dir, log, lf)
+		lyricsReport, err := resolveLyrics(ctx, merged.Dir, log, lf)
 		if err := checkCancelled(ctx, "while fetching lyrics"); err != nil {
-			return err
+			return report, err
+		}
+		if err != nil {
+			hooks.warn(log, fmt.Sprintf("lyrics not fetched: %v", err))
+		}
+		if lyricsReport.Failed > 0 {
+			hooks.warn(log, lyricsReport.failureSummary())
 		}
 	}
 
 	log.Info("moving files to %s", cfg.OutputDir)
-	report, err := utils.MoveAudioFiles(merged.Dir, cfg.OutputDir, metadata.SubDirFromTags)
+	moved, err := utils.MoveAudioFiles(merged.Dir, cfg.OutputDir, metadata.SubDirFromTags)
 	if err != nil {
-		return fmt.Errorf("failed to move files to output: %w", err)
+		return report, fmt.Errorf("failed to move files to output: %w", err)
 	}
-	for _, err := range report.Failed {
+	report.NotMoved += len(moved.Failed)
+	for _, err := range moved.Failed {
 		hooks.warn(log, fmt.Sprintf("file not moved to the library: %v", err))
 	}
-	for _, err := range report.LyricsFailed {
+	for _, err := range moved.LyricsFailed {
 		hooks.warn(log, fmt.Sprintf("lyrics not moved next to their track: %v", err))
 	}
-	log.Info("Moved %d files to %s", report.Moved, cfg.OutputDir)
+	log.Info("Moved %d files to %s", moved.Moved, cfg.OutputDir)
 
-	return nil
+	return report, nil
+}
+
+func videoLabel(pl downloader.Playlist, url string) string {
+	for _, e := range pl.Entries {
+		if e.URL == url && e.Title != "" {
+			return fmt.Sprintf("%s (%s)", e.Title, url)
+		}
+	}
+	return url
 }
 
 // nil unless the playlist is an album; each position follows its files through the download and the merge.
@@ -156,21 +185,46 @@ func RunImportOnly(ctx context.Context, cfg config.Config, log *logger.Logger, d
 		return fmt.Errorf("metadata resolution failed: %w", err)
 	}
 
-	if !cfg.SkipLyrics {
-		resolveLyrics(ctx, dir, log, lyrics.NewClient(cfg.LyricsTimeout))
+	if cfg.SkipLyrics {
+		return nil
 	}
-
-	return nil
+	return ResolveLyrics(ctx, cfg, log, dir)
 }
 
-func ResolveLyrics(ctx context.Context, cfg config.Config, log *logger.Logger, dir string) {
-	resolveLyrics(ctx, dir, log, lyrics.NewClient(cfg.LyricsTimeout))
+func ResolveLyrics(ctx context.Context, cfg config.Config, log *logger.Logger, dir string) error {
+	report, err := resolveLyrics(ctx, dir, log, lyrics.NewClient(cfg.LyricsTimeout))
+	if err != nil {
+		return err
+	}
+	if report.Failed > 0 {
+		log.Warn("%s", report.failureSummary())
+	}
+	return checkCancelled(ctx, "while fetching lyrics")
 }
 
-func resolveLyrics(ctx context.Context, dir string, log *logger.Logger, lf lyricsFetcher) {
+// What became of each file; a cancel leaves the rest uncounted.
+type LyricsReport struct {
+	Synced   int
+	Plain    int
+	NotFound int
+	Failed   int
+	Skipped  int // already has lyrics, or nothing to search with
+	lastErr  error
+}
+
+func (r LyricsReport) failureSummary() string {
+	return fmt.Sprintf("lyrics failed for %d files, the last with: %v", r.Failed, r.lastErr)
+}
+
+func resolveLyrics(ctx context.Context, dir string, log *logger.Logger, lf lyricsFetcher) (LyricsReport, error) {
+	var report LyricsReport
 	files, err := utils.FindAudioFiles(dir)
-	if err != nil || len(files) == 0 {
-		return
+	if err != nil {
+		return report, fmt.Errorf("listing audio files: %w", err)
+	}
+	if len(files) == 0 {
+		log.Info("no audio files in %s", dir)
+		return report, nil
 	}
 
 	log.Info("fetching lyrics for %d files", len(files))
@@ -178,6 +232,14 @@ func resolveLyrics(ctx context.Context, dir string, log *logger.Logger, lf lyric
 	const workers = 3
 	sem := make(chan struct{}, workers)
 	var wg sync.WaitGroup
+	var mu sync.Mutex // guards report
+
+	record := func(update func(*LyricsReport)) {
+		mu.Lock()
+		defer mu.Unlock()
+		update(&report)
+	}
+	skip := func(r *LyricsReport) { r.Skipped++ }
 
 	for _, path := range files {
 		if ctx.Err() != nil {
@@ -186,12 +248,15 @@ func resolveLyrics(ctx context.Context, dir string, log *logger.Logger, lf lyric
 
 		tags, err := taglib.ReadTags(path)
 		if err != nil {
+			log.Debug("reading tags of %s: %v", path, err)
+			record(skip)
 			continue
 		}
 
 		lrcPath := strings.TrimSuffix(path, filepath.Ext(path)) + ".lrc"
 		if _, err := os.Stat(lrcPath); err == nil {
 			log.Debug("lyrics already exist: %s", filepath.Base(lrcPath))
+			record(skip)
 			continue
 		}
 
@@ -199,6 +264,8 @@ func resolveLyrics(ctx context.Context, dir string, log *logger.Logger, lf lyric
 		artist := metadata.FirstTag(tags, taglib.Artist)
 		album := metadata.FirstTag(tags, taglib.Album)
 		if title == "" || artist == "" {
+			log.Debug("no title or artist to search lyrics with: %s", filepath.Base(path))
+			record(skip)
 			continue
 		}
 
@@ -213,30 +280,46 @@ func resolveLyrics(ctx context.Context, dir string, log *logger.Logger, lf lyric
 			}()
 
 			result, err := lf.Fetch(ctx, artist, title, album)
-			if err != nil {
-				log.Debug("lyrics fetch failed for %q: %v", title, err)
+			if ctx.Err() != nil {
 				return
 			}
-
-			if result.Synced != "" {
-				if err := os.WriteFile(lrcPath, []byte(result.Synced), 0644); err != nil {
-					log.Debug("failed to write .lrc file: %v", err)
-				} else {
-					log.Debug("saved synced lyrics: %s", filepath.Base(lrcPath))
-				}
-			} else if result.Plain != "" {
-				if err := taglib.WriteTags(path, map[string][]string{
-					taglib.Lyrics: {result.Plain},
-				}, 0); err != nil {
-					log.Debug("failed to write lyrics tag: %v", err)
-				} else {
-					log.Debug("embedded plain lyrics for %q", title)
-				}
-			} else {
-				log.Debug("no lyrics found for %q", title)
+			if err != nil {
+				log.Debug("lyrics fetch failed for %q: %v", title, err)
+				record(func(r *LyricsReport) { r.Failed++; r.lastErr = err })
+				return
 			}
+			record(saveLyrics(result, path, lrcPath, title, log))
 		})
 	}
 
 	wg.Wait()
+
+	log.Info("lyrics: %d synced, %d plain, %d not found, %d failed, %d skipped",
+		report.Synced, report.Plain, report.NotFound, report.Failed, report.Skipped)
+	return report, nil
+}
+
+func saveLyrics(result lyrics.Result, path, lrcPath, title string, log *logger.Logger) func(*LyricsReport) {
+	failed := func(err error) func(*LyricsReport) {
+		log.Debug("saving lyrics of %q: %v", title, err)
+		return func(r *LyricsReport) { r.Failed++; r.lastErr = err }
+	}
+
+	switch {
+	case result.Synced != "":
+		if err := os.WriteFile(lrcPath, []byte(result.Synced), 0644); err != nil {
+			return failed(err)
+		}
+		log.Debug("saved synced lyrics: %s", filepath.Base(lrcPath))
+		return func(r *LyricsReport) { r.Synced++ }
+	case result.Plain != "":
+		if err := taglib.WriteTags(path, map[string][]string{taglib.Lyrics: {result.Plain}}, 0); err != nil {
+			return failed(err)
+		}
+		log.Debug("embedded plain lyrics for %q", title)
+		return func(r *LyricsReport) { r.Plain++ }
+	default:
+		log.Debug("no lyrics found for %q", title)
+		return func(r *LyricsReport) { r.NotFound++ }
+	}
 }

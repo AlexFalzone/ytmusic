@@ -1,9 +1,7 @@
 package config
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -107,7 +105,7 @@ func DefaultConfig() Config {
 	}
 }
 
-// An empty path searches the standard locations; no file found means defaults.
+// An empty path searches the standard locations, where no file found means defaults.
 func LoadConfigFile(path string) (Config, error) {
 	cfg := DefaultConfig()
 
@@ -118,11 +116,9 @@ func LoadConfigFile(path string) (Config, error) {
 		}
 	}
 
+	// Also a file the user named and mistyped: running on the defaults would write elsewhere, unnoticed.
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return cfg, nil
-		}
 		return cfg, fmt.Errorf("failed to read config file %s: %w", path, err)
 	}
 

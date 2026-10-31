@@ -254,6 +254,51 @@ exit %d
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
+func init() { RetryDelay = 0 }
+
+func TestDownloadAllReportsYtdlpsReason(t *testing.T) {
+	for _, verbose := range []bool{false, true} {
+		fakeYtdlp(t, `echo "WARNING: [youtube] slow" >&2; echo "ERROR: [youtube] x: Video unavailable" >&2; echo "last line of noise" >&2`, 1)
+
+		cfg := config.DefaultConfig()
+		cfg.Verbose = verbose
+		d := New(cfg, logger.New(false), t.TempDir())
+		stats, err := d.DownloadAll(t.Context(), []string{"https://example.com/watch?v=x"})
+
+		if len(stats.Failures) != 1 || stats.Failures[0].Reason != "[youtube] x: Video unavailable" {
+			t.Errorf("verbose=%v: Failures = %+v, want yt-dlp's ERROR line", verbose, stats.Failures)
+		}
+		if err == nil || !strings.Contains(err.Error(), "Video unavailable") {
+			t.Errorf("verbose=%v: error %v does not say why", verbose, err)
+		}
+	}
+}
+
+// A public video that fails once is no failure, and the bar counts it once.
+func TestDownloadAllRetriesAFailedVideoOnce(t *testing.T) {
+	mark := filepath.Join(t.TempDir(), "tried")
+	song := filepath.Join(t.TempDir(), "song.mp3")
+	if err := os.WriteFile(song, []byte("audio"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	fakeYtdlp(t, fmt.Sprintf(`if [ ! -e %q ]; then : > %q; echo "ERROR: HTTP 403" >&2; exit 1; fi; echo %q > "$list"`, mark, mark, song), 0)
+
+	d := New(config.DefaultConfig(), logger.New(false), t.TempDir())
+	var progress atomic.Int32
+	d.OnProgress = func() { progress.Add(1) }
+
+	stats, err := d.DownloadAll(t.Context(), []string{"https://example.com/watch?v=x"})
+	if err != nil {
+		t.Fatalf("DownloadAll: %v", err)
+	}
+	if len(stats.Failures) != 0 || stats.Successful != 1 {
+		t.Errorf("stats = %+v, want the retry to have worked", stats)
+	}
+	if got := progress.Load(); got != 1 {
+		t.Errorf("progress ran %d times, want 1", got)
+	}
+}
+
 func TestDownloadSingleFailsWhenNothingWasProduced(t *testing.T) {
 	// --ignore-errors: yt-dlp succeeds, the report stays empty.
 	fakeYtdlp(t, ":", 0)
