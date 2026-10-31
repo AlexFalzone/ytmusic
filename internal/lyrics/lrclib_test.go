@@ -9,7 +9,10 @@ import (
 
 	"ytmusic/internal/buildinfo"
 	"ytmusic/internal/testhttp"
+	"ytmusic/internal/throttle"
 )
+
+func init() { limiter = throttle.New(0) }
 
 func TestFetch(t *testing.T) {
 	tests := []struct {
@@ -141,14 +144,9 @@ func TestFetchRetriesWhenOverloaded(t *testing.T) {
 	}
 }
 
-func TestNetworkErrorsAreTransient(t *testing.T) {
-	srv := httptest.NewServer(http.NotFoundHandler())
-	c := NewClient(5 * time.Second)
-	c.apiURL = srv.URL
-	srv.Close()
-
-	_, err := c.doFetch(t.Context(), "Artist", "Title", "Album")
-	if err == nil || !isTransient(err) {
-		t.Errorf("err = %v, want a transient error", err)
+func TestClientsShareOneThrottle(t *testing.T) {
+	a, b := NewClient(time.Second), NewClient(time.Second)
+	if a.api.Throttle == nil || a.api.Throttle != b.api.Throttle {
+		t.Error("concurrent jobs must split one rate")
 	}
 }

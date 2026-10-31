@@ -3,7 +3,9 @@ package metadata
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -25,6 +27,29 @@ type Resolver struct {
 	tags               *tagStore
 	workers            int
 	fingerprintOff     *sync.Once // a pointer: forFile copies the Resolver, and the warning is once per run
+	failures           *providerFailures
+}
+
+// One search failing is a debug line; a provider failing all run long, as with wrong credentials, is worth a warning.
+type providerFailures struct {
+	mu     sync.Mutex
+	counts map[string]int
+	last   map[string]error
+}
+
+func (f *providerFailures) add(provider string, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.counts[provider]++
+	f.last[provider] = err
+}
+
+func (f *providerFailures) report(log *logger.Logger) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, provider := range slices.Sorted(maps.Keys(f.counts)) {
+		log.Warn("provider %s failed %d times, the last with: %v", provider, f.counts[provider], f.last[provider])
+	}
 }
 
 func NewResolver(providers []Provider, log *logger.Logger, threshold float64) *Resolver {
@@ -43,6 +68,7 @@ func NewResolver(providers []Provider, log *logger.Logger, threshold float64) *R
 		tags:           &tagStore{},
 		workers:        1,
 		fingerprintOff: &sync.Once{},
+		failures:       &providerFailures{counts: make(map[string]int), last: make(map[string]error)},
 	}
 }
 
@@ -89,6 +115,7 @@ func (r *Resolver) Resolve(ctx context.Context, files []string, album *Album) er
 	}
 
 	failed := r.resolveFiles(ctx, files, trackOnly)
+	r.failures.report(r.logger)
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("resolving metadata: %w", err)
 	}

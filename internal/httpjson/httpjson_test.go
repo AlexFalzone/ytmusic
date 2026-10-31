@@ -219,6 +219,75 @@ func TestGetWaitsForTheThrottle(t *testing.T) {
 	}
 }
 
+func TestGetRetriesGatewayErrors(t *testing.T) {
+	shortenBackoff(t)
+	for _, status := range []int{http.StatusBadGateway, http.StatusGatewayTimeout} {
+		srv, calls := serve(t, reply{status: status}, reply{status: http.StatusOK, body: `{}`})
+		c := newClient()
+		c.Retries = 1
+
+		if err := c.Get(t.Context(), srv.URL, nil, &struct{}{}); err != nil {
+			t.Errorf("status %d: %v", status, err)
+		}
+		if calls.Load() != 2 {
+			t.Errorf("status %d: %d calls, want 2", status, calls.Load())
+		}
+	}
+}
+
+func TestGetRetriesADroppedConnection(t *testing.T) {
+	shortenBackoff(t)
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			conn, _, err := http.NewResponseController(w).Hijack()
+			if err != nil {
+				t.Errorf("hijack: %v", err)
+				return
+			}
+			if err := conn.Close(); err != nil {
+				t.Errorf("close: %v", err)
+			}
+			return
+		}
+		if _, err := w.Write([]byte(`{}`)); err != nil {
+			t.Errorf("write: %v", err)
+		}
+	}))
+	defer srv.Close()
+	c := newClient()
+	c.Retries = 1
+
+	if err := c.Get(t.Context(), srv.URL, nil, &struct{}{}); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if calls.Load() != 2 {
+		t.Errorf("%d calls, want 2", calls.Load())
+	}
+}
+
+func TestGetDoesNotRetryACancelledRequest(t *testing.T) {
+	shortenBackoff(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		cancel()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+	c := newClient()
+	c.Retries = 3
+
+	if err := c.Get(ctx, srv.URL, nil, &struct{}{}); !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want the cancellation", err)
+	}
+	if calls.Load() != 1 {
+		t.Errorf("%d calls, want 1", calls.Load())
+	}
+}
+
 func TestGetKeepsNetworkErrorsInspectable(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	url := srv.URL

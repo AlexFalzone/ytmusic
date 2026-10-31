@@ -3,9 +3,11 @@ package httpjson
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -28,7 +30,7 @@ const maxRetryAfter = 30 * time.Second
 type Client struct {
 	HTTP     *http.Client
 	Throttle *throttle.Throttle
-	Retries  int // on 429 and 503
+	Retries  int // on a dropped connection or timeout, and on 429, 502, 503 and 504
 }
 
 type StatusError struct {
@@ -87,14 +89,26 @@ func (c *Client) fetch(ctx context.Context, header http.Header, dest any, build 
 func (c *Client) do(ctx context.Context, header http.Header, build newRequest) (*http.Response, error) {
 	for attempt := 0; ; attempt++ {
 		resp, err := c.send(ctx, header, build)
-		if err != nil || attempt == c.Retries || !slowDown(resp.StatusCode) {
+		if attempt == c.Retries || ctx.Err() != nil {
 			return resp, err
 		}
-		wait, ok := retryWait(resp.Header.Get("Retry-After"), attempt)
-		if !ok {
+
+		var wait time.Duration
+		switch {
+		case err != nil:
+			if _, ok := errors.AsType[net.Error](err); !ok {
+				return nil, err
+			}
+			wait = retryBackoff << attempt
+		case slowDown(resp.StatusCode):
+			var ok bool
+			if wait, ok = retryWait(resp.Header.Get("Retry-After"), attempt); !ok {
+				return resp, nil
+			}
+			resp.Body.Close()
+		default:
 			return resp, nil
 		}
-		resp.Body.Close()
 
 		if err := sleep(ctx, wait); err != nil {
 			return nil, fmt.Errorf("waiting to retry: %w", err)
@@ -135,7 +149,11 @@ func (c *Client) send(ctx context.Context, header http.Header, build newRequest)
 }
 
 func slowDown(status int) bool {
-	return status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable
+	switch status {
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	}
+	return false
 }
 
 // Retry-After in seconds is a floor under the backoff, not the wait: MusicBrainz sheds load with Retry-After: 0, and an immediate retry meets the same overload.

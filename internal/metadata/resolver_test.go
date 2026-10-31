@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -230,5 +231,32 @@ func TestFingerprintErrorIsQuietWhenCancelled(t *testing.T) {
 	}
 	if got := warnings(read(), ""); got != 0 {
 		t.Errorf("%d warnings after a cancel, want 0", got)
+	}
+}
+
+// Wrong credentials fail every search: without this the run ends "fine" with worse tags.
+func TestResolveWarnsAboutAProviderThatKeepsFailing(t *testing.T) {
+	dir := t.TempDir()
+	paths := make([]string, 3)
+	for i := range paths {
+		paths[i] = testaudio.MP3(t, dir, fmt.Sprintf("%d.mp3", i), "0.1")
+		writeTestTags(t, paths[i], map[string][]string{taglib.Title: {fmt.Sprintf("Song %d", i)}, taglib.Artist: {"Artist"}})
+	}
+
+	var warnings []string
+	log := logger.New(false).WithSink(func(l logger.Line) {
+		if l.Level == "WARN" {
+			warnings = append(warnings, l.Text)
+		}
+	})
+	broken := &mockProvider{name: "spotify", err: errors.New("HTTP 400: invalid_client")}
+	if err := NewResolver([]Provider{broken}, log, 0.7).Resolve(t.Context(), paths, nil); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	if !slices.ContainsFunc(warnings, func(w string) bool {
+		return strings.Contains(w, "spotify failed 3 times") && strings.Contains(w, "invalid_client")
+	}) {
+		t.Errorf("warnings = %q, want the provider's failures summed up", warnings)
 	}
 }

@@ -20,7 +20,7 @@ type Client struct {
 
 func New() *Client {
 	return &Client{
-		api:    &httpjson.Client{HTTP: &http.Client{Timeout: 10 * time.Second}},
+		api:    &httpjson.Client{HTTP: &http.Client{Timeout: 10 * time.Second}, Retries: 1},
 		apiURL: "https://api.deezer.com",
 	}
 }

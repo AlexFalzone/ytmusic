@@ -51,7 +51,7 @@ func TestSearchMapsTheAnswer(t *testing.T) {
 		Genre: "Rock", TrackNumber: 3, DiscNumber: 2,
 		ArtworkURL:  "https://is1.mzstatic.com/a/600x600bb.jpg",
 		Duration:    215 * time.Second,
-		ReleaseDate: "2019-11-29T08:00:00Z", Year: 2019,
+		ReleaseDate: "2019-11-29", Year: 2019,
 	}
 	if len(got) != 1 || got[0] != want {
 		t.Errorf("Search = %+v, want [%+v]", got, want)

@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"time"
 
 	"ytmusic/internal/httpjson"
+	"ytmusic/internal/throttle"
 )
 
 type Result struct {
@@ -22,39 +22,21 @@ type Client struct {
 	apiURL string
 }
 
+// LRCLib publishes no limit; with three workers and no spacing it answered 429.
+const requestInterval = 500 * time.Millisecond
+
+// Shared by every client: concurrent runs come from one address.
+var limiter = throttle.New(requestInterval)
+
 func NewClient(timeout time.Duration) *Client {
 	return &Client{
-		api:    &httpjson.Client{HTTP: &http.Client{Timeout: timeout}, Retries: 2},
+		api:    &httpjson.Client{HTTP: &http.Client{Timeout: timeout}, Throttle: limiter, Retries: 2},
 		apiURL: "https://lrclib.net/api/get",
 	}
 }
 
 // Not found is an empty Result, not an error.
 func (c *Client) Fetch(ctx context.Context, artist, title, album string) (Result, error) {
-	result, err := c.doFetch(ctx, artist, title, album)
-	if err == nil {
-		return result, nil
-	}
-
-	// An HTTP error would fail the same way again; a network error might not.
-	if !isTransient(err) {
-		return Result{}, err
-	}
-
-	select {
-	case <-ctx.Done():
-		return Result{}, err
-	case <-time.After(2 * time.Second):
-	}
-	return c.doFetch(ctx, artist, title, album)
-}
-
-func isTransient(err error) bool {
-	_, ok := errors.AsType[net.Error](err)
-	return ok
-}
-
-func (c *Client) doFetch(ctx context.Context, artist, title, album string) (Result, error) {
 	params := url.Values{}
 	params.Set("artist_name", artist)
 	params.Set("track_name", title)

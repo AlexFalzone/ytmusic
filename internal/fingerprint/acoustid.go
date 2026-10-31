@@ -44,6 +44,7 @@ func NewAcoustIDClient(apiKey, baseURL string) *AcoustIDClient {
 		api: &httpjson.Client{
 			HTTP:     &http.Client{Timeout: 10 * time.Second},
 			Throttle: limiter,
+			Retries:  1,
 		},
 	}
 }

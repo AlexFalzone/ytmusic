@@ -103,13 +103,24 @@ func (r *Resolver) writeResolved(path string, existing map[string][]string, info
 	return nil
 }
 
+func (r *Resolver) search(ctx context.Context, p Provider, query SearchQuery) ([]TrackInfo, bool) {
+	results, err := p.Search(ctx, query)
+	if err != nil {
+		r.logger.Debug("  provider %s failed: %v", p.Name(), err)
+		if ctx.Err() == nil {
+			r.failures.add(p.Name(), err)
+		}
+		return nil, false
+	}
+	return results, true
+}
+
 // An exact match ends the search; a donor waits for every provider to offer the variant itself.
 func (r *Resolver) findPrimaryMatch(ctx context.Context, src source) (match, bool) {
 	var donor *match
 	for i, p := range r.providers {
-		results, err := p.Search(ctx, src.query)
-		if err != nil {
-			r.logger.Debug("  provider %s failed: %v", p.Name(), err)
+		results, ok := r.search(ctx, p, src.query)
+		if !ok {
 			continue
 		}
 		if len(results) == 0 {
@@ -149,12 +160,8 @@ func (r *Resolver) fillGaps(ctx context.Context, src source, primary match, fail
 	}
 
 	for _, p := range r.providers[primary.providerIdx+1:] {
-		results, err := p.Search(ctx, src.query)
-		if err != nil {
-			r.logger.Debug("  provider %s failed: %v", p.Name(), err)
-			continue
-		}
-		if len(results) == 0 {
+		results, ok := r.search(ctx, p, src.query)
+		if !ok || len(results) == 0 {
 			continue
 		}
 

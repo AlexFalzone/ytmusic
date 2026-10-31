@@ -29,6 +29,7 @@ func New() *Client {
 		api: &httpjson.Client{
 			HTTP:     &http.Client{Timeout: 10 * time.Second},
 			Throttle: limiter,
+			Retries:  1,
 		},
 		apiURL: "https://itunes.apple.com/search",
 	}
@@ -69,6 +70,8 @@ func buildTerm(query metadata.SearchQuery) string {
 func parseResults(items []resultItem) []metadata.TrackInfo {
 	var results []metadata.TrackInfo
 	for _, item := range items {
+		// A timestamp in the API; the date tag takes a date.
+		date, _, _ := strings.Cut(item.ReleaseDate, "T")
 		info := metadata.TrackInfo{
 			Title:       item.TrackName,
 			Artist:      item.ArtistName,
@@ -78,7 +81,7 @@ func parseResults(items []resultItem) []metadata.TrackInfo {
 			TrackNumber: item.TrackNumber,
 			DiscNumber:  item.DiscNumber,
 			Year:        metadata.ParseYear(item.ReleaseDate),
-			ReleaseDate: item.ReleaseDate,
+			ReleaseDate: date,
 			ArtworkURL:  strings.Replace(item.ArtworkURL100, "100x100", "600x600", 1),
 			Duration:    time.Duration(item.TrackTimeMillis) * time.Millisecond,
 		}
