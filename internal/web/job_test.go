@@ -385,3 +385,13 @@ func TestListJobsNewestFirst(t *testing.T) {
 		}
 	}
 }
+
+func TestUnsubscribeLeavesNothingBehindForAnUnknownJob(t *testing.T) {
+	jm := NewJobManager()
+	ch := jm.Subscribe("job_gone")
+	jm.Unsubscribe("job_gone", ch)
+
+	if len(jm.listeners) != 0 {
+		t.Errorf("listeners = %v, want none", jm.listeners)
+	}
+}

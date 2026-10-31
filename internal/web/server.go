@@ -28,6 +28,7 @@ type Server struct {
 	logins   *loginLimiter
 	wg       sync.WaitGroup
 	jobSem   chan struct{}
+	pongWait time.Duration
 
 	runPipeline func(context.Context, config.Config, *logger.Logger, string, pipeline.Hooks) error
 }
@@ -45,7 +46,8 @@ func NewServer(ctx context.Context, jobMgr *JobManager, cfg config.Config, log *
 		sessions: newSessionStore(cfg.Auth.TTL()),
 		logins:   newLoginLimiter(),
 		// An unbuffered channel would deadlock every job.
-		jobSem: make(chan struct{}, max(cfg.MaxConcurrentJobs, 1)),
+		jobSem:   make(chan struct{}, max(cfg.MaxConcurrentJobs, 1)),
+		pongWait: wsPongWait,
 		// A job shows what the run left out through its warnings.
 		runPipeline: func(ctx context.Context, cfg config.Config, log *logger.Logger, tmpDir string, hooks pipeline.Hooks) error {
 			_, err := pipeline.Run(ctx, cfg, log, tmpDir, hooks)
@@ -75,7 +77,21 @@ func (s *Server) Router() http.Handler {
 	csrf := http.NewCrossOriginProtection()
 
 	// Outermost first: a cross-site request is rejected before it touches a session.
-	return s.loggingMiddleware(csrf.Handler(s.requireAuth(mux)))
+	return securityHeaders(s.loggingMiddleware(csrf.Handler(s.requireAuth(mux))))
+}
+
+// The pages load only their own files, and no other site can frame the Download button.
+const contentSecurityPolicy = "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", contentSecurityPolicy)
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "no-referrer")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) StartSessionGC(ctx context.Context) {
@@ -141,7 +157,8 @@ func (rw *responseWriter) WriteHeader(status int) {
 
 func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(r.URL.Path, "/api/") || r.Header.Get("Upgrade") == "websocket" {
+		// The container's health check comes every 30 s and would bury everything else.
+		if !strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/api/health" {
 			next.ServeHTTP(w, r)
 			return
 		}

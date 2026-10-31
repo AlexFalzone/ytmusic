@@ -83,13 +83,12 @@ func (l *loginLimiter) gc() {
 }
 
 // X-Forwarded-For only behind a declared proxy: anyone can forge it otherwise.
+// Even then only its last value: the proxy appends what it saw to whatever the client sent.
 func clientIP(r *http.Request, behindProxy bool) string {
-	if behindProxy {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			if i := strings.Index(xff, ","); i > 0 {
-				return strings.TrimSpace(xff[:i])
-			}
-			return strings.TrimSpace(xff)
+	if values := r.Header.Values("X-Forwarded-For"); behindProxy && len(values) > 0 {
+		last := values[len(values)-1]
+		if ip := strings.TrimSpace(last[strings.LastIndexByte(last, ',')+1:]); ip != "" {
+			return ip
 		}
 	}
 

@@ -9,6 +9,15 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+const (
+	wsWriteWait  = 10 * time.Second
+	wsPingPeriod = 30 * time.Second
+	// One ping can go unanswered while the next is on its way.
+	wsPongWait = wsPingPeriod + wsWriteWait
+	// Clients send only control frames.
+	wsMaxFrame = 1 << 10
+)
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
@@ -59,6 +68,14 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	updates := s.jobMgr.Subscribe(jobID)
 	defer s.jobMgr.Unsubscribe(jobID, updates)
 
+	// A client that went away without a word, like a laptop put to sleep, is noticed by the read deadline.
+	conn.SetReadLimit(wsMaxFrame)
+	extendReadDeadline := func(string) error { return conn.SetReadDeadline(time.Now().Add(s.pongWait)) }
+	conn.SetPongHandler(extendReadDeadline)
+	if err := extendReadDeadline(""); err != nil {
+		return
+	}
+
 	clientGone := make(chan struct{})
 	go s.readPump(conn, clientGone)
 
@@ -67,7 +84,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(wsPingPeriod)
 	defer ticker.Stop()
 
 	for {
@@ -81,7 +98,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 
 		case <-ticker.C:
-			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(wsWriteWait)); err != nil {
 				return
 			}
 		}
@@ -113,6 +130,9 @@ func (js *jobSender) send() (done bool) {
 	data, err := json.Marshal(wsMessage{Job: js.s.jobToResponse(job), Log: lines, LogDropped: dropped})
 	if err != nil {
 		js.s.logger.Error("marshalling the update of job %s: %v", js.jobID, err)
+		return true
+	}
+	if err := js.conn.SetWriteDeadline(time.Now().Add(wsWriteWait)); err != nil {
 		return true
 	}
 	if err := js.conn.WriteMessage(websocket.TextMessage, data); err != nil {

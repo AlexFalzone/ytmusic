@@ -406,3 +406,38 @@ func TestMeRejectsMissingSession(t *testing.T) {
 		t.Errorf("got %d, want 401", rec.Code)
 	}
 }
+
+// Behind nginx's $proxy_add_x_forwarded_for the list is what the client sent, then the address the proxy saw.
+func TestClientIPTrustsOnlyWhatTheProxyWrote(t *testing.T) {
+	tests := []struct {
+		name   string
+		values []string
+		want   string
+	}{
+		{"single", []string{"203.0.113.9"}, "203.0.113.9"},
+		{"forged list", []string{"1.1.1.1, 2.2.2.2, 203.0.113.9"}, "203.0.113.9"},
+		{"forged header line", []string{"1.1.1.1", "203.0.113.9"}, "203.0.113.9"},
+		{"no header", nil, "192.0.2.1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodPost, "/api/login", nil)
+			r.RemoteAddr = "192.0.2.1:4242"
+			for _, v := range tt.values {
+				r.Header.Add("X-Forwarded-For", v)
+			}
+			if got := clientIP(r, true); got != tt.want {
+				t.Errorf("clientIP = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestClientIPIgnoresForwardedForWithoutAProxy(t *testing.T) {
+	r := httptest.NewRequest(http.MethodPost, "/api/login", nil)
+	r.RemoteAddr = "192.0.2.1:4242"
+	r.Header.Set("X-Forwarded-For", "1.1.1.1")
+	if got := clientIP(r, false); got != "192.0.2.1" {
+		t.Errorf("clientIP = %q, want the peer address", got)
+	}
+}

@@ -264,7 +264,10 @@ func (jm *JobManager) Unsubscribe(jobID string, ch <-chan struct{}) {
 	listeners := jm.listeners[jobID]
 	for i, listener := range listeners {
 		if listener == ch {
-			jm.listeners[jobID] = append(listeners[:i], listeners[i+1:]...)
+			jm.listeners[jobID] = slices.Delete(listeners, i, i+1)
+			if len(jm.listeners[jobID]) == 0 {
+				delete(jm.listeners, jobID)
+			}
 			close(listener)
 			break
 		}

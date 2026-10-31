@@ -68,7 +68,7 @@ func (l *Logger) WithSink(sink func(Line)) *Logger {
 func (l *Logger) SetFileLog(path string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		return fmt.Errorf("opening log file: %w", err)
 	}

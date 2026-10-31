@@ -29,6 +29,8 @@ async function logout() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('logout-btn').addEventListener('click', logout);
+    document.getElementById('download-btn').addEventListener('click', startDownload);
     refreshJobs();
     setInterval(refreshJobs, 10000);
 });

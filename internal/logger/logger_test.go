@@ -3,6 +3,8 @@ package logger
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -195,5 +197,22 @@ func TestFormatNewlinesAndStackTracesSurvive(t *testing.T) {
 
 	if !strings.Contains(buf.String(), "panic: boom\ngoroutine 1\nmain.go:1") {
 		t.Errorf("out = %q", buf.String())
+	}
+}
+
+func TestLogFileIsPrivate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "run.log")
+	l := New(false)
+	if err := l.SetFileLog(path); err != nil {
+		t.Fatalf("SetFileLog: %v", err)
+	}
+	defer func() { _ = l.Close() }() // only the mode matters here
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Errorf("mode = %v, want 0600: the log holds playlist URLs", info.Mode().Perm())
 	}
 }

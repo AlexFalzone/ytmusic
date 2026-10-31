@@ -115,3 +115,59 @@ func TestWebSocketClosesOnAnUnknownJob(t *testing.T) {
 	s := newTestServer(t, nil)
 	expectClosed(t, dialJob(t, s, "job_unknown"))
 }
+
+func TestSocketDropsAClientThatStopsAnswering(t *testing.T) {
+	s := newTestServer(t, nil)
+	s.pongWait = 50 * time.Millisecond
+	job, err := s.jobMgr.CreateJob(t.Context(), "https://youtube.com/x", s.config)
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+
+	dialJob(t, s, job.ID) // never reads, so it never answers a ping
+
+	listening := func() bool {
+		s.jobMgr.mu.RLock()
+		defer s.jobMgr.mu.RUnlock()
+		return len(s.jobMgr.listeners[job.ID]) > 0
+	}
+	waitFor(t, listening, "the socket to open")
+	waitFor(t, func() bool { return !listening() }, "the socket of a silent client to close")
+}
+
+func waitFor(t *testing.T, cond func() bool, what string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestSocketRefusesAnOversizedFrame(t *testing.T) {
+	s := newTestServer(t, nil)
+	job, err := s.jobMgr.CreateJob(t.Context(), "https://youtube.com/x", s.config)
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+	conn := dialJob(t, s, job.ID)
+
+	if err := conn.WriteMessage(websocket.TextMessage, make([]byte, 1<<20)); err != nil {
+		return // the server hung up before the frame was through
+	}
+	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		_, _, err := conn.ReadMessage()
+		if err == nil {
+			continue
+		}
+		if !websocket.IsCloseError(err, websocket.CloseMessageTooBig) {
+			t.Errorf("read: %v, want the close for a frame too big", err)
+		}
+		return
+	}
+}
