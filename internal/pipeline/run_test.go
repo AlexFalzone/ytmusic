@@ -18,18 +18,22 @@ import (
 	"go.senan.xyz/taglib"
 )
 
-// Lists "song" and "dead" in playlist id: "song" copies fixture where -o points and reports it, "dead" leaves an empty file there and fails, like a conversion that ran out of disk.
-func fakeYtdlp(t *testing.T, fixture, id, title string) {
+// listing is what --flat-playlist prints. Every other call copies fixture where -o points and reports it; name is the shell expression for the file's title.
+// Id "dead" leaves an empty file there and fails, like a conversion that ran out of disk.
+func writeFakeYtdlp(t *testing.T, listing, fixture, name string) string {
 	t.Helper()
-	entry := `{"id": "%s", "title": "%s", "playlist_id": "` + id + `", "playlist_title": "` + title + `", "playlist_count": 2, "playlist_index": %d}`
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
 	script := `#!/bin/sh
 for a in "$@"; do last="$a"; done
 case " $* " in
 *" --flat-playlist "*)
-	echo '` + fmt.Sprintf(entry, "song", "Song", 1) + `'
-	echo '` + fmt.Sprintf(entry, "dead", "Dead", 2) + `'
+	cat <<'LISTING'
+` + listing + `
+LISTING
 	exit 0;;
 esac
+echo "$last" >> "` + calls + `"
 next=""
 for a in "$@"; do
 	case "$next" in
@@ -41,17 +45,25 @@ for a in "$@"; do
 	[ "$a" = "after_move:filepath" ] && next=list
 done
 id="${last##*=}"
-out=$(printf '%s' "$tmpl" | sed -e 's/%(artist)s/Artist/' -e 's/%(album)s/Album/' -e "s/%(title)s/$id/" -e 's/%(ext)s/mp3/')
+name=` + name + `
+out=$(printf '%s' "$tmpl" | sed -e "s/%(id)s/$id/" -e "s/%(title)\.200B/$name/" -e 's/%(ext)s/mp3/')
 mkdir -p "$(dirname "$out")"
 if [ "$id" = "dead" ]; then : > "$out"; echo "ERROR: unable to write data: [Errno 122] Disk quota exceeded" >&2; exit 1; fi
 /bin/cp -f "` + fixture + `" "$out"
 printf '%s\n' "$out" > "$list"
 `
-	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "yt-dlp"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return calls
+}
+
+// Lists "song" and "dead" in playlist id.
+func fakeYtdlp(t *testing.T, fixture, id, title string) {
+	t.Helper()
+	entry := `{"webpage_url": "https://www.youtube.com/watch?v=%s", "title": "%s", "playlist_id": "` + id + `", "playlist_title": "` + title + `", "playlist_count": 2, "playlist_index": %d}`
+	writeFakeYtdlp(t, fmt.Sprintf(entry, "song", "Song", 1)+"\n"+fmt.Sprintf(entry, "dead", "Dead", 2), fixture, `"$id"`)
 }
 
 // Renames every album, so the test can tell files were imported before being moved.
@@ -253,5 +265,34 @@ func TestRunReportsFilesItCouldNotMove(t *testing.T) {
 
 	if !hasWarning(res.warnings, "file not moved to the library") {
 		t.Errorf("warnings = %q, want the file that stayed out of the library reported", res.warnings)
+	}
+}
+
+// Two uploads with one title used to share a path, and the second overwrote the first.
+func TestRunKeepsVideosWithTheSameTitleAndDownloadsARepeatOnce(t *testing.T) {
+	cfg, hooks, res := setupFakeRun(t, "PLx", "Mix")
+	var listing []string
+	for _, id := range []string{"a", "b", "c", "c"} {
+		listing = append(listing, fmt.Sprintf(`{"webpage_url": "https://www.youtube.com/watch?v=%s", "title": "Same"}`, id))
+	}
+	fixture := trackFile(t, t.TempDir(), "fixture.mp3", map[string][]string{taglib.Title: {"Same"}, taglib.Artist: {"Artist"}})
+	calls := writeFakeYtdlp(t, strings.Join(listing, "\n"), fixture, "Same")
+
+	if err := run(t.Context(), cfg, logger.New(false), res.tmp, hooks, &retagger{}, songLyrics()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if got := libraryFiles(t, res.out); len(got) != 3 {
+		t.Errorf("library = %v, want one file per video", got)
+	}
+	if res.extracted != 3 {
+		t.Errorf("extracted = %d, want 3 distinct videos", res.extracted)
+	}
+	ran, err := os.ReadFile(calls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(ran), "\n"); n != 3 {
+		t.Errorf("yt-dlp downloaded %d times, want 3:\n%s", n, ran)
 	}
 }

@@ -37,11 +37,8 @@ func (d *Downloader) Extract(ctx context.Context) (Playlist, error) {
 	d.Logger.Info("extracting urls from playlist")
 	d.Logger.Debug("Playlist URL: %s", d.Config.PlaylistURL)
 
-	cmd := exec.CommandContext(ctx, "yt-dlp",
-		"--flat-playlist",
-		"--print", entryTemplate,
-		d.Config.PlaylistURL,
-	)
+	args := slices.Concat([]string{"--flat-playlist", "--print", entryTemplate}, d.cookieArgs(), []string{d.Config.PlaylistURL})
+	cmd := exec.CommandContext(ctx, "yt-dlp", args...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -73,11 +70,8 @@ func (d *Downloader) FetchMetadata(ctx context.Context, urls []string) error {
 		default:
 		}
 
-		cmd := exec.CommandContext(ctx, "yt-dlp",
-			"--print", "%(title)s - %(artist)s - %(duration_string)s",
-			"--no-download",
-			url,
-		)
+		args := slices.Concat([]string{"--print", "%(title)s - %(artist)s - %(duration_string)s", "--no-download"}, d.cookieArgs(), []string{url})
+		cmd := exec.CommandContext(ctx, "yt-dlp", args...)
 
 		var stdout bytes.Buffer
 		cmd.Stdout = &stdout
@@ -93,10 +87,19 @@ func (d *Downloader) FetchMetadata(ctx context.Context, urls []string) error {
 	return nil
 }
 
-func (d *Downloader) buildYtdlpArgs(url, producedList string) []string {
-	outputTemplate := filepath.Join(d.TmpDir, "%(artist)s", "%(album)s", "%(title)s.%(ext)s")
+// Private playlists and videos need them from the first call on.
+func (d *Downloader) cookieArgs() []string {
+	if d.Config.CookiesBrowser == "" {
+		return nil
+	}
+	return []string{"--cookies-from-browser", d.Config.CookiesBrowser}
+}
 
-	args := []string{
+func (d *Downloader) buildYtdlpArgs(url, producedList string) []string {
+	// A folder per video, or two with one title share a file. 200 bytes leave room for yt-dlp's suffixes under the 255-byte limit.
+	outputTemplate := filepath.Join(d.TmpDir, "%(id)s", "%(title).200B.%(ext)s")
+
+	return slices.Concat([]string{
 		"--extract-audio",
 		"--audio-format", d.Config.AudioFormat,
 		"-f", "bestaudio[ext=m4a]/bestaudio/best",
@@ -112,14 +115,7 @@ func (d *Downloader) buildYtdlpArgs(url, producedList string) []string {
 		// Not --print: it implies --quiet, silencing the progress verbose mode shows.
 		"--print-to-file", "after_move:filepath", producedList,
 		"-o", outputTemplate,
-		url,
-	}
-
-	if d.Config.CookiesBrowser != "" {
-		args = append(args, "--cookies-from-browser", d.Config.CookiesBrowser)
-	}
-
-	return args
+	}, d.cookieArgs(), []string{url})
 }
 
 // The paths are the files yt-dlp reports for url.

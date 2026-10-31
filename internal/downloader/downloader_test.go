@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -357,6 +358,56 @@ func TestMergeFilesReportsWhereEachFileWent(t *testing.T) {
 		got, err := os.ReadFile(dst)
 		if err != nil || string(got) != want {
 			t.Errorf("%s went to %s holding %q (%v), want %q", src, dst, got, err, want)
+		}
+	}
+}
+
+func TestYtdlpOutputStaysApartAndFitsAName(t *testing.T) {
+	tmp := t.TempDir()
+	d := New(config.DefaultConfig(), logger.New(false), tmp)
+	args := d.buildYtdlpArgs("https://example.com/watch?v=x", "list.txt")
+
+	i := slices.Index(args, "-o")
+	if i < 0 {
+		t.Fatalf("args %q lack -o", args)
+	}
+	if want := filepath.Join(tmp, "%(id)s", "%(title).200B.%(ext)s"); args[i+1] != want {
+		t.Errorf("output template = %q, want %q", args[i+1], want)
+	}
+}
+
+func TestCookiesReachEveryYtdlpCall(t *testing.T) {
+	bin := t.TempDir()
+	log := filepath.Join(bin, "calls")
+	script := "#!/bin/sh\necho \"$*\" >> \"" + log + "\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "yt-dlp"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cfg := config.DefaultConfig()
+	cfg.PlaylistURL = "https://example.com/private"
+	cfg.CookiesBrowser = "firefox"
+	d := New(cfg, logger.New(false), t.TempDir())
+
+	if _, err := d.Extract(t.Context()); err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if err := d.FetchMetadata(t.Context(), []string{"https://example.com/v"}); err != nil {
+		t.Fatalf("FetchMetadata: %v", err)
+	}
+
+	calls, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(calls)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("yt-dlp ran %d times, want 2: %q", len(lines), lines)
+	}
+	for _, line := range lines {
+		if !strings.Contains(line, "--cookies-from-browser firefox") {
+			t.Errorf("no cookies in: %s", line)
 		}
 	}
 }

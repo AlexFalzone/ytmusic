@@ -6,9 +6,9 @@ import (
 )
 
 func TestParsePlaylistReadsEntriesInOrder(t *testing.T) {
-	out := `{"id": "a1", "title": "Over My Dead Body", "playlist_index": 1, "playlist_count": 19, "playlist_title": "Album - Take Care (Deluxe)", "playlist_id": "OLAK5uy_x"}
+	out := `{"webpage_url": "https://music.youtube.com/watch?v=a1", "title": "Over My Dead Body", "playlist_index": 1, "playlist_count": 19, "playlist_title": "Album - Take Care (Deluxe)", "playlist_id": "OLAK5uy_x"}
 
-{"id": "b2", "title": "Shot For Me", "playlist_index": 2, "playlist_count": 19, "playlist_title": "Album - Take Care (Deluxe)", "playlist_id": "OLAK5uy_x"}
+{"webpage_url": "https://music.youtube.com/watch?v=b2", "title": "Shot For Me", "playlist_index": 2, "playlist_count": 19, "playlist_title": "Album - Take Care (Deluxe)", "playlist_id": "OLAK5uy_x"}
 `
 	pl, err := parsePlaylist(strings.NewReader(out))
 	if err != nil {
@@ -34,7 +34,7 @@ func TestParsePlaylistReadsEntriesInOrder(t *testing.T) {
 
 // yt-dlp prints only the fields a single video has.
 func TestParsePlaylistSingleVideo(t *testing.T) {
-	pl, err := parsePlaylist(strings.NewReader(`{"id": "jNQXAC9IVRw", "title": "Me at the zoo"}` + "\n"))
+	pl, err := parsePlaylist(strings.NewReader(`{"webpage_url": "https://www.youtube.com/watch?v=jNQXAC9IVRw", "title": "Me at the zoo"}` + "\n"))
 	if err != nil {
 		t.Fatalf("parsePlaylist: %v", err)
 	}
@@ -43,6 +43,41 @@ func TestParsePlaylistSingleVideo(t *testing.T) {
 	}
 	if _, ok := pl.Album(); ok {
 		t.Error("a single video is not an album")
+	}
+}
+
+// An entry's id means nothing outside YouTube: SoundCloud's are plain numbers.
+func TestParsePlaylistKeepsTheSiteOfAnEntry(t *testing.T) {
+	out := `{"id": "290", "url": "https://soundcloud.com/forss/city-ports", "webpage_url": "https://soundcloud.com/forss/city-ports", "playlist_index": 1}`
+	pl, err := parsePlaylist(strings.NewReader(out + "\n"))
+	if err != nil {
+		t.Fatalf("parsePlaylist: %v", err)
+	}
+	if got := pl.Entries[0].URL; got != "https://soundcloud.com/forss/city-ports" {
+		t.Errorf("URL = %q, want the entry's own page", got)
+	}
+}
+
+func TestParsePlaylistFallsBackToTheEntryURL(t *testing.T) {
+	pl, err := parsePlaylist(strings.NewReader(`{"url": "https://example.com/track/1"}` + "\n"))
+	if err != nil {
+		t.Fatalf("parsePlaylist: %v", err)
+	}
+	if got := pl.Entries[0].URL; got != "https://example.com/track/1" {
+		t.Errorf("URL = %q, want the url field", got)
+	}
+}
+
+func TestParsePlaylistRejectsAnEntryWithoutAURL(t *testing.T) {
+	if _, err := parsePlaylist(strings.NewReader(`{"title": "Nowhere"}` + "\n")); err == nil {
+		t.Error("expected an error for an entry nothing can download")
+	}
+}
+
+func TestPlaylistURLsDropDuplicatesInOrder(t *testing.T) {
+	pl := Playlist{Entries: []Entry{{URL: "b"}, {URL: "a"}, {URL: "b"}, {URL: "c"}}}
+	if got := strings.Join(pl.URLs(), " "); got != "b a c" {
+		t.Errorf("URLs() = %q, want b a c", got)
 	}
 }
 

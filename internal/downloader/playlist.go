@@ -2,14 +2,15 @@ package downloader
 
 import (
 	"bufio"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
 )
 
-// The fields --flat-playlist prints for each entry; a single video has only id and title.
-const entryTemplate = "%(.{id,title,playlist_id,playlist_title,playlist_count,playlist_index})j"
+// The fields --flat-playlist prints for each entry; a single video has only webpage_url and title.
+const entryTemplate = "%(.{title,url,webpage_url,playlist_id,playlist_title,playlist_count,playlist_index})j"
 
 type Entry struct {
 	URL      string
@@ -32,8 +33,22 @@ func (p Playlist) Album() (string, bool) {
 	return strings.TrimPrefix(p.Title, "Album - "), true
 }
 
+// Each video once, in playlist order: a repeat would run two yt-dlp on the same files.
+func (p Playlist) URLs() []string {
+	seen := make(map[string]bool, len(p.Entries))
+	var urls []string
+	for _, e := range p.Entries {
+		if !seen[e.URL] {
+			seen[e.URL] = true
+			urls = append(urls, e.URL)
+		}
+	}
+	return urls
+}
+
 type flatEntry struct {
-	ID            string `json:"id"`
+	URL           string `json:"url"`
+	WebpageURL    string `json:"webpage_url"`
 	Title         string `json:"title"`
 	PlaylistID    string `json:"playlist_id"`
 	PlaylistTitle string `json:"playlist_title"`
@@ -53,9 +68,14 @@ func parsePlaylist(r io.Reader) (Playlist, error) {
 		if err := json.Unmarshal([]byte(line), &e); err != nil {
 			return Playlist{}, fmt.Errorf("parsing yt-dlp entry %q: %w", line, err)
 		}
+		url := cmp.Or(e.WebpageURL, e.URL)
+		if url == "" {
+			return Playlist{}, fmt.Errorf("yt-dlp entry without a URL: %q", line)
+		}
 		pl.ID, pl.Title, pl.Count = e.PlaylistID, e.PlaylistTitle, e.PlaylistCount
 		pl.Entries = append(pl.Entries, Entry{
-			URL:      "https://www.youtube.com/watch?v=" + e.ID,
+			// An album's entries point at music.youtube.com; yt-dlp picks other player clients there.
+			URL:      strings.Replace(url, "https://music.youtube.com/", "https://www.youtube.com/", 1),
 			Title:    e.Title,
 			Position: e.PlaylistIndex,
 		})
