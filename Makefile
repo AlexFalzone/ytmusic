@@ -1,9 +1,12 @@
-.PHONY: help build build-web up down logs clean local test lint
+.PHONY: help build build-web up down logs clean local test lint vuln
 
 # Exported: docker compose passes it to the image build.
 export VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+# Exported too: a new date refreshes yt-dlp in the image, at most once a day.
+export YTDLP_REFRESH ?= $(shell date +%F)
 LDFLAGS := -X ytmusic/internal/buildinfo.Version=$(VERSION)
 GOLANGCI_LINT_VERSION := v2.14.0
+GOVULNCHECK_VERSION := v1.9.0
 
 help:
 	@echo "ytmusic - Makefile commands"
@@ -20,6 +23,7 @@ help:
 	@echo "  make local      - Build local binaries"
 	@echo "  make test       - Run tests"
 	@echo "  make lint       - Run golangci-lint"
+	@echo "  make vuln       - Run govulncheck"
 
 build:
 	docker compose build ytmusic-cli
@@ -48,3 +52,6 @@ test:
 
 lint:
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run ./...
+
+vuln:
+	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...

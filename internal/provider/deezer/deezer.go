@@ -44,7 +44,7 @@ func (c *Client) Search(ctx context.Context, query metadata.SearchQuery) ([]meta
 	return parseResults(searchResp.Data), nil
 }
 
-// Free text: the API reads `artist:"…"` as the word "artist" (BUG-14); quotes would force an exact phrase.
+// Free text: the API reads `artist:"…"` as the word "artist"; quotes would force an exact phrase.
 func buildQuery(query metadata.SearchQuery) string {
 	var parts []string
 	for _, field := range []string{query.Title, query.Artist, query.Album} {

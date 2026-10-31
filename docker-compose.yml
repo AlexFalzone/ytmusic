@@ -2,9 +2,14 @@ x-build: &build
   context: .
   args:
     - VERSION=${VERSION:-dev}
+    - YTDLP_REFRESH=${YTDLP_REFRESH:-}
 
 x-service: &service
   user: "1000:1000"
+  # PID 1 reaps the children yt-dlp leaves behind.
+  init: true
+  # Enough for a running job to stop and clean up.
+  stop_grace_period: 30s
   # :z: SELinux hosts deny bind mounts without it.
   volumes:
     - ./config/config.yaml:/config/config.yaml:ro,z

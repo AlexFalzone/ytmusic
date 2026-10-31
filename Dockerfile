@@ -20,7 +20,7 @@ RUN apt-get update && \
 ADD --checksum=sha256:8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e \
     https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz /src/ffmpeg.tar.xz
 
-# Only what yt-dlp asks of ffmpeg for the six audio formats, cover conversion and metadata (CLAUDE.md).
+# Only what yt-dlp asks of ffmpeg for the six audio formats, cover conversion and metadata: anything missing shows up only as a failed download.
 WORKDIR /src
 RUN tar -xJf ffmpeg.tar.xz --strip-components=1 && \
     ./configure --prefix=/ffmpeg \
@@ -60,6 +60,9 @@ COPY --from=ffmpeg /ffmpeg/bin/ffmpeg /ffmpeg/bin/ffprobe /usr/local/bin/
 COPY --from=fpcalc /usr/local/bin/fpcalc /usr/local/bin/
 # yt-dlp needs a JavaScript runtime for YouTube, and deno is the one it enables by default.
 COPY --from=denoland/deno:bin-2.9.7 /deno /usr/local/bin/
+
+# A new value redoes this layer and not ffmpeg's. Left cached it never updates, and YouTube breaks old yt-dlp versions within weeks.
+ARG YTDLP_REFRESH
 
 # The default extras bring mutagen, without which the cover can't be embedded in m4a, opus and flac.
 RUN pip install --no-cache-dir "yt-dlp[default]"
